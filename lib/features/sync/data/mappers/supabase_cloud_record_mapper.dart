@@ -77,6 +77,13 @@ abstract final class SupabaseCloudRecordMapper {
               .toIso8601String(),
           SupabaseSyncContract.genreColumn: record.genre,
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
+          SupabaseSyncContract.releaseDatePartialColumn:
+              ?record.releaseDatePartial,
+          if (record.discLabels case final labels?)
+            SupabaseSyncContract.discLabelsColumn: {
+              for (final MapEntry(key: disc, value: label) in labels.entries)
+                '$disc': label,
+            },
           SupabaseSyncContract.metadataFieldStatesColumn:
               _metadataFieldStatesToJson(record.metadataFieldStates),
         });
@@ -235,10 +242,39 @@ abstract final class SupabaseCloudRecordMapper {
       genre: _optionalString(row, SupabaseSyncContract.genreColumn),
       artworkId: _optionalString(row, SupabaseSyncContract.artworkIdColumn),
       metadataFieldStates: _metadataFieldStatesFromJson(row),
+      releaseDatePartial: _releaseDatePartial(row),
+      discLabels: _discLabels(row),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
     );
+  }
+
+  static final _partialDate = RegExp(r'^\d{4}(-\d{2}(-\d{2})?)?$');
+
+  /// The partial date when the row has a well-formed one; otherwise not
+  /// provided (an older server, an older writer, or a malformed value).
+  static String? _releaseDatePartial(Map<String, dynamic> row) {
+    final value = row[SupabaseSyncContract.releaseDatePartialColumn];
+    return value is String && _partialDate.hasMatch(value) ? value : null;
+  }
+
+  /// Disc names when the row has a valid object of them; otherwise not
+  /// provided, so this device's names are never cleared by a bad value.
+  static Map<int, String>? _discLabels(Map<String, dynamic> row) {
+    final value = row[SupabaseSyncContract.discLabelsColumn];
+    if (value is! Map) return null;
+    final labels = <int, String>{};
+    for (final MapEntry(key: key, value: label) in value.entries) {
+      final disc = int.tryParse('$key');
+      if (disc == null || disc < 1 || disc > 999 || label is! String) {
+        return null;
+      }
+      final text = label.trim();
+      if (text.isEmpty || text.length > 200) return null;
+      labels[disc] = text;
+    }
+    return Map.unmodifiable(labels);
   }
 
   static CloudSongRecord _songFromRow(Map<String, dynamic> row) {

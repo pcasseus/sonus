@@ -28,9 +28,15 @@ Sonus writes with PostgREST upserts that only update the columns they send. So a
 - **How the partial date avoids it:** it describes itself. The app trusts it only while `ReleaseDate.tryParse(partial).instant == release_date`. After an older app changes the date the two disagree, and the partial is ignored.
 - **Effect:** writes never fail and no wrong precision is ever applied.
 
-## App changes this needs (not made)
+## App changes (made; cloud writes switched off)
 
 These follow the SN-45 song-extension pattern (`SupabaseCloudSyncGateway` probes once and sends extension columns only when the server has them).
+
+**Status:** implemented and tested, with writes behind `SyncDataContract.editionMetadataExtensionsEnabled = false`.
+
+- **Writes:** while it is false, no edition record carries the new fields, so nothing is sent, and disc-name edits queue nothing.
+- **Reads:** reading the fields from a server that has them, and applying them, is always on. A server without the columns is detected and never sent them.
+- **Turning it on:** flip the switch, but only after the migration is deployed to production and confirmed.
 
 1. **Contract and gate:** add `release_date_partial` and `disc_labels` to `SupabaseSyncContract` as edition extension columns, gated by the same probe.
 2. **Records:** `CloudAlbumEditionRecord` gains `releaseDatePartial` and `discLabels`, which are null when not provided.
@@ -92,7 +98,18 @@ The runner, in order:
 6. Rehearses `rollback.sql` inside a transaction.
 7. Rolls back for real, checks the seeded row again, and applies the migration once more.
 
-**Status (2026-11-12): blocked on memory, not on SQL.** Starting Docker Desktop also restarts an older local stack (`supabase_*_sonus_next`, restart policy `unless-stopped`). That left about 0.6–0.9 GB free on this PC, too little for a second stack. Docker Desktop was shut down again and nothing was applied. To run the test, either stop that older stack first (`docker stop`, which keeps its data), or free memory.
+**Result (2026-11-13, isolated local database only, not staging): 12/12 passed.**
+
+| Step | Result |
+|---|---|
+| Seed, migrate, migrate again (idempotent), verify | Pass |
+| Seeded row unchanged by the migration, with no values in either new column | Pass |
+| `test.sql` (old writer, new writer, older app moving the date, malformed values, empty object) | Pass |
+| Rollback rehearsed inside a transaction (columns still present afterwards) | Pass |
+| Real rollback; seeded row unchanged; reapply; verify | Pass |
+
+- **Logs:** `C:/dev/sonus/test_runs/au12/p12_local/20261113-021802`.
+- **Stack:** the older `sonus_next` stack was stopped first (containers and volumes kept). The disposable `sonus_p12_local` stack was then removed and Docker Desktop shut down.
 
 ## Staging rehearsal (after the local test passes)
 

@@ -4,6 +4,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
@@ -382,6 +383,35 @@ void main() {
         label: '   ',
       );
       expect(await labels(standard), isEmpty);
+    });
+
+    test('REF-13c: while cloud writes of disc names are off, naming a disc '
+        'queues nothing for sync and leaves the edition as it was', () async {
+      expect(SyncDataContract.editionMetadataExtensionsEnabled, isFalse);
+      final db = await appDatabase.database;
+      final before = (await db.query(
+        DatabaseTables.albumEditions,
+        where: 'id = ?',
+        whereArgs: [standard.id],
+      )).single;
+      final outboxBefore = await db.query(DatabaseTables.syncOutbox);
+
+      await service.setDiscLabel(
+        albumEditionId: standard.id,
+        discNumber: 1,
+        label: 'Main',
+        userId: 'user-1',
+      );
+
+      expect(await db.query(DatabaseTables.syncOutbox), outboxBefore);
+      expect(
+        (await db.query(
+          DatabaseTables.albumEditions,
+          where: 'id = ?',
+          whereArgs: [standard.id],
+        )).single,
+        before,
+      );
     });
 
     test(

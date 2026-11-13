@@ -96,6 +96,33 @@ void main() {
       );
       expect(row[SupabaseSyncContract.genreColumn], 'Pop');
       expect(row[SupabaseSyncContract.artworkIdColumn], 'artwork_1');
+      // Not provided: the new columns are never sent at all.
+      expect(
+        row.keys.toSet().intersection(
+          SupabaseSyncContract.editionExtensionColumns,
+        ),
+        isEmpty,
+      );
+
+      final extended = SupabaseCloudRecordMapper.toRow(
+        CloudAlbumEditionRecord(
+          id: 'edition_1',
+          userId: 'user_1',
+          albumId: 'album_1',
+          title: 'Deluxe',
+          type: 'deluxe',
+          isPrimary: true,
+          releaseDate: releaseDate,
+          releaseDatePartial: '2020',
+          discLabels: const {2: 'Bonus Tracks'},
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+        ),
+      );
+      expect(extended[SupabaseSyncContract.releaseDatePartialColumn], '2020');
+      expect(extended[SupabaseSyncContract.discLabelsColumn], {
+        '2': 'Bonus Tracks',
+      });
     });
 
     test('maps song record to songs table and row', () {

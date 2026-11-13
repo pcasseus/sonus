@@ -232,8 +232,8 @@ void main() {
       );
     });
 
-    test('mixed versions: this build reads an edition from a server that '
-        'has the proposed precision and disc-name columns, ignoring them', () {
+    test('mixed versions: an edition reads the same whether or not the '
+        'server has the proposed precision and disc-name columns', () {
       // supabase/proposed/20261113000001 (not deployed): an older Sonus
       // must keep syncing after it is.
       Map<String, Object?> row({Map<String, Object?> extra = const {}}) => {
@@ -274,6 +274,64 @@ void main() {
         (b.id, b.releaseDate, b.title, b.genre, extended.serverUpdatedAt),
         (a.id, a.releaseDate, a.title, a.genre, plain.serverUpdatedAt),
       );
+    });
+
+    test('REF-12b/REF-13c: the precision and disc names are read when '
+        'well formed; anything malformed is "not provided", never applied', () {
+      CloudAlbumEditionRecord read(Map<String, Object?> extra) =>
+          SupabaseCloudRecordMapper.fromRow(
+                entityType: CloudDataEntity.albumEdition,
+                row: {
+                  'id': 'edition-1',
+                  'user_id': 'user-1',
+                  'album_id': 'album-1',
+                  'title': 'Deluxe',
+                  'type': 'deluxe',
+                  'is_primary': false,
+                  'release_date': '2019-03-01T00:00:00.000Z',
+                  'genre': null,
+                  'artwork_id': null,
+                  'created_at': '2026-09-10T10:00:00.000Z',
+                  'updated_at': '2026-09-11T11:00:00.000Z',
+                  'server_updated_at': '2026-09-12T12:00:00.000Z',
+                  'server_revision': 4,
+                  'deleted_at': null,
+                  ...extra,
+                },
+              ).record
+              as CloudAlbumEditionRecord;
+
+      final good = read({
+        'release_date_partial': '2019-03',
+        'disc_labels': {'1': ' Main ', '2': 'Bonus Tracks'},
+      });
+      expect(good.releaseDatePartial, '2019-03');
+      expect(good.discLabels, {1: 'Main', 2: 'Bonus Tracks'});
+      expect(read({'disc_labels': <String, Object>{}}).discLabels, isEmpty);
+
+      for (final partial in ['19', '2019-3', '2019-03-15T00:00Z', 2019]) {
+        expect(
+          read({'release_date_partial': partial}).releaseDatePartial,
+          isNull,
+          reason: '$partial',
+        );
+      }
+      for (final labels in [
+        {'0': 'Zero'},
+        {'1000': 'Far'},
+        {'2': '  '},
+        {'2': 7},
+        ['Bonus'],
+        'Bonus',
+      ]) {
+        expect(
+          read({'disc_labels': labels}).discLabels,
+          isNull,
+          reason: '$labels',
+        );
+      }
+      expect(read({}).releaseDatePartial, isNull);
+      expect(read({}).discLabels, isNull);
     });
 
     test('maps song row including Postgres text array', () {

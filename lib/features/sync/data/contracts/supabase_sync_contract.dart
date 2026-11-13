@@ -58,6 +58,15 @@ abstract final class SupabaseSyncContract {
     artistCreditsColumn,
   };
 
+  /// Edition columns of the proposed migration 20261113000001 (not
+  /// deployed). Sent only to a server that has them.
+  static const String releaseDatePartialColumn = 'release_date_partial';
+  static const String discLabelsColumn = 'disc_labels';
+  static const Set<String> editionExtensionColumns = {
+    releaseDatePartialColumn,
+    discLabelsColumn,
+  };
+
   static const Set<String> cloudTables = {
     artistsTable,
     albumsTable,

@@ -1171,7 +1171,11 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     if (text == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await controller.setSelectedEditionDiscLabel(disc: disc, label: text);
+      await controller.setSelectedEditionDiscLabel(
+        disc: disc,
+        label: text,
+        userId: widget.userId,
+      );
     } catch (error, stackTrace) {
       developer.log(
         'A disc name could not be saved (${error.runtimeType})',

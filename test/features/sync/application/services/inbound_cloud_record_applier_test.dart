@@ -7,6 +7,8 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_tr
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/release_date.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_disc_label.dart';
+import 'package:sonus_next/features/library/domain/repositories/album_edition_disc_label_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/repositories/metadata_field_state_repository.dart';
@@ -310,6 +312,130 @@ void main() {
         expect(changed?.releaseDateValue, ReleaseDate.of(2019, 3, 15));
       },
     );
+
+    group('REF-12b/REF-13c: edition precision and disc names from a cloud '
+        'that has them (proposed migration 20261113000001)', () {
+      Map<String, dynamic> row({
+        required String date,
+        Object? partial,
+        Object? labels,
+        bool carriesColumns = true,
+      }) => {
+        'id': 'edition-1',
+        'user_id': 'user-1',
+        'album_id': 'album-1',
+        'title': 'Standard',
+        'type': 'standard',
+        'is_primary': true,
+        'release_date': date,
+        'genre': null,
+        'artwork_id': null,
+        if (carriesColumns) 'release_date_partial': partial,
+        if (carriesColumns) 'disc_labels': labels,
+        'created_at': '2026-09-10T10:00:00.000Z',
+        'updated_at': '2026-09-11T11:00:00.000Z',
+        'server_updated_at': '2026-09-12T12:00:00.000Z',
+        'deleted_at': null,
+      };
+
+      Future<_TestContextBundle> apply(
+        Map<String, dynamic> cloud, {
+        ReleaseDate? local,
+        Map<int, String> localLabels = const {},
+      }) async {
+        final bundle = _TestContextBundle();
+        bundle.seedParents(edition: false);
+        if (local != null) {
+          bundle.edition.existing = AlbumEdition(
+            id: 'edition-1',
+            albumId: 'album-1',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+            createdAt: DateTime.utc(2026, 9, 10),
+            updatedAt: DateTime.utc(2026, 9, 10),
+          ).withReleaseDate(local);
+        }
+        for (final MapEntry(key: disc, value: text) in localLabels.entries) {
+          await bundle.discLabels.save(
+            AlbumEditionDiscLabel(
+              albumEditionId: 'edition-1',
+              discNumber: disc,
+              label: text,
+              createdAt: DateTime.utc(2026, 9, 1),
+              updatedAt: DateTime.utc(2026, 9, 1),
+            ),
+          );
+        }
+        await applier.apply(
+          record: _recordFromRow(CloudDataEntity.albumEdition, cloud),
+          context: bundle.context,
+        );
+        return bundle;
+      }
+
+      Future<Map<int, String>> labelsOf(_TestContextBundle bundle) async => {
+        for (final label in await bundle.discLabels.getByEditionId('edition-1'))
+          label.discNumber: label.label,
+      };
+
+      test('a partial date that matches gives its precision, even to a new '
+          'device', () async {
+        final bundle = await apply(
+          row(date: '2019-03-01T00:00:00.000Z', partial: '2019-03'),
+        );
+        expect(
+          bundle.edition.created?.releaseDatePrecision,
+          ReleaseDatePrecision.month,
+        );
+        expect(
+          bundle.edition.created?.releaseDateValue,
+          ReleaseDate.of(2019, 3),
+        );
+      });
+
+      test(
+        'a stale partial (an older app moved the date) is never trusted',
+        () async {
+          final bundle = await apply(
+            row(date: '2019-03-15T00:00:00.000Z', partial: '2019'),
+            local: ReleaseDate.of(2019),
+          );
+          expect(bundle.edition.saved?.releaseDatePrecision, isNull);
+          expect(
+            bundle.edition.saved?.releaseDateValue,
+            ReleaseDate.of(2019, 3, 15),
+          );
+        },
+      );
+
+      test("disc names replace this device's; none provided keeps them; an "
+          'empty object clears them; a malformed value is ignored', () async {
+        final replaced = await apply(
+          row(date: '2019-01-01T00:00:00.000Z', labels: {'2': 'Bonus Tracks'}),
+          localLabels: {1: 'Main', 2: 'Extras'},
+        );
+        expect(await labelsOf(replaced), {2: 'Bonus Tracks'});
+
+        final kept = await apply(
+          row(date: '2019-01-01T00:00:00.000Z', carriesColumns: false),
+          localLabels: {1: 'Main'},
+        );
+        expect(await labelsOf(kept), {1: 'Main'});
+
+        final cleared = await apply(
+          row(date: '2019-01-01T00:00:00.000Z', labels: <String, Object>{}),
+          localLabels: {1: 'Main'},
+        );
+        expect(await labelsOf(cleared), isEmpty);
+
+        final malformed = await apply(
+          row(date: '2019-01-01T00:00:00.000Z', labels: {'0': 'Zero'}),
+          localLabels: {1: 'Main'},
+        );
+        expect(await labelsOf(malformed), {1: 'Main'});
+      });
+    });
 
     test('maps song fields including featured artists', () async {
       final bundle = _TestContextBundle();
@@ -919,7 +1045,8 @@ class _TestContextBundle {
       credit = _FakeSongArtistCreditRepository(),
       artwork = _FakeArtworkRepository(),
       localSync = _FakeLocalSyncRepository(),
-      metadata = _FakeMetadataFieldStateRepository() {
+      metadata = _FakeMetadataFieldStateRepository(),
+      discLabels = _FakeDiscLabelRepository() {
     context = SyncMutationContext(
       artistRepository: artist,
       albumRepository: album,
@@ -930,9 +1057,11 @@ class _TestContextBundle {
       artworkAssetRepository: artwork,
       localSyncRepository: localSync,
       metadataFieldStateRepository: metadata,
+      albumEditionDiscLabelRepository: discLabels,
     );
   }
 
+  final _FakeDiscLabelRepository discLabels;
   final _FakeArtistRepository artist;
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
@@ -1241,6 +1370,44 @@ class _FakeLocalSyncRepository implements LocalSyncRepository {
     CloudDataEntity entityType,
   ) async {
     return null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Disc names in memory, keyed by (edition, disc).
+class _FakeDiscLabelRepository implements AlbumEditionDiscLabelRepository {
+  final Map<(String, int), AlbumEditionDiscLabel> labels = {};
+
+  @override
+  Future<List<AlbumEditionDiscLabel>> getByEditionId(String editionId) async =>
+      [
+        for (final label in labels.values)
+          if (label.albumEditionId == editionId) label,
+      ]..sort((a, b) => a.discNumber.compareTo(b.discNumber));
+
+  @override
+  Future<void> save(AlbumEditionDiscLabel label) async {
+    labels[(label.albumEditionId, label.discNumber)] = label;
+  }
+
+  @override
+  Future<void> delete({
+    required String editionId,
+    required int discNumber,
+  }) async {
+    labels.remove((editionId, discNumber));
+  }
+
+  @override
+  Future<void> keepOnly({
+    required String editionId,
+    required Set<int> discs,
+  }) async {
+    labels.removeWhere(
+      (key, _) => key.$1 == editionId && !discs.contains(key.$2),
+    );
   }
 
   @override

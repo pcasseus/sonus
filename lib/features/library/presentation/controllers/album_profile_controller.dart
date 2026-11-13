@@ -883,6 +883,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
   Future<bool> setSelectedEditionDiscLabel({
     required int disc,
     required String? label,
+    String? userId,
   }) async {
     final service = _albumEditionTrackOrderingService;
     final selectedEdition = _selectedEdition;
@@ -892,6 +893,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
       albumEditionId: selectedEdition.editionId,
       discNumber: disc,
       label: label,
+      userId: userId,
     );
     _discLabels = await _labelsOf(selectedEdition.editionId);
     notifyListeners();

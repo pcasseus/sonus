@@ -64,6 +64,14 @@ abstract final class CloudRecordEquivalence {
           'genre': record.genre,
           'artworkId': record.artworkId,
           'metadataFieldStates': _states(record.metadataFieldStates),
+          'releaseDatePartial': record.releaseDatePartial,
+          'discLabels': record.discLabels == null
+              ? null
+              : {
+                  for (final MapEntry(key: disc, value: label)
+                      in record.discLabels!.entries)
+                    '$disc': label,
+                },
         });
 
       case CloudSongRecord():

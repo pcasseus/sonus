@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -68,6 +70,33 @@ void main() {
       expect(record.type, 'deluxe');
       expect(record.albumId, edition.albumId);
       expect(record.artworkId, edition.artworkId);
+      // REF-12b/REF-13c: nothing new is carried by default.
+      expect(record.releaseDatePartial, isNull);
+      expect(record.discLabels, isNull);
+
+      final yearOnly = edition.withReleaseDate(ReleaseDate.of(2019));
+      final extended = CloudRecordMapper.albumEdition(
+        albumEdition: yearOnly,
+        userId: 'user_1',
+        withExtensions: true,
+        discLabels: const {2: 'Bonus Tracks'},
+      );
+      expect(extended.releaseDatePartial, '2019');
+      expect(extended.discLabels, {2: 'Bonus Tracks'});
+      expect(
+        CloudRecordMapper.albumEdition(
+          albumEdition: yearOnly,
+          userId: 'user_1',
+          withExtensions: true,
+        ).discLabels,
+        isEmpty,
+        reason: 'carried, with no names, is "none", not "not provided"',
+      );
+    });
+
+    test('REF-12b/REF-13c: cloud writes of precision and disc names stay '
+        'off until production is confirmed', () {
+      expect(SyncDataContract.editionMetadataExtensionsEnabled, isFalse);
     });
 
     test(

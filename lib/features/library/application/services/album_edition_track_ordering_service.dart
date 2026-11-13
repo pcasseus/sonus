@@ -738,6 +738,7 @@ class AlbumEditionTrackOrderingService {
     required String albumEditionId,
     required int discNumber,
     required String? label,
+    String? userId,
     DateTime? now,
   }) {
     if (discNumber < 1) {
@@ -751,8 +752,32 @@ class AlbumEditionTrackOrderingService {
       if (labels == null) {
         throw StateError('Disc names are not available here.');
       }
+      // Disc names sync with their edition once the cloud has them: the
+      // edition is marked changed and queued, as any edition edit is.
+      Future<void> queueEdition() async {
+        final owner = userId?.trim();
+        if (!SyncDataContract.editionMetadataExtensionsEnabled ||
+            owner == null ||
+            owner.isEmpty) {
+          return;
+        }
+        final edition = await context.albumEditionRepository.getById(
+          albumEditionId,
+        );
+        if (edition == null) return;
+        await context.albumEditionRepository.save(
+          edition.copyWith(updatedAt: timestamp),
+        );
+        await context.localSyncRepository.recordUpsert(
+          userId: owner,
+          entityType: CloudDataEntity.albumEdition,
+          entityId: albumEditionId,
+        );
+      }
+
       if (text.isEmpty) {
         await labels.delete(editionId: albumEditionId, discNumber: discNumber);
+        await queueEdition();
         return;
       }
       final existing = await labels.getByEditionId(albumEditionId);
@@ -769,6 +794,7 @@ class AlbumEditionTrackOrderingService {
           updatedAt: timestamp,
         ),
       );
+      await queueEdition();
     });
   }
 }
