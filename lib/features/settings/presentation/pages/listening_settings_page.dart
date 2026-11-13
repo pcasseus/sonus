@@ -4,6 +4,7 @@ import '../../../analytics/presentation/pages/listening_history_page.dart';
 import '../../../analytics/presentation/pages/monthly_listening_insights_page.dart';
 import '../../../analytics/presentation/pages/year_in_sonus_page.dart';
 import '../../../charts/presentation/pages/charts_page.dart';
+import '../../../wrapped/presentation/wrapped_pages.dart';
 import '../widgets/settings/settings_section.dart';
 
 /// Shortcuts to listening history, insights and personal charts, and how
@@ -57,6 +58,13 @@ class ListeningSettingsPage extends StatelessWidget {
                     child: YearInSonusPage(),
                   ),
                 ),
+              ),
+              SettingsNavTile(
+                key: const ValueKey<String>('settings-sonus-wrapped'),
+                icon: Icons.calendar_month_outlined,
+                title: 'Sonus Wrapped',
+                subtitle: 'Your listening, month by month and year by year.',
+                onTap: () => openSonusWrapped(context),
               ),
               SettingsNavTile(
                 key: const ValueKey<String>('settings-personal-charts'),
