@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../domain/entities/album_edition_disc_label.dart';
 
-// Release Studio's disc actions (App Update 1.2): choosing where songs go
-// and deleting a disc (PATCH-02).
+// Release Studio's disc actions (App Update 1.2): choosing where songs go,
+// deleting a disc (PATCH-02) and the bar shown while songs are selected
+// (PATCH-03).
 
 /// Asks which disc [count] songs move to: one of [discs] or a new disc
 /// numbered [newDisc]. Null when cancelled.
@@ -191,6 +192,79 @@ Future<bool> confirmDiscLayout(
     },
   );
   return confirmed ?? false;
+}
+
+/// Shown while songs of the tracklist are selected (PATCH-03): how many,
+/// Select all, Move to Disc and Cancel. Wraps at large text sizes.
+class StudioSelectionBar extends StatelessWidget {
+  const StudioSelectionBar({
+    super.key,
+    required this.count,
+    required this.allSelected,
+    required this.isBusy,
+    required this.onSelectAll,
+    required this.onMoveToDisc,
+    required this.onCancel,
+  });
+
+  final int count;
+  final bool allSelected;
+  final bool isBusy;
+  final VoidCallback onSelectAll;
+  final VoidCallback onMoveToDisc;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return Material(
+      key: const ValueKey<String>('album-studio-selection-bar'),
+      color: colors.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  count == 1 ? '1 selected' : '$count selected',
+                  key: const ValueKey<String>('album-studio-selection-count'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const ValueKey<String>('album-studio-select-all'),
+                onPressed: isBusy || allSelected ? null : onSelectAll,
+                child: const Text('Select all'),
+              ),
+              FilledButton.icon(
+                key: const ValueKey<String>('album-studio-move-selected'),
+                onPressed: isBusy || count == 0 ? null : onMoveToDisc,
+                icon: const Icon(Icons.album_outlined),
+                label: const Text('Move to Disc'),
+              ),
+              TextButton(
+                key: const ValueKey<String>('album-studio-selection-cancel'),
+                onPressed: onCancel,
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Option extends StatelessWidget {

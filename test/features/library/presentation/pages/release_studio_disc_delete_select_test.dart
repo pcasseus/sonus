@@ -1,4 +1,5 @@
-// App Update 1.2, PATCH-02: Delete Disc in Release Studio. Real disposable database, query
+// App Update 1.2, PATCH-02 and PATCH-03: Delete Disc and moving several
+// songs at once in Release Studio. Real disposable database, query
 // repository, ordering service and controller; fictional songs.
 //
 // Standard: Disc 1 "Main" a b, Disc 2 c d, Disc 3 e f. Deluxe also lists
@@ -186,8 +187,9 @@ void main() {
         value: database,
         child: MaterialApp(
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
             child: child!,
           ),
           home: ReleaseStudioPage(
@@ -364,6 +366,200 @@ void main() {
         await tester.runAsync(() => db.query(DatabaseTables.syncOutbox)),
         isEmpty,
       );
+    });
+  });
+
+  group('selecting songs and Move to Disc (PATCH-03)', () {
+    Future<void> select(WidgetTester tester, String song) async {
+      await reveal(tester, key('album-studio-select-$song'));
+      await tester.tap(key('album-studio-select-$song'));
+      await tester.pump();
+    }
+
+    String count() =>
+        (find
+                    .byKey(const ValueKey('album-studio-selection-count'))
+                    .evaluate()
+                    .single
+                    .widget
+                as Text)
+            .data!;
+
+    testWidgets('songs from different discs move together to a new disc, '
+        'in their order; selection then ends', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      expect(key('album-studio-selection-bar'), findsOneWidget);
+      expect(count(), '0 selected');
+
+      await select(tester, 'e');
+      await select(tester, 'b');
+      expect(count(), '2 selected');
+
+      await tapAndSettle(tester, key('album-studio-move-selected'));
+      await tapAndSettle(tester, key('album-studio-move-to-new-disc'));
+      await saved(tester);
+      await settle(tester);
+
+      expect(await stored(tester), [
+        ('a', 1, 1),
+        ('c', 2, 1),
+        ('d', 2, 2),
+        ('f', 3, 1),
+        ('b', 4, 1),
+        ('e', 4, 2),
+      ]);
+      expect(key('album-studio-selection-bar'), findsNothing);
+    });
+
+    testWidgets('Select all counts every song; Cancel clears it and changes '
+        'nothing', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select-all'));
+      expect(count(), '6 selected');
+
+      await tapAndSettle(tester, key('album-studio-selection-cancel'));
+      expect(key('album-studio-selection-bar'), findsNothing);
+      expect(await stored(tester), original);
+
+      // A new selection starts empty.
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      expect(count(), '0 selected');
+    });
+
+    testWidgets('a long press starts selecting with that song; the Move menu '
+        'and dragging are put away meanwhile', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-track-c'));
+      await tester.longPress(find.text('Song C'));
+      await tester.pump();
+
+      expect(count(), '1 selected');
+      expect(
+        tester.widget<Checkbox>(key('album-studio-select-c')).value,
+        isTrue,
+      );
+      expect(key('album-studio-move-c'), findsNothing);
+      expect(key('album-studio-drag-c'), findsNothing);
+
+      // Tapping the row selects rather than editing the placement.
+      await tester.tap(find.text('Song D'));
+      await tester.pump();
+      expect(count(), '2 selected');
+    });
+
+    testWidgets('Cancel in the destination list keeps the selection', (
+      tester,
+    ) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await select(tester, 'a');
+      await tapAndSettle(tester, key('album-studio-move-selected'));
+      await tapAndSettle(tester, key('album-studio-move-to-disc-cancel'));
+
+      expect(count(), '1 selected');
+      expect(await stored(tester), original);
+    });
+
+    testWidgets('a move that fails changes nothing, says so and keeps the '
+        'selection', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await select(tester, 'a');
+      await select(tester, 'f');
+      // Another device's change lands meanwhile: the edition no longer
+      // matches what is on screen, so the arrangement is refused.
+      await tester.runAsync(
+        () => db.delete(
+          DatabaseTables.albumEditionTracks,
+          where: 'album_edition_id = ? AND song_id = ?',
+          whereArgs: ['standard', 'd'],
+        ),
+      );
+
+      await tapAndSettle(tester, key('album-studio-move-selected'));
+      await tapAndSettle(tester, key('album-studio-move-to-disc-2'));
+      await saved(tester);
+
+      expect(
+        find.text('Could not reorder tracks. Nothing was changed.'),
+        findsOneWidget,
+      );
+      expect(count(), '2 selected');
+      expect(await stored(tester), [
+        ('a', 1, 1),
+        ('b', 1, 2),
+        ('c', 2, 1),
+        ('e', 3, 1),
+        ('f', 3, 2),
+      ]);
+    });
+
+    testWidgets('a double tap on a destination moves once and stays in '
+        'Release Studio', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await select(tester, 'a');
+      await tapAndSettle(tester, key('album-studio-move-selected'));
+
+      // Two taps on the same spot, the second while the list is closing.
+      final spot = tester.getCenter(key('album-studio-move-to-disc-3'));
+      await tester.tapAt(spot);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.tapAt(spot);
+      await tester.pump();
+      await saved(tester);
+      await settle(tester);
+
+      expect(key('release-studio-page'), findsOneWidget);
+      expect(await stored(tester), [
+        ('b', 1, 1),
+        ('c', 2, 1),
+        ('d', 2, 2),
+        ('e', 3, 1),
+        ('f', 3, 2),
+        ('a', 3, 3),
+      ]);
+    });
+
+    testWidgets('at large text: Select, checkboxes and the bar all work '
+        'without overflow', (tester) async {
+      await openStudio(tester, textScale: 2);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await select(tester, 'c');
+
+      expect(count(), '1 selected');
+      final bar = tester.getSize(key('album-studio-selection-bar'));
+      expect(bar.width, lessThanOrEqualTo(384));
+      expect(tester.takeException(), isNull);
+
+      await tapAndSettle(tester, key('album-studio-move-selected'));
+      await tapAndSettle(tester, key('album-studio-move-to-disc-1'));
+      await saved(tester);
+      await settle(tester);
+      expect((await stored(tester))[2], ('c', 1, 3));
+    });
+
+    testWidgets('choosing another edition ends the selection', (tester) async {
+      await openStudio(tester);
+      await reveal(tester, key('album-studio-select'));
+      await tapAndSettle(tester, key('album-studio-select'));
+      await select(tester, 'a');
+
+      final element = tester.element(key('release-studio-page'));
+      final page = element.findAncestorWidgetOfExactType<ReleaseStudioPage>()!;
+      await tester.runAsync(() => page.controller.selectEdition('deluxe'));
+      await settle(tester);
+
+      expect(key('album-studio-selection-bar'), findsNothing);
     });
   });
 }

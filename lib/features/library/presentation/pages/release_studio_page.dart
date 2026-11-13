@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' show max;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_text_scale.dart';
@@ -37,6 +38,7 @@ import '../widgets/album_studio/release_studio_format.dart';
 import '../widgets/album_studio/release_studio_leaked.dart';
 import '../widgets/album_studio/release_studio_live.dart';
 import '../widgets/album_studio/studio_disc_actions.dart';
+import '../controllers/track_selection_controller.dart';
 import '../../application/services/edition_disc_layout.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
@@ -158,18 +160,74 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     });
   }
 
+  /// Songs of the tracklist selected to move together (PATCH-03), and the
+  /// edition they were selected on: choosing another edition ends it.
+  final TrackSelectionController _selection = TrackSelectionController();
+  String? _selectionEditionId;
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([controller, _selection]),
       builder: (context, _) {
-        return Scaffold(
-          key: const ValueKey<String>('release-studio-page'),
-          appBar: AppBar(title: const Text('Edit Release')),
-          body: _body(context),
+        _endSelectionOnOtherEdition();
+        final selecting = _selection.isActive;
+        return PopScope(
+          // Back ends selection first, as on other song lists.
+          canPop: !selecting,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _selection.exit();
+          },
+          child: CallbackShortcuts(
+            bindings: {
+              if (selecting)
+                const SingleActivator(LogicalKeyboardKey.escape):
+                    _selection.exit,
+            },
+            child: Scaffold(
+              key: const ValueKey<String>('release-studio-page'),
+              appBar: AppBar(title: const Text('Edit Release')),
+              body: _body(context),
+              bottomNavigationBar: selecting
+                  ? StudioSelectionBar(
+                      count: _selection.selectedIn(controller.tracks).length,
+                      allSelected: _selection.allSelectedIn(controller.tracks),
+                      isBusy: _isSavingOrder,
+                      onSelectAll: () => _selection.selectAll([
+                        for (final track in controller.tracks) track.songId,
+                      ]),
+                      onMoveToDisc: () => unawaited(_moveSelected()),
+                      onCancel: _selection.exit,
+                    )
+                  : null,
+            ),
+          ),
         );
       },
     );
+  }
+
+  void _endSelectionOnOtherEdition() {
+    if (!_selection.isActive) return;
+    final edition = controller.selectedEdition?.editionId;
+    if (edition == _selectionEditionId) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          controller.selectedEdition?.editionId != _selectionEditionId) {
+        _selection.exit();
+      }
+    });
+  }
+
+  void _startSelection([String? songId]) {
+    _selectionEditionId = controller.selectedEdition?.editionId;
+    _selection.start(songId);
   }
 
   double get _bottomPadding => 32 + MediaQuery.paddingOf(context).bottom;
@@ -258,6 +316,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             onDeleteDisc: _deleteDisc,
             onEditPlacement: _editPlacement,
             onDeletePermanently: _deleteUnavailableSong,
+            selection: _selection,
+            onStartSelection: _startSelection,
           ),
         SliverPadding(padding: EdgeInsets.only(bottom: _bottomPadding)),
       ],
@@ -378,8 +438,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           Text(
             'A match can fill in the name, release date, format, kind and '
             'Live. Anything you set yourself is kept.',
-            style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: SonusTheme.of(context).colors.textSecondary),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: SonusTheme.of(context).colors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -874,6 +935,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                 ? null
                 : _sortByDiscAndTrack,
             onAddDisc: tracks.isEmpty ? null : () => _addDisc(edition),
+            onSelect: tracks.isEmpty || _selection.isActive
+                ? null
+                : _startSelection,
           ),
         ],
       ),
@@ -1159,6 +1223,31 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           ],
         ),
     ];
+  }
+
+  /// "Move to Disc" for the selected songs (PATCH-03): they keep their
+  /// order and go to the end of the disc chosen; both discs are numbered
+  /// again. Selection ends once they have moved, and stays if not.
+  Future<void> _moveSelected() async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return;
+    final selected = _selection.selectedIn(controller.tracks);
+    if (selected.isEmpty) return;
+
+    final discs = _shownDiscs(edition.editionId);
+    final target = await chooseDestinationDisc(
+      context,
+      count: selected.length,
+      discs: discs,
+      labels: controller.discLabels,
+      newDisc: (discs.isEmpty ? 1 : discs.last) + 1,
+    );
+    if (target == null || !mounted) return;
+
+    final placements = movedToDisc(_shownPlacements(edition.editionId), {
+      for (final track in selected) track.songId,
+    }, target);
+    if (await _arrange(placements) && mounted) _selection.exit();
   }
 
   /// "Delete Disc" (PATCH-02). An empty disc goes after a confirmation. A
@@ -1791,12 +1880,16 @@ class _TrackOrderSection extends StatelessWidget {
     required this.isSaving,
     required this.onSortByDiscAndTrack,
     required this.onAddDisc,
+    this.onSelect,
   });
 
   final int count;
   final bool isSaving;
   final Future<void> Function()? onSortByDiscAndTrack;
   final VoidCallback? onAddDisc;
+
+  /// Starts selecting songs to move together (PATCH-03).
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -1860,6 +1953,12 @@ class _TrackOrderSection extends StatelessWidget {
                     },
               icon: const Icon(Icons.sort_rounded),
               label: const Text('Sort by disc & track'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-select'),
+              onPressed: isSaving ? null : onSelect,
+              icon: const Icon(Icons.checklist_rounded),
+              label: const Text('Select'),
             ),
           ],
         ),
@@ -1954,12 +2053,21 @@ class _StudioTrackList extends StatelessWidget {
     required this.onEditPlacement,
     this.onDeleteDisc,
     this.onDeletePermanently,
+    this.selection,
+    this.onStartSelection,
     this.bonusSongIds = const {},
   });
 
   /// "Delete Disc" on each disc heading (PATCH-02). Headings, and so this,
   /// appear only when the edition has more than one disc.
   final Future<void> Function(int disc)? onDeleteDisc;
+
+  /// The songs selected to move together (PATCH-03). While selecting, a
+  /// tap selects a song and songs are not dragged.
+  final TrackSelectionController? selection;
+
+  /// Starts selecting with a song: a long press on it.
+  final void Function(String songId)? onStartSelection;
 
   final List<LibraryTrack> tracks;
   final Set<int> extraDiscs;
@@ -1977,6 +2085,7 @@ class _StudioTrackList extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = _studioEntries(tracks, extraDiscs: extraDiscs);
     final multiDisc = entries.any((e) => e is _DiscEntry);
+    final selecting = selection?.isActive ?? false;
     final discs = [
       for (final e in entries)
         if (e is _DiscEntry) e.disc,
@@ -1998,7 +2107,7 @@ class _StudioTrackList extends StatelessWidget {
     return SliverReorderableList(
       key: const ValueKey<String>('album-studio-track-list'),
       itemCount: entries.length,
-      onReorderItem: isBusy
+      onReorderItem: isBusy || selecting
           ? (_, _) {}
           : (oldIndex, newIndex) {
               if (oldIndex == newIndex || entries[oldIndex] is _DiscEntry) {
@@ -2023,8 +2132,10 @@ class _StudioTrackList extends StatelessWidget {
               disc: entry.disc,
               label: discLabels[entry.disc],
               isEmpty: entry.isEmpty,
-              onRename: isBusy ? null : () => onRenameDisc(entry.disc),
-              onDelete: isBusy || onDeleteDisc == null
+              onRename: isBusy || selecting
+                  ? null
+                  : () => onRenameDisc(entry.disc),
+              onDelete: isBusy || selecting || onDeleteDisc == null
                   ? null
                   : () => onDeleteDisc!(entry.disc),
             ),
@@ -2041,7 +2152,14 @@ class _StudioTrackList extends StatelessWidget {
             multiDisc: multiDisc,
             isBusy: isBusy,
             isBonus: bonusSongIds.contains(track.songId),
-            moves: _movesFor(entries, index, discs),
+            moves: selecting ? const [] : _movesFor(entries, index, discs),
+            selected: selecting ? selection!.isSelected(track.songId) : null,
+            onToggleSelected: selecting
+                ? () => selection!.toggle(track.songId)
+                : null,
+            onStartSelection: selecting || onStartSelection == null
+                ? null
+                : () => onStartSelection!(track.songId),
             onEditPlacement: onEditPlacement,
             onDeletePermanently: onDeletePermanently,
           ),
@@ -2164,7 +2282,19 @@ class _StudioTrackRow extends StatelessWidget {
     this.onDeletePermanently,
     this.moves = const [],
     this.isBonus = false,
+    this.selected,
+    this.onToggleSelected,
+    this.onStartSelection,
   });
+
+  /// While songs are being selected (PATCH-03): whether this one is. Null
+  /// otherwise. A tap then selects it, and it is not dragged.
+  final bool? selected;
+  final VoidCallback? onToggleSelected;
+
+  /// A long press starts selecting with this song. Not at large text,
+  /// where a long press drags the row.
+  final VoidCallback? onStartSelection;
 
   /// Where the song can be moved without dragging (REF-13): each a label
   /// and its action. Shown as a Move menu and as screen-reader actions.
@@ -2226,7 +2356,14 @@ class _StudioTrackRow extends StatelessWidget {
         // At large text the number column gives its width to the title;
         // the placement is still spelled out on the line below. Otherwise
         // at least 40px, growing with the text, so "1-10" never wraps.
-        leading: largeText
+        selected: selected ?? false,
+        leading: selected != null
+            ? Checkbox(
+                key: ValueKey<String>('album-studio-select-${track.songId}'),
+                value: selected,
+                onChanged: (_) => onToggleSelected?.call(),
+              )
+            : largeText
             ? null
             : ConstrainedBox(
                 constraints: BoxConstraints(minWidth: scaler.scale(40)),
@@ -2264,69 +2401,84 @@ class _StudioTrackRow extends StatelessWidget {
               Text(' • $detail', style: detailStyle),
           ],
         ),
-        onTap: isBusy ? null : () => onEditPlacement(track),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Kept at large text too: there is no other way to reach it.
-            if (!track.hasAvailableFile && onDeletePermanently != null)
-              IconButton(
-                key: ValueKey<String>('album-studio-delete-${track.songId}'),
-                tooltip: 'Delete song permanently…',
-                onPressed: isBusy ? null : () => onDeletePermanently!(track),
-                icon: const Icon(Icons.delete_forever_outlined),
-              ),
-            if (moves.isNotEmpty)
-              PopupMenuButton<int>(
-                key: ValueKey<String>('album-studio-move-${track.songId}'),
-                tooltip: 'Move',
-                enabled: !isBusy,
-                icon: const Icon(Icons.swap_vert_rounded),
-                onSelected: (choice) => moves[choice].$2(),
-                itemBuilder: (context) => [
-                  for (final (index, (label, _)) in moves.indexed)
-                    PopupMenuItem<int>(
+        onTap: selected != null
+            ? onToggleSelected
+            : isBusy
+            ? null
+            : () => onEditPlacement(track),
+        onLongPress: largeText || isBusy ? null : onStartSelection,
+        trailing: selected != null
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Kept at large text too: there is no other way to reach it.
+                  if (!track.hasAvailableFile && onDeletePermanently != null)
+                    IconButton(
                       key: ValueKey<String>(
-                        'album-studio-move-${track.songId}-$index',
+                        'album-studio-delete-${track.songId}',
                       ),
-                      value: index,
-                      child: Text(label),
+                      tooltip: 'Delete song permanently…',
+                      onPressed: isBusy
+                          ? null
+                          : () => onDeletePermanently!(track),
+                      icon: const Icon(Icons.delete_forever_outlined),
+                    ),
+                  if (moves.isNotEmpty)
+                    PopupMenuButton<int>(
+                      key: ValueKey<String>(
+                        'album-studio-move-${track.songId}',
+                      ),
+                      tooltip: 'Move',
+                      enabled: !isBusy,
+                      icon: const Icon(Icons.swap_vert_rounded),
+                      onSelected: (choice) => moves[choice].$2(),
+                      itemBuilder: (context) => [
+                        for (final (index, (label, _)) in moves.indexed)
+                          PopupMenuItem<int>(
+                            key: ValueKey<String>(
+                              'album-studio-move-${track.songId}-$index',
+                            ),
+                            value: index,
+                            child: Text(label),
+                          ),
+                      ],
+                    ),
+                  if (!largeText)
+                    IconButton(
+                      key: ValueKey<String>(
+                        'album-studio-edit-placement-${track.songId}',
+                      ),
+                      tooltip: 'Edit track placement',
+                      onPressed: isBusy ? null : () => onEditPlacement(track),
+                      icon: const Icon(Icons.numbers_rounded),
+                    ),
+                  // At large text the Move menu takes the handle's place and the
+                  // whole row drags on a long press, so the title keeps its room.
+                  if (!largeText)
+                    ReorderableDragStartListener(
+                      index: index,
+                      enabled: !isBusy,
+                      child: Tooltip(
+                        message: 'Drag to reorder',
+                        child: Padding(
+                          key: ValueKey<String>(
+                            'album-studio-drag-${track.songId}',
+                          ),
+                          // A 48px target around the 24px handle.
+                          padding: const EdgeInsets.all(12),
+                          child: const Icon(Icons.drag_handle_rounded),
+                        ),
+                      ),
                     ),
                 ],
               ),
-            if (!largeText)
-              IconButton(
-                key: ValueKey<String>(
-                  'album-studio-edit-placement-${track.songId}',
-                ),
-                tooltip: 'Edit track placement',
-                onPressed: isBusy ? null : () => onEditPlacement(track),
-                icon: const Icon(Icons.numbers_rounded),
-              ),
-            // At large text the Move menu takes the handle's place and the
-            // whole row drags on a long press, so the title keeps its room.
-            if (!largeText)
-              ReorderableDragStartListener(
-                index: index,
-                enabled: !isBusy,
-                child: Tooltip(
-                  message: 'Drag to reorder',
-                  child: Padding(
-                    key: ValueKey<String>('album-studio-drag-${track.songId}'),
-                    // A 48px target around the 24px handle.
-                    padding: const EdgeInsets.all(12),
-                    child: const Icon(Icons.drag_handle_rounded),
-                  ),
-                ),
-              ),
-          ],
-        ),
       ),
     );
     return largeText
         ? ReorderableDelayedDragStartListener(
             index: index,
-            enabled: !isBusy,
+            enabled: !isBusy && selected == null,
             child: row,
           )
         : row;
@@ -2615,8 +2767,9 @@ class _GenreReviewNote extends StatelessWidget {
             child: Text(
               'Editions have different genres: ${genres.join(', ')}. '
               'Pick one to use for the release.',
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: colors.textSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
             ),
           ),
         ],
@@ -2634,8 +2787,9 @@ class _SectionNote extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.bodyMedium
-          ?.copyWith(color: SonusTheme.of(context).colors.textSecondary),
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        color: SonusTheme.of(context).colors.textSecondary,
+      ),
     );
   }
 }
@@ -2687,8 +2841,9 @@ class _CoverPreview extends StatelessWidget {
                         'Using the primary edition\'s cover.',
               key: const ValueKey<String>('release-studio-cover-caption'),
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: colors.textSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
             ),
           ],
         );
