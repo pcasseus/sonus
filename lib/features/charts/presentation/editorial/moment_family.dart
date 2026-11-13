@@ -108,7 +108,29 @@ enum MomentFamily {
 
   /// Pushed out of the Top 200: off the Sonus charts.
   songChartDeparture,
-  releaseChartDeparture;
+  releaseChartDeparture,
+
+  // App Update 1.2 (REF-19): artist dominance on the weekly Sonus Hot 100,
+  // told by the story planner once their lines are approved.
+
+  /// Every position from #1 to #3, #5 or #10 belongs to one artist.
+  artistChartSweep,
+
+  /// One artist has 3, 5 or 10 songs in the Top 10.
+  artistTop10Presence,
+
+  /// One artist has 5, 10, 15 or 20 songs on the Hot 100.
+  artistHot100Presence,
+
+  /// Two artists hold every position from #1 to #N (N at least 4) between
+  /// them (App Update 1.2, REF-19).
+  artistJointControl;
+
+  /// The App Update 1.2 artist-dominance families.
+  bool get isArtistDominance => switch (this) {
+    artistChartSweep || artistTop10Presence || artistHot100Presence => true,
+    _ => false,
+  };
 
   /// The App Update 1.1 chronicle families.
   bool get isChronicle => switch (this) {
@@ -149,6 +171,9 @@ enum MomentFamily {
     songThresholds ||
     releaseThresholds ||
     artistSimultaneousReleases ||
+    artistTop10Presence ||
+    artistHot100Presence ||
+    artistJointControl ||
     songHot100ClimbRun => MomentTier.notable,
     // Capped like other minor stories; an exit after a verified Top 40
     // peak is planned as mandatory (uncapped) instead.

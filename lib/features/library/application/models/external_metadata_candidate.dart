@@ -1,3 +1,4 @@
+import '../../domain/services/genre_catalog.dart';
 import '../../domain/entities/release_date.dart';
 import 'external_metadata_search_query.dart';
 
@@ -50,6 +51,15 @@ class ExternalMetadataReleaseOption {
   final int? trackCount;
 }
 
+/// A genre MusicBrainz lists for a release group, with how many editors
+/// voted for it (App Update 1.2, REF-17).
+class ExternalMetadataGenre {
+  const ExternalMetadataGenre({required this.name, required this.count});
+
+  final String name;
+  final int count;
+}
+
 class ExternalMetadataCandidate {
   const ExternalMetadataCandidate({
     required this.provider,
@@ -66,6 +76,7 @@ class ExternalMetadataCandidate {
     this.secondaryTypes = const [],
     this.externalIds = const {},
     this.releaseOptions = const [],
+    this.genres = const [],
   });
 
   final ExternalMetadataProviderKind provider;
@@ -103,6 +114,16 @@ class ExternalMetadataCandidate {
   /// Additional typed provider identities that may be useful for later
   /// lookups, persistence, and Cover Art Archive integration.
   final Map<String, String> externalIds;
+
+  /// Genres MusicBrainz lists, most votes first. Only an album looked up
+  /// by its identity has them; search results do not.
+  final List<ExternalMetadataGenre> genres;
+
+  /// The genre category to suggest, or null when MusicBrainz's genres do
+  /// not name exactly one (see [GenreCatalog.fromVotes]).
+  String? get suggestedGenre => GenreCatalog.fromVotes([
+    for (final genre in genres) (genre.name, genre.count),
+  ]);
 
   String get sourceReference {
     switch (provider) {

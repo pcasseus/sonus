@@ -533,6 +533,30 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     isUnavailable: (album) =>
                         !playableAlbumIds.contains(album.albumId),
                   );
+                  // REF-16: songs marked as singles that live on an album
+                  // join the Singles section, once each, as themselves.
+                  final singleSongs = ArtistProfileSections.singleSongs(
+                    tracks: controller.allTracks,
+                    artistId: controller.artistId,
+                    singleReleaseAlbumIds: {
+                      for (final card
+                          in shelves[ArtistReleaseShelf.singles] ?? const [])
+                        card.album.albumId,
+                    },
+                    isAvailable: _hasAvailableMedia,
+                  );
+                  if (singleSongs.isNotEmpty &&
+                      !shelves.containsKey(ArtistReleaseShelf.singles)) {
+                    final withSingles = {
+                      for (final shelf in ArtistReleaseShelf.values)
+                        if (shelves.containsKey(shelf) ||
+                            shelf == ArtistReleaseShelf.singles)
+                          shelf: shelves[shelf] ?? const <ArtistReleaseCard>[],
+                    };
+                    shelves
+                      ..clear()
+                      ..addAll(withSingles);
+                  }
                   final collaborators = [
                     for (final collaborator in controller.collaborators)
                       if (collaborator.displaySongCount > 0) collaborator,
@@ -727,23 +751,41 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                           ? 'Choose Single, EP or Album in '
                                                 'Edit Release'
                                           : null,
-                                      count: cards.length,
+                                      count:
+                                          cards.length +
+                                          (shelf == ArtistReleaseShelf.singles
+                                              ? singleSongs.length
+                                              : 0),
                                     ),
                                     const SizedBox(height: 12),
-                                    ArtistProfileAlbumsGrid(
-                                      cards: cards,
-                                      onAlbumTap: (album) {
-                                        unawaited(
-                                          _pushAndRefresh(
-                                            AlbumProfilePage(
-                                              albumId: album.albumId,
-                                              initialAlbumTitle:
-                                                  album.displayTitle,
+                                    if (cards.isNotEmpty)
+                                      ArtistProfileAlbumsGrid(
+                                        cards: cards,
+                                        onAlbumTap: (album) {
+                                          unawaited(
+                                            _pushAndRefresh(
+                                              AlbumProfilePage(
+                                                albumId: album.albumId,
+                                                initialAlbumTitle:
+                                                    album.displayTitle,
+                                              ),
                                             ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                          );
+                                        },
+                                      ),
+                                    if (shelf == ArtistReleaseShelf.singles &&
+                                        singleSongs.isNotEmpty) ...[
+                                      if (cards.isNotEmpty)
+                                        const SizedBox(height: 12),
+                                      _tracksList(
+                                        context,
+                                        controller,
+                                        userId,
+                                        atmosphere,
+                                        tracks: singleSongs,
+                                        keyPrefix: 'artist-single-song',
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -914,47 +956,74 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       MediaQuery.paddingOf(context).top + kToolbarHeight;
 
   /// Scrolls to the tab's section (the top for Overview), just below the
-  /// toolbar. A section far down the list is not built yet: the page steps
-  /// down a frame at a time until it is, then settles on it.
+  /// toolbar. A section far down the list is not built yet: the page
+  /// scrolls on until it is, then settles on it.
+  ///
+  /// App Update 1.2 (BUG-08):
+  /// - the search for an unbuilt section is one continuous glide, not a
+  ///   jump per frame (which showed the page lurching down in steps);
+  /// - the scroll uses a curve that never overshoots or starts slowly (the
+  ///   theme's could bounce past the section, as the shell's comment for
+  ///   destinations explains);
+  /// - the tabs passed on the way are not lit one after another
+  ///   ([_goingToSection]): the chosen tab stays selected throughout.
   Future<void> _goToSection(int index) async {
     _sectionTab.value = index;
     if (!_pageScroll.hasClients) return;
     final position = _pageScroll.position;
     final motion = SonusTheme.of(context).motion;
     final anchor = index < _tabAnchors.length ? _tabAnchors[index] : null;
-    double target = 0;
-    if (anchor != null) {
-      while (anchor.currentContext == null &&
-          position.pixels < position.maxScrollExtent) {
-        position.jumpTo(
-          (position.pixels + position.viewportDimension * 0.8).clamp(
-            0.0,
-            position.maxScrollExtent,
-          ),
-        );
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted) return;
+    final journey = ++_sectionJourney;
+    _goingToSection = true;
+    try {
+      double target = 0;
+      if (anchor != null) {
+        while (anchor.currentContext == null &&
+            position.pixels < position.maxScrollExtent) {
+          final next = (position.pixels + position.viewportDimension * 0.8)
+              .clamp(0.0, position.maxScrollExtent);
+          if (motion.reduced) {
+            position.jumpTo(next);
+            await WidgetsBinding.instance.endOfFrame;
+          } else {
+            await position.animateTo(
+              next,
+              duration: const Duration(milliseconds: 60),
+              curve: Curves.linear,
+            );
+          }
+          if (!mounted || journey != _sectionJourney) return;
+        }
+        final box = anchor.currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.attached) return;
+        final top = box.localToGlobal(Offset.zero).dy;
+        target = position.pixels + top - _toolbarBottom(context) - 8;
       }
-      final box = anchor.currentContext?.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached) return;
-      final top = box.localToGlobal(Offset.zero).dy;
-      target = position.pixels + top - _toolbarBottom(context) - 8;
+      target = target.clamp(0.0, position.maxScrollExtent);
+      if (motion.reduced) {
+        position.jumpTo(target);
+      } else {
+        await position.animateTo(
+          target,
+          duration: motion.medium,
+          curve: Curves.easeOutCubic,
+        );
+      }
+      if (mounted && journey == _sectionJourney) _sectionTab.value = index;
+    } finally {
+      if (journey == _sectionJourney) _goingToSection = false;
     }
-    target = target.clamp(0.0, position.maxScrollExtent);
-    if (motion.reduced) {
-      position.jumpTo(target);
-    } else {
-      await position.animateTo(
-        target,
-        duration: motion.medium,
-        curve: motion.curve,
-      );
-    }
-    if (mounted) _sectionTab.value = index;
   }
+
+  /// A tab's scroll is under way: the scroll does not move the tabs.
+  bool _goingToSection = false;
+
+  /// Counts tab scrolls, so a later tap takes over from an earlier one.
+  int _sectionJourney = 0;
 
   /// Marks the tab of the section now under the toolbar.
   void _followSection() {
+    if (_goingToSection) return;
     final limit = _toolbarBottom(context) + 64;
     var current = 0;
     for (var i = 1; i < _tabAnchors.length; i++) {

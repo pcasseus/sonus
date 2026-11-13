@@ -1,16 +1,14 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
-import '../../../artwork/application/models/cover_art_archive_image.dart';
-import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
-import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
-import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
@@ -23,11 +21,15 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/library_organization_service.dart';
+import '../../application/models/external_metadata_candidate.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
+import '../../domain/deletion/permanent_deletion_impact.dart';
+import '../../domain/entities/album_edition_disc_label.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 import '../../domain/services/album_edition_track_order.dart';
+import '../../domain/services/genre_catalog.dart';
 import '../controllers/album_profile_controller.dart';
 import '../widgets/album_studio/album_studio_editions_section.dart';
 import '../widgets/album_studio/album_studio_release_type.dart';
@@ -35,9 +37,11 @@ import '../widgets/album_studio/release_date_editor.dart';
 import '../widgets/album_studio/release_studio_format.dart';
 import '../widgets/album_studio/release_studio_leaked.dart';
 import '../widgets/album_studio/release_studio_live.dart';
-import '../widgets/cover_art_album_search_dialog.dart';
-import '../widgets/cover_art_image_selection_dialog.dart';
+import '../widgets/album_studio/studio_disc_actions.dart';
+import '../controllers/track_selection_controller.dart';
+import '../../application/services/edition_disc_layout.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
+import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
 
 /// Release Studio (SN-45, SN-50 A-Q6A/B): one screen to edit a release.
 ///
@@ -60,8 +64,6 @@ class ReleaseStudioPage extends StatefulWidget {
     this.onRepositionArtwork,
     this.onClearArtwork,
     this.metadataProvider,
-    this.coverArtCandidateDiscoveryService,
-    this.coverArtAlbumEditionImportService,
     this.externalMetadataApplicationService,
     this.externalMetadataProposalService,
     this.editionManagement,
@@ -82,8 +84,6 @@ class ReleaseStudioPage extends StatefulWidget {
   final Future<void> Function()? onRepositionArtwork;
   final Future<void> Function()? onClearArtwork;
   final MetadataProvider? metadataProvider;
-  final CoverArtCandidateDiscoveryService? coverArtCandidateDiscoveryService;
-  final CoverArtAlbumEditionImportService? coverArtAlbumEditionImportService;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
   final ExternalMetadataProposalService? externalMetadataProposalService;
 
@@ -115,10 +115,12 @@ class ReleaseStudioPage extends StatefulWidget {
 enum ReleaseStudioSection { details, artwork, editions, tracklist }
 
 class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
-  bool _autoRenumber = false;
   bool _isSavingOrder = false;
+
+  /// Discs added with "Add disc" that have no songs yet, per edition
+  /// (REF-13). A disc exists in the library once a song is moved onto it.
+  final Map<String, Set<int>> _addedDiscs = {};
   bool _isApplyingMusicBrainz = false;
-  bool _isSearchingCoverArt = false;
   bool _isSorting = false;
   bool _isSavingDetails = false;
 
@@ -158,18 +160,74 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     });
   }
 
+  /// Songs of the tracklist selected to move together (PATCH-03), and the
+  /// edition they were selected on: choosing another edition ends it.
+  final TrackSelectionController _selection = TrackSelectionController();
+  String? _selectionEditionId;
+
+  @override
+  void dispose() {
+    _selection.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([controller, _selection]),
       builder: (context, _) {
-        return Scaffold(
-          key: const ValueKey<String>('release-studio-page'),
-          appBar: AppBar(title: const Text('Edit Release')),
-          body: _body(context),
+        _endSelectionOnOtherEdition();
+        final selecting = _selection.isActive;
+        return PopScope(
+          // Back ends selection first, as on other song lists.
+          canPop: !selecting,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _selection.exit();
+          },
+          child: CallbackShortcuts(
+            bindings: {
+              if (selecting)
+                const SingleActivator(LogicalKeyboardKey.escape):
+                    _selection.exit,
+            },
+            child: Scaffold(
+              key: const ValueKey<String>('release-studio-page'),
+              appBar: AppBar(title: const Text('Edit Release')),
+              body: _body(context),
+              bottomNavigationBar: selecting
+                  ? StudioSelectionBar(
+                      count: _selection.selectedIn(controller.tracks).length,
+                      allSelected: _selection.allSelectedIn(controller.tracks),
+                      isBusy: _isSavingOrder,
+                      onSelectAll: () => _selection.selectAll([
+                        for (final track in controller.tracks) track.songId,
+                      ]),
+                      onMoveToDisc: () => unawaited(_moveSelected()),
+                      onCancel: _selection.exit,
+                    )
+                  : null,
+            ),
+          ),
         );
       },
     );
+  }
+
+  void _endSelectionOnOtherEdition() {
+    if (!_selection.isActive) return;
+    final edition = controller.selectedEdition?.editionId;
+    if (edition == _selectionEditionId) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          controller.selectedEdition?.editionId != _selectionEditionId) {
+        _selection.exit();
+      }
+    });
+  }
+
+  void _startSelection([String? songId]) {
+    _selectionEditionId = controller.selectedEdition?.editionId;
+    _selection.start(songId);
   }
 
   double get _bottomPadding => 32 + MediaQuery.paddingOf(context).bottom;
@@ -248,27 +306,18 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         ),
         if (tracksOpen && edition != null)
           _StudioTrackList(
-            controller: controller,
             tracks: controller.tracks,
-            autoRenumber: _autoRenumber,
+            extraDiscs: _addedDiscs[edition.editionId] ?? const {},
+            discLabels: controller.discLabels,
             isBusy: _isSavingOrder,
-            userId: widget.userId,
             bonusSongIds: _bonusSongIds(),
-            onReorderStarted: () {
-              setState(() {
-                _isSavingOrder = true;
-              });
-            },
-            onReorderFinished: () {
-              if (!mounted) {
-                return;
-              }
-
-              setState(() {
-                _isSavingOrder = false;
-              });
-            },
+            onArrange: _arrange,
+            onRenameDisc: _renameDisc,
+            onDeleteDisc: _deleteDisc,
             onEditPlacement: _editPlacement,
+            onDeletePermanently: _deleteUnavailableSong,
+            selection: _selection,
+            onStartSelection: _startSelection,
           ),
         SliverPadding(padding: EdgeInsets.only(bottom: _bottomPadding)),
       ],
@@ -328,9 +377,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
               _DetailRow(
                 key: const ValueKey<String>('release-studio-genre'),
                 label: 'Genre',
-                value: (album?.genre ?? '').trim().isEmpty
+                value: GenreCatalog.display(album?.genre) == null
                     ? 'Not set'
-                    : album!.genre!,
+                    : GenreCatalog.display(album!.genre)!,
                 onEdit: canEdit && !_isSavingDetails ? _editGenre : null,
               ),
             ],
@@ -433,15 +482,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                 ? 'Release date of ${_editionDisplayLabel(edition)}'
                 : 'Release date',
             value: releaseDate == null ? 'Not set' : releaseDate.label,
+            // BUG-10: one editor for every precision; its own calendar
+            // fills the year, month and day.
             onEdit: canEditDate ? _editReleaseDate : null,
-            action: canEditDate
-                ? IconButton(
-                    key: const ValueKey<String>('release-studio-date-calendar'),
-                    tooltip: 'Choose the release day on a calendar',
-                    icon: const Icon(Icons.calendar_month_rounded),
-                    onPressed: _pickReleaseDay,
-                  )
-                : null,
           ),
         ],
       ),
@@ -572,12 +615,12 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final album = controller.album;
     if (album == null) return;
 
-    final genre = await _askForText(
-      title: 'Genre',
-      label: 'Genre',
-      initial: album.genre ?? '',
-      fieldKey: 'release-studio-genre-field',
-      saveKey: 'release-studio-save-genre',
+    final genre = await showDialog<String>(
+      context: context,
+      builder: (_) => _GenreDialog(
+        initial: album.genre ?? '',
+        known: [?album.genre, ..._differingEditionGenres],
+      ),
     );
     if (genre == null) return;
     await _saveDetails(
@@ -647,31 +690,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       case ReleaseDateSet(:final date):
         await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
     }
-  }
-
-  /// The calendar beside the release date: opens at the saved date.
-  Future<void> _pickReleaseDay() async {
-    final current = _shownReleaseDate;
-    final now = DateTime.now();
-    final last = DateTime(now.year + 5, 12, 31);
-    var start = current == null
-        ? now
-        : DateTime(current.year, current.month ?? 1, current.day ?? 1);
-    if (start.isAfter(last)) start = last;
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: start,
-      firstDate: DateTime(1900),
-      lastDate: last,
-      initialDatePickerMode: current?.day == null
-          ? DatePickerMode.year
-          : DatePickerMode.day,
-      helpText: 'Release day',
-    );
-    if (picked == null || !mounted) return;
-    final date = ReleaseDate.of(picked.year, picked.month, picked.day)!;
-    await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
   }
 
   Future<void> _changeOwner() async {
@@ -811,13 +829,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   Widget _artwork(BuildContext context) {
     final edition = controller.selectedEdition;
-    final canSearch =
-        !_isSearchingCoverArt &&
-        widget.metadataProvider != null &&
-        widget.coverArtCandidateDiscoveryService != null &&
-        widget.coverArtAlbumEditionImportService != null &&
-        controller.album != null &&
-        edition != null;
     // Without editions the cover is the album's own.
     final hasOwnCover =
         edition == null || (edition.artworkPath ?? '').trim().isNotEmpty;
@@ -849,15 +860,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                   subtitle: 'Reset to the full original image from here too.',
                   onTap: hasOwnCover ? widget.onRepositionArtwork : null,
                 ),
-              _ActionRow(
-                tileKey: const ValueKey<String>(
-                  'album-studio-search-cover-art',
-                ),
-                icon: Icons.image_search_rounded,
-                title: 'Find on Cover Art Archive',
-                subtitle: 'Covers published for this release online.',
-                onTap: canSearch ? _searchCoverArt : null,
-              ),
+              // REF-18: Cover Art Archive search is no longer offered here.
+              // Covers it supplied earlier stay, with their provenance.
               _ActionRow(
                 tileKey: const ValueKey<String>('album-studio-clear-artwork'),
                 icon: Icons.hide_image_outlined,
@@ -926,16 +930,14 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           ],
           _TrackOrderSection(
             count: tracks.length,
-            autoRenumber: _autoRenumber,
             isSaving: _isSavingOrder || _isSorting,
             onSortByDiscAndTrack: tracks.length < 2
                 ? null
                 : _sortByDiscAndTrack,
-            onAutoRenumberChanged: (value) {
-              setState(() {
-                _autoRenumber = value;
-              });
-            },
+            onAddDisc: tracks.isEmpty ? null : () => _addDisc(edition),
+            onSelect: tracks.isEmpty || _selection.isActive
+                ? null
+                : _startSelection,
           ),
         ],
       ),
@@ -1010,127 +1012,29 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     }
   }
 
-  Future<void> _searchCoverArt() async {
-    if (_isSearchingCoverArt) return;
-
-    final album = controller.album;
-    final selectedEditionId = controller.selectedEdition?.editionId;
-    final provider = widget.metadataProvider;
-    final discovery = widget.coverArtCandidateDiscoveryService;
-    final importService = widget.coverArtAlbumEditionImportService;
-
-    if (album == null ||
-        selectedEditionId == null ||
-        provider == null ||
-        discovery == null ||
-        importService == null) {
-      return;
-    }
-
-    setState(() {
-      _isSearchingCoverArt = true;
-    });
-
+  /// The chosen album looked up by its identity, which also gives its
+  /// genres (REF-17). If that fails, the search result is used and simply
+  /// suggests no genre.
+  Future<ExternalMetadataCandidate> _inFull(
+    MetadataProvider provider,
+    ExternalMetadataCandidate candidate,
+  ) async {
     try {
-      final candidate = await showDialog<ExternalMetadataCandidate>(
-        context: context,
-        builder: (_) => CoverArtAlbumSearchDialog(
-          provider: provider,
-          query: ExternalMetadataSearchQuery(
+      return await provider.lookup(
             entityKind: ExternalMetadataEntityKind.album,
-            title: album.title,
-            artistName: album.artistName,
-          ),
-        ),
+            providerEntityId: candidate.providerEntityId,
+          ) ??
+          candidate;
+    } catch (error, stackTrace) {
+      developer.log(
+        'MusicBrainz album lookup failed (${error.runtimeType}); '
+        'previewing the search result',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
       );
-
-      if (!mounted || candidate == null) {
-        return;
-      }
-
-      try {
-        final images = await discovery.discover(candidate);
-
-        if (!mounted) return;
-
-        final image = await showDialog<CoverArtArchiveImage>(
-          context: context,
-          builder: (_) => CoverArtImageSelectionDialog(
-            images: images,
-            albumTitle: candidate.displayName,
-          ),
-        );
-
-        if (!mounted || image == null) return;
-
-        try {
-          final result = await importService.importImage(
-            albumEditionId: selectedEditionId,
-            image: image,
-            userId: widget.userId,
-          );
-
-          if (!mounted) return;
-
-          if (!result.applied) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                key: ValueKey<String>(
-                  'album-studio-cover-art-import-protected',
-                ),
-                content: Text(
-                  'Existing album artwork is protected and was not replaced.',
-                ),
-              ),
-            );
-            return;
-          }
-
-          if (result.changed) {
-            await controller.refresh();
-            if (!mounted) return;
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              key: ValueKey<String>(
-                result.changed
-                    ? 'album-studio-cover-art-import-success'
-                    : 'album-studio-cover-art-import-unchanged',
-              ),
-              content: Text(
-                result.changed
-                    ? 'Album artwork updated.'
-                    : 'Album artwork is already up to date.',
-              ),
-            ),
-          );
-        } catch (_) {
-          if (!mounted) return;
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              key: ValueKey<String>('album-studio-cover-art-import-error'),
-              content: Text('Could not import album artwork.'),
-            ),
-          );
-        }
-      } catch (_) {
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            key: ValueKey<String>('album-studio-cover-art-search-error'),
-            content: Text('Could not retrieve Cover Art Archive artwork.'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSearchingCoverArt = false;
-        });
-      }
+      return candidate;
     }
   }
 
@@ -1163,10 +1067,10 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
               title: album.title,
               artistName: album.artistName,
             ),
-            previewer: (candidate) {
+            previewer: (candidate) async {
               return proposalService.previewAlbum(
                 albumId: album.albumId,
-                candidate: candidate,
+                candidate: await _inFull(provider, candidate),
               );
             },
             applier: (candidate) {
@@ -1224,6 +1128,388 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           _isApplyingMusicBrainz = false;
         });
       }
+    }
+  }
+
+  /// Deletes a song whose file is unavailable, through the same
+  /// permanent-deletion sheet and service as everywhere else (preview,
+  /// typed confirmation, ledger, sync and every safeguard). The file is
+  /// never touched. Just before deleting, the song is checked again: one
+  /// whose file came back, or that left this release, is not deleted.
+  Future<void> _deleteUnavailableSong(LibraryTrack track) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final deleted = await showPermanentDeletion(
+      context,
+      target: PermanentDeletionTarget.song(track.songId),
+      name: track.displayTitle,
+      artworkPath: track.artworkPath,
+      beforeDelete: () => _stillUnavailable(track.songId),
+    );
+    if (!mounted) return;
+    // The tracklist shows what is there now, deleted or not.
+    await controller.refresh();
+    if (!deleted || !mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        key: const ValueKey<String>('album-studio-delete-done'),
+        content: Text('${track.displayTitle} was permanently deleted.'),
+      ),
+    );
+  }
+
+  /// Null while [songId] is still on this edition with its file
+  /// unavailable; otherwise why it must not be deleted from here.
+  Future<String?> _stillUnavailable(String songId) async {
+    await controller.refresh();
+    LibraryTrack? current;
+    for (final track in controller.tracks) {
+      if (track.songId == songId) current = track;
+    }
+    if (current == null) {
+      return 'This song is no longer on this edition.';
+    }
+    if (current.hasAvailableFile) {
+      return 'Its music file is available again, so it stays in your '
+          'library.';
+    }
+    return null;
+  }
+
+  /// Adds the next disc as an empty section to move songs onto (REF-13).
+  void _addDisc(LibraryAlbumEdition edition) {
+    final added = _addedDiscs[edition.editionId] ?? const <int>{};
+    final discs = {
+      for (final track in controller.tracks) shownDisc(track.discNumber),
+      ...added,
+    };
+    final next = (discs.isEmpty ? 1 : discs.reduce(max)) + 1;
+    setState(() {
+      _addedDiscs[edition.editionId] = {...added, next};
+    });
+  }
+
+  /// The selected edition as shown: each song, in order, on its disc.
+  List<EditionPlacement> _shownPlacements(String editionId) => _placementsOf(
+    _studioEntries(
+      controller.tracks,
+      extraDiscs: _addedDiscs[editionId] ?? const {},
+    ),
+  );
+
+  /// Every disc shown for [editionId], with or without songs.
+  List<int> _shownDiscs(String editionId) => {
+    for (final track in controller.tracks) shownDisc(track.discNumber),
+    ...?_addedDiscs[editionId],
+  }.toList()..sort();
+
+  /// The tracklist [placements] describes, disc by disc, for a preview.
+  List<DiscPreview> _preview(
+    List<EditionPlacement> placements,
+    Map<int, String> labels,
+  ) {
+    final titles = {
+      for (final track in controller.tracks) track.songId: track.displayTitle,
+    };
+    final discs = discsOf(placements);
+    return [
+      for (final disc in discs)
+        DiscPreview(
+          title: discs.length > 1
+              ? discTitle(disc, label: labels[disc])
+              : 'Tracks',
+          songs: [
+            for (final p in placements)
+              if (shownDisc(p.discNumber) == disc) titles[p.songId] ?? '',
+          ],
+        ),
+    ];
+  }
+
+  /// "Move to Disc" for the selected songs (PATCH-03): they keep their
+  /// order and go to the end of the disc chosen; both discs are numbered
+  /// again. Selection ends once they have moved, and stays if not.
+  Future<void> _moveSelected() async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return;
+    final selected = _selection.selectedIn(controller.tracks);
+    if (selected.isEmpty) return;
+
+    final discs = _shownDiscs(edition.editionId);
+    final target = await chooseDestinationDisc(
+      context,
+      count: selected.length,
+      discs: discs,
+      labels: controller.discLabels,
+      newDisc: (discs.isEmpty ? 1 : discs.last) + 1,
+    );
+    if (target == null || !mounted) return;
+
+    final placements = movedToDisc(_shownPlacements(edition.editionId), {
+      for (final track in selected) track.songId,
+    }, target);
+    if (await _arrange(placements) && mounted) _selection.exit();
+  }
+
+  /// "Delete Disc" (PATCH-02). An empty disc goes after a confirmation. A
+  /// disc with songs asks first whether they move to another disc or
+  /// leave this edition, then shows the edition as it will be. Songs are
+  /// never deleted, and their history and playlists stay.
+  Future<void> _deleteDisc(int disc) async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return;
+    final editionId = edition.editionId;
+    final current = _shownPlacements(editionId);
+    final songIds = songsOnDisc(current, disc);
+    final discName = discTitle(disc, label: controller.discLabels[disc]);
+
+    int? moveTo;
+    var removing = <String>{};
+    if (songIds.isNotEmpty) {
+      final others = [
+        for (final d in _shownDiscs(editionId))
+          if (d != disc) d,
+      ];
+      final blocked = await _whyNotRemovable(editionId, songIds);
+      if (!mounted) return;
+      final choice = await chooseDiscDeletion(
+        context,
+        discName: discName,
+        songCount: songIds.length,
+        removeBlockedReason: blocked,
+      );
+      if (choice == null || !mounted) return;
+      if (choice is MoveDiscSongs) {
+        moveTo = others.length == 1
+            ? others.single
+            : await chooseDestinationDisc(
+                context,
+                count: songIds.length,
+                discs: others,
+                labels: controller.discLabels,
+              );
+        if (moveTo == null || !mounted) return;
+      } else {
+        removing = songIds.toSet();
+      }
+    }
+
+    final placements = afterDeletingDisc(current, disc, moveTo: moveTo);
+    final confirmed = await confirmDiscLayout(
+      context,
+      title: 'Delete $discName?',
+      confirmLabel: 'Delete Disc $disc',
+      discs: _preview(
+        placements,
+        labelsAfterDeletingDisc(controller.discLabels, disc),
+      ),
+      removed: [
+        for (final track in controller.tracks)
+          if (removing.contains(track.songId)) track.displayTitle,
+      ],
+    );
+    if (!confirmed || !mounted) return;
+
+    await _commitDiscDeletion(
+      editionId: editionId,
+      disc: disc,
+      placements: placements,
+      removing: removing,
+      moveTo: moveTo,
+    );
+  }
+
+  /// Why the songs of a disc cannot leave this edition, or null when they
+  /// can: each must stay on another edition, and the edition keeps a song.
+  Future<String?> _whyNotRemovable(
+    String editionId,
+    List<String> songIds,
+  ) async {
+    if (songIds.length == controller.tracks.length) {
+      return 'An edition keeps at least one song, so these can only be '
+          'moved.';
+    }
+    final Object? library = widget.library;
+    if (library is! AlbumEditionQueryRepository) {
+      return 'Sonus could not check the other editions, so these can only '
+          'be moved.';
+    }
+    try {
+      final elsewhere = <String>{};
+      for (final other in controller.editions) {
+        if (other.editionId == editionId) continue;
+        for (final track in await library.getTracksByAlbumEditionId(
+          other.editionId,
+        )) {
+          elsewhere.add(track.songId);
+        }
+      }
+      final onlyHere = songIds.where((id) => !elsewhere.contains(id)).length;
+      if (onlyHere == 0) return null;
+      return onlyHere == 1
+          ? '1 of these songs is on no other edition, and every song stays '
+                'on at least one. Move the songs instead.'
+          : '$onlyHere of these songs are on no other edition, and every '
+                'song stays on at least one. Move the songs instead.';
+    } catch (error, stackTrace) {
+      developer.log(
+        'Other editions could not be read (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return 'Sonus could not check the other editions, so these can only '
+          'be moved.';
+    }
+  }
+
+  Future<void> _commitDiscDeletion({
+    required String editionId,
+    required int disc,
+    required List<EditionPlacement> placements,
+    required Set<String> removing,
+    required int? moveTo,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final later = _shownDiscs(editionId).any((d) => d > disc);
+    final named = controller.discLabels.containsKey(disc);
+    setState(() => _isSavingOrder = true);
+    try {
+      // An empty, unnamed disc with no disc after it exists only on this
+      // screen: there is nothing to save.
+      if (removing.isNotEmpty || moveTo != null || later || named) {
+        await controller.deleteSelectedEditionDisc(
+          disc: disc,
+          placements: placements,
+          removeSongIds: removing,
+          userId: widget.userId,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        final added = _addedDiscs[editionId];
+        if (added != null) {
+          _addedDiscs[editionId] = {
+            for (final d in added)
+              if (d != disc) discAfterDeleting(d, disc),
+          };
+        }
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            removing.isNotEmpty
+                ? 'Disc $disc deleted. ${_songs(removing.length)} removed '
+                      'from this edition; they stay in your library.'
+                : moveTo != null
+                ? 'Disc $disc deleted. Its songs moved to Disc '
+                      '${discAfterDeleting(moveTo, disc)}.'
+                : 'Disc $disc deleted.',
+          ),
+        ),
+      );
+    } on DiscDeletionException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(switch (error.refusal) {
+            DiscDeletionRefusal.songsOnlyOnThisEdition =>
+              '${_songs(error.songCount)} on no other edition, so the disc '
+                  'was not deleted. Move the songs instead.',
+            DiscDeletionRefusal.editionWouldBeEmpty =>
+              'An edition keeps at least one song. Nothing was changed.',
+            DiscDeletionRefusal.notOnDisc =>
+              'The tracklist changed meanwhile. Nothing was changed.',
+          }),
+        ),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'A disc could not be deleted (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not delete the disc. Nothing was changed.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
+    }
+  }
+
+  static String _songs(int count) => count == 1 ? '1 song' : '$count songs';
+
+  /// Saves the edition laid out as [placements]: order, discs and
+  /// automatic numbering of the discs it changes (REF-13), without asking.
+  /// Whether it was saved.
+  Future<bool> _arrange(List<EditionPlacement> placements) async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return false;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isSavingOrder = true);
+    try {
+      await controller.arrangeSelectedEdition(
+        userId: widget.userId,
+        placements: placements,
+      );
+      if (!mounted) return true;
+      // A disc that now has songs no longer needs to be remembered here.
+      final used = {for (final p in placements) p.discNumber};
+      final added = _addedDiscs[edition.editionId];
+      if (added != null) {
+        setState(() => added.removeWhere(used.contains));
+      }
+      return true;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Tracks could not be arranged (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not reorder tracks. Nothing was changed.'),
+        ),
+      );
+      return false;
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
+    }
+  }
+
+  /// Names a disc, or clears its name when left empty (REF-13c).
+  Future<void> _renameDisc(int disc) async {
+    final text = await _askForText(
+      title: 'Name Disc $disc',
+      label: 'Name (leave empty for none)',
+      initial: controller.discLabels[disc] ?? '',
+      fieldKey: 'album-studio-disc-name-field',
+      saveKey: 'album-studio-disc-name-save',
+    );
+    if (text == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.setSelectedEditionDiscLabel(
+        disc: disc,
+        label: text,
+        userId: widget.userId,
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'A disc name could not be saved (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not save the disc name.')),
+      );
     }
   }
 
@@ -1591,17 +1877,19 @@ class _EditionTabs extends StatelessWidget {
 class _TrackOrderSection extends StatelessWidget {
   const _TrackOrderSection({
     required this.count,
-    required this.autoRenumber,
     required this.isSaving,
-    required this.onAutoRenumberChanged,
     required this.onSortByDiscAndTrack,
+    required this.onAddDisc,
+    this.onSelect,
   });
 
   final int count;
-  final bool autoRenumber;
   final bool isSaving;
-  final ValueChanged<bool> onAutoRenumberChanged;
   final Future<void> Function()? onSortByDiscAndTrack;
+  final VoidCallback? onAddDisc;
+
+  /// Starts selecting songs to move together (PATCH-03).
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -1634,66 +1922,174 @@ class _TrackOrderSection extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: OutlinedButton.icon(
-            key: const ValueKey<String>('album-studio-sort-disc-track'),
-            onPressed: isSaving || onSortByDiscAndTrack == null
-                ? null
-                : () {
-                    unawaited(onSortByDiscAndTrack!());
-                  },
-            icon: const Icon(Icons.sort_rounded),
-            label: const Text('Sort by disc & track'),
+        const SizedBox(height: 4),
+        // REF-13: no Auto-renumber switch; every arrangement numbers each
+        // disc 1, 2, 3 by itself.
+        Text(
+          'Drag songs, or use Move, to change their order or disc. Tracks '
+          'are numbered automatically on each disc.',
+          key: const ValueKey<String>('album-studio-order-help'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.textSecondary,
           ),
         ),
-        SwitchListTile(
-          key: const ValueKey<String>('album-studio-auto-renumber'),
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          title: const Text('Auto-renumber after reorder'),
-          subtitle: const Text('Renumbers tracks within their disc.'),
-          value: autoRenumber,
-          onChanged: isSaving ? null : onAutoRenumberChanged,
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-add-disc'),
+              onPressed: isSaving ? null : onAddDisc,
+              icon: const Icon(Icons.album_outlined),
+              label: const Text('Add disc'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-sort-disc-track'),
+              onPressed: isSaving || onSortByDiscAndTrack == null
+                  ? null
+                  : () {
+                      unawaited(onSortByDiscAndTrack!());
+                    },
+              icon: const Icon(Icons.sort_rounded),
+              label: const Text('Sort by disc & track'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-select'),
+              onPressed: isSaving ? null : onSelect,
+              icon: const Icon(Icons.checklist_rounded),
+              label: const Text('Select'),
+            ),
+          ],
         ),
         if (isSaving)
-          const LinearProgressIndicator(
-            key: ValueKey<String>('album-studio-reorder-progress'),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: LinearProgressIndicator(
+              key: ValueKey<String>('album-studio-reorder-progress'),
+            ),
           ),
       ],
     );
   }
 }
 
+/// One row of the Release Studio tracklist: a disc's heading, or a song.
+sealed class _StudioEntry {
+  const _StudioEntry();
+}
+
+class _DiscEntry extends _StudioEntry {
+  const _DiscEntry(this.disc, {required this.isEmpty});
+
+  final int disc;
+  final bool isEmpty;
+}
+
+class _SongEntry extends _StudioEntry {
+  const _SongEntry(this.track);
+
+  final LibraryTrack track;
+}
+
+/// The edition's songs in its order, with a heading for each disc when it
+/// has (or is given) more than one (REF-13). Dragging a song below another
+/// disc's heading moves it to that disc; one disc stays implicit.
+List<_StudioEntry> _studioEntries(
+  List<LibraryTrack> tracks, {
+  Set<int> extraDiscs = const {},
+}) {
+  final discs = {
+    for (final track in tracks) shownDisc(track.discNumber),
+    ...extraDiscs,
+  }.toList()..sort();
+  if (discs.length <= 1) {
+    return [for (final track in tracks) _SongEntry(track)];
+  }
+  final grouped = groupedByDisc(tracks, (track) => track.discNumber);
+  return [
+    for (final disc in discs) ...[
+      _DiscEntry(
+        disc,
+        isEmpty: !grouped.any((t) => shownDisc(t.discNumber) == disc),
+      ),
+      for (final track in grouped)
+        if (shownDisc(track.discNumber) == disc) _SongEntry(track),
+    ],
+  ];
+}
+
+/// Every song of [entries], in order, on the disc of the heading above it
+/// (the first disc when it is above every heading). Without headings each
+/// song keeps its own disc.
+List<EditionPlacement> _placementsOf(List<_StudioEntry> entries) {
+  // Songs above every heading go on the first disc.
+  int? disc = entries.whereType<_DiscEntry>().firstOrNull?.disc;
+  final placements = <EditionPlacement>[];
+  for (final entry in entries) {
+    switch (entry) {
+      case _DiscEntry():
+        disc = entry.disc;
+      case _SongEntry(:final track):
+        placements.add(
+          EditionPlacement(
+            songId: track.songId,
+            discNumber: disc ?? shownDisc(track.discNumber),
+          ),
+        );
+    }
+  }
+  return placements;
+}
+
 class _StudioTrackList extends StatelessWidget {
   const _StudioTrackList({
-    required this.controller,
     required this.tracks,
-    required this.autoRenumber,
+    required this.extraDiscs,
+    required this.discLabels,
     required this.isBusy,
-    required this.userId,
-    required this.onReorderStarted,
-    required this.onReorderFinished,
+    required this.onArrange,
+    required this.onRenameDisc,
     required this.onEditPlacement,
+    this.onDeleteDisc,
+    this.onDeletePermanently,
+    this.selection,
+    this.onStartSelection,
     this.bonusSongIds = const {},
   });
 
-  final AlbumProfileController controller;
+  /// "Delete Disc" on each disc heading (PATCH-02). Headings, and so this,
+  /// appear only when the edition has more than one disc.
+  final Future<void> Function(int disc)? onDeleteDisc;
+
+  /// The songs selected to move together (PATCH-03). While selecting, a
+  /// tap selects a song and songs are not dragged.
+  final TrackSelectionController? selection;
+
+  /// Starts selecting with a song: a long press on it.
+  final void Function(String songId)? onStartSelection;
+
   final List<LibraryTrack> tracks;
+  final Set<int> extraDiscs;
+  final Map<int, String> discLabels;
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   /// Songs this edition adds to the primary edition.
   final Set<String> bonusSongIds;
-  final bool autoRenumber;
   final bool isBusy;
-  final String? userId;
-  final VoidCallback onReorderStarted;
-  final VoidCallback onReorderFinished;
+  final Future<void> Function(List<EditionPlacement> placements) onArrange;
+  final Future<void> Function(int disc) onRenameDisc;
   final Future<void> Function(LibraryTrack track) onEditPlacement;
 
   @override
   Widget build(BuildContext context) {
-    final multiDisc = _usesMultipleDiscs(tracks);
+    final entries = _studioEntries(tracks, extraDiscs: extraDiscs);
+    final multiDisc = entries.any((e) => e is _DiscEntry);
+    final selecting = selection?.isActive ?? false;
+    final discs = [
+      for (final e in entries)
+        if (e is _DiscEntry) e.disc,
+    ];
     final gutter = SonusTheme.of(context).metrics.pageGutter;
 
     if (tracks.isEmpty) {
@@ -1710,16 +2106,42 @@ class _StudioTrackList extends StatelessWidget {
     // edge scrolls the whole page and nothing scrolls inside it.
     return SliverReorderableList(
       key: const ValueKey<String>('album-studio-track-list'),
-      itemCount: tracks.length,
-      onReorderItem: isBusy
+      itemCount: entries.length,
+      onReorderItem: isBusy || selecting
           ? (_, _) {}
           : (oldIndex, newIndex) {
-              unawaited(
-                _reorder(context, oldIndex: oldIndex, newIndex: newIndex),
-              );
+              if (oldIndex == newIndex || entries[oldIndex] is _DiscEntry) {
+                return;
+              }
+              final moved = [...entries];
+              moved.insert(newIndex, moved.removeAt(oldIndex));
+              unawaited(onArrange(_placementsOf(moved)));
             },
       itemBuilder: (context, index) {
-        final track = tracks[index];
+        final entry = entries[index];
+        if (entry is _DiscEntry) {
+          return Padding(
+            key: ValueKey<String>('album-studio-disc-${entry.disc}'),
+            padding: EdgeInsets.fromLTRB(
+              gutter,
+              index == 0 ? 4 : 14,
+              gutter,
+              2,
+            ),
+            child: _StudioDiscHeading(
+              disc: entry.disc,
+              label: discLabels[entry.disc],
+              isEmpty: entry.isEmpty,
+              onRename: isBusy || selecting
+                  ? null
+                  : () => onRenameDisc(entry.disc),
+              onDelete: isBusy || selecting || onDeleteDisc == null
+                  ? null
+                  : () => onDeleteDisc!(entry.disc),
+            ),
+          );
+        }
+        final track = (entry as _SongEntry).track;
 
         return Padding(
           key: ValueKey<String>('album-studio-track-${track.songId}'),
@@ -1730,46 +2152,123 @@ class _StudioTrackList extends StatelessWidget {
             multiDisc: multiDisc,
             isBusy: isBusy,
             isBonus: bonusSongIds.contains(track.songId),
+            moves: selecting ? const [] : _movesFor(entries, index, discs),
+            selected: selecting ? selection!.isSelected(track.songId) : null,
+            onToggleSelected: selecting
+                ? () => selection!.toggle(track.songId)
+                : null,
+            onStartSelection: selecting || onStartSelection == null
+                ? null
+                : () => onStartSelection!(track.songId),
             onEditPlacement: onEditPlacement,
+            onDeletePermanently: onDeletePermanently,
           ),
         );
       },
     );
   }
 
-  Future<void> _reorder(
-    BuildContext context, {
-    required int oldIndex,
-    required int newIndex,
-  }) async {
-    final targetIndex = newIndex;
-
-    if (targetIndex == oldIndex) {
-      return;
+  /// The keyboard and screen-reader alternatives to dragging the song at
+  /// [index] (REF-13): up, down, to another disc, or to a new disc.
+  List<(String, VoidCallback)> _movesFor(
+    List<_StudioEntry> entries,
+    int index,
+    List<int> discs,
+  ) {
+    void moveTo(int target) {
+      final moved = [...entries];
+      moved.insert(target, moved.removeAt(index));
+      unawaited(onArrange(_placementsOf(moved)));
     }
 
-    final orderedIds = [for (final track in tracks) track.songId];
+    final track = (entries[index] as _SongEntry).track;
+    final disc = shownDisc(track.discNumber);
+    final above = index - 1;
+    final below = index + 1;
+    final canGoUp = above >= 0 && !(above == 0 && entries[0] is _DiscEntry);
+    final canGoDown = below < entries.length;
 
-    final moved = orderedIds.removeAt(oldIndex);
-    orderedIds.insert(targetIndex, moved);
+    // After the disc's last song; on an empty disc, where it begins.
+    void toDisc(int target) => unawaited(
+      onArrange(movedToDisc(_placementsOf(entries), {track.songId}, target)),
+    );
 
-    onReorderStarted();
+    final allDiscs = {...discs, disc}.toList()..sort();
+    final newDisc = (allDiscs.isEmpty ? 1 : allDiscs.last) + 1;
+    return [
+      if (canGoUp) ('Move up', () => moveTo(above)),
+      if (canGoDown) ('Move down', () => moveTo(below)),
+      for (final other in allDiscs)
+        if (other != disc) ('Move to Disc $other', () => toDisc(other)),
+      ('Move to a new disc ($newDisc)', () => toDisc(newDisc)),
+    ];
+  }
+}
 
-    try {
-      await controller.reorderSelectedEdition(
-        userId: userId,
-        orderedSongIds: orderedIds,
-        autoRenumber: autoRenumber,
-      );
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not reorder tracks.')),
-        );
-      }
-    } finally {
-      onReorderFinished();
-    }
+/// A disc's heading in Release Studio: its number and name, and a button
+/// to name it (REF-13c). Not draggable.
+class _StudioDiscHeading extends StatelessWidget {
+  const _StudioDiscHeading({
+    required this.disc,
+    required this.label,
+    required this.isEmpty,
+    required this.onRename,
+    this.onDelete,
+  });
+
+  final int disc;
+  final String? label;
+  final bool isEmpty;
+  final VoidCallback? onRename;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final named = label?.trim().isNotEmpty ?? false;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  discTitle(disc, label: label),
+                  key: ValueKey<String>('album-studio-disc-title-$disc'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (isEmpty)
+                Text(
+                  'No songs yet. Drag songs here, or use Move.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        IconButton(
+          key: ValueKey<String>('album-studio-disc-name-$disc'),
+          tooltip: named ? 'Rename Disc $disc' : 'Name Disc $disc',
+          onPressed: onRename,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+        IconButton(
+          key: ValueKey<String>('album-studio-delete-disc-$disc'),
+          tooltip: 'Delete Disc $disc',
+          onPressed: onDelete,
+          icon: const Icon(Icons.delete_outline_rounded),
+        ),
+      ],
+    );
   }
 }
 
@@ -1780,8 +2279,26 @@ class _StudioTrackRow extends StatelessWidget {
     required this.multiDisc,
     required this.isBusy,
     required this.onEditPlacement,
+    this.onDeletePermanently,
+    this.moves = const [],
     this.isBonus = false,
+    this.selected,
+    this.onToggleSelected,
+    this.onStartSelection,
   });
+
+  /// While songs are being selected (PATCH-03): whether this one is. Null
+  /// otherwise. A tap then selects it, and it is not dragged.
+  final bool? selected;
+  final VoidCallback? onToggleSelected;
+
+  /// A long press starts selecting with this song. Not at large text,
+  /// where a long press drags the row.
+  final VoidCallback? onStartSelection;
+
+  /// Where the song can be moved without dragging (REF-13): each a label
+  /// and its action. Shown as a Move menu and as screen-reader actions.
+  final List<(String, VoidCallback)> moves;
 
   final LibraryTrack track;
   final int index;
@@ -1791,6 +2308,11 @@ class _StudioTrackRow extends StatelessWidget {
   /// Not on the primary edition: a bonus track of this edition.
   final bool isBonus;
   final Future<void> Function(LibraryTrack track) onEditPlacement;
+
+  /// "Delete song permanently…", offered only while the song's file is
+  /// unavailable: Release Studio is the one place such a song is listed
+  /// (App Update 1.2, Purpose repair). Null: not offered.
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   // Above sonusLargeTextScale the number column and placement button give
   // their width to the title; tapping the row still edits the placement.
@@ -1808,6 +2330,8 @@ class _StudioTrackRow extends StatelessWidget {
         ? 'Disc ${track.discNumber} • Track ${track.trackNumber}'
         : 'Track ${track.trackNumber}';
     final details = [
+      // BUG-09: a member whose file is gone is listed, and says so.
+      if (!track.hasAvailableFile) 'File unavailable',
       if (isBonus) 'Bonus track',
       _formatDuration(track.durationSeconds),
       if (track.releaseCreditLine.isNotEmpty) track.releaseCreditLine,
@@ -1817,7 +2341,7 @@ class _StudioTrackRow extends StatelessWidget {
       fontFeatures: tabular,
     );
 
-    return Material(
+    final row = Material(
       color: colors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
@@ -1832,7 +2356,14 @@ class _StudioTrackRow extends StatelessWidget {
         // At large text the number column gives its width to the title;
         // the placement is still spelled out on the line below. Otherwise
         // at least 40px, growing with the text, so "1-10" never wraps.
-        leading: largeText
+        selected: selected ?? false,
+        leading: selected != null
+            ? Checkbox(
+                key: ValueKey<String>('album-studio-select-${track.songId}'),
+                value: selected,
+                onChanged: (_) => onToggleSelected?.call(),
+              )
+            : largeText
             ? null
             : ConstrainedBox(
                 constraints: BoxConstraints(minWidth: scaler.scale(40)),
@@ -1870,36 +2401,87 @@ class _StudioTrackRow extends StatelessWidget {
               Text(' • $detail', style: detailStyle),
           ],
         ),
-        onTap: isBusy ? null : () => onEditPlacement(track),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!largeText)
-              IconButton(
-                key: ValueKey<String>(
-                  'album-studio-edit-placement-${track.songId}',
-                ),
-                tooltip: 'Edit track placement',
-                onPressed: isBusy ? null : () => onEditPlacement(track),
-                icon: const Icon(Icons.numbers_rounded),
+        onTap: selected != null
+            ? onToggleSelected
+            : isBusy
+            ? null
+            : () => onEditPlacement(track),
+        onLongPress: largeText || isBusy ? null : onStartSelection,
+        trailing: selected != null
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Kept at large text too: there is no other way to reach it.
+                  if (!track.hasAvailableFile && onDeletePermanently != null)
+                    IconButton(
+                      key: ValueKey<String>(
+                        'album-studio-delete-${track.songId}',
+                      ),
+                      tooltip: 'Delete song permanently…',
+                      onPressed: isBusy
+                          ? null
+                          : () => onDeletePermanently!(track),
+                      icon: const Icon(Icons.delete_forever_outlined),
+                    ),
+                  if (moves.isNotEmpty)
+                    PopupMenuButton<int>(
+                      key: ValueKey<String>(
+                        'album-studio-move-${track.songId}',
+                      ),
+                      tooltip: 'Move',
+                      enabled: !isBusy,
+                      icon: const Icon(Icons.swap_vert_rounded),
+                      onSelected: (choice) => moves[choice].$2(),
+                      itemBuilder: (context) => [
+                        for (final (index, (label, _)) in moves.indexed)
+                          PopupMenuItem<int>(
+                            key: ValueKey<String>(
+                              'album-studio-move-${track.songId}-$index',
+                            ),
+                            value: index,
+                            child: Text(label),
+                          ),
+                      ],
+                    ),
+                  if (!largeText)
+                    IconButton(
+                      key: ValueKey<String>(
+                        'album-studio-edit-placement-${track.songId}',
+                      ),
+                      tooltip: 'Edit track placement',
+                      onPressed: isBusy ? null : () => onEditPlacement(track),
+                      icon: const Icon(Icons.numbers_rounded),
+                    ),
+                  // At large text the Move menu takes the handle's place and the
+                  // whole row drags on a long press, so the title keeps its room.
+                  if (!largeText)
+                    ReorderableDragStartListener(
+                      index: index,
+                      enabled: !isBusy,
+                      child: Tooltip(
+                        message: 'Drag to reorder',
+                        child: Padding(
+                          key: ValueKey<String>(
+                            'album-studio-drag-${track.songId}',
+                          ),
+                          // A 48px target around the 24px handle.
+                          padding: const EdgeInsets.all(12),
+                          child: const Icon(Icons.drag_handle_rounded),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-            ReorderableDragStartListener(
-              index: index,
-              enabled: !isBusy,
-              child: Tooltip(
-                message: 'Drag to reorder',
-                child: Padding(
-                  key: ValueKey<String>('album-studio-drag-${track.songId}'),
-                  // A 48px target around the 24px handle.
-                  padding: const EdgeInsets.all(12),
-                  child: const Icon(Icons.drag_handle_rounded),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
+    return largeText
+        ? ReorderableDelayedDragStartListener(
+            index: index,
+            enabled: !isBusy && selected == null,
+            child: row,
+          )
+        : row;
   }
 
   static String _formatDuration(int seconds) {
@@ -2089,15 +2671,11 @@ class _DetailRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onEdit,
-    this.action,
   });
 
   final String label;
   final String value;
   final VoidCallback? onEdit;
-
-  /// A second action beside the edit icon, such as a calendar.
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -2125,18 +2703,7 @@ class _DetailRow extends StatelessWidget {
       ),
       trailing: onEdit == null
           ? null
-          : action == null
-          ? Icon(Icons.edit_outlined, color: colors.textSecondary)
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconTheme.merge(
-                  data: IconThemeData(color: colors.textSecondary),
-                  child: action!,
-                ),
-                Icon(Icons.edit_outlined, color: colors.textSecondary),
-              ],
-            ),
+          : Icon(Icons.edit_outlined, color: colors.textSecondary),
     );
   }
 }
@@ -2451,6 +3018,110 @@ class _OwnerDialogState extends State<_OwnerDialog> {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Choosing a genre (REF-14): type to search the canonical categories and
+/// the release's own genres, tap one to choose it, or save what is typed
+/// as a genre of its own. Saving it empty removes the genre.
+class _GenreDialog extends StatefulWidget {
+  const _GenreDialog({required this.initial, required this.known});
+
+  final String initial;
+  final List<String> known;
+
+  @override
+  State<_GenreDialog> createState() => _GenreDialogState();
+}
+
+class _GenreDialogState extends State<_GenreDialog> {
+  late final TextEditingController _text = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestions = GenreCatalog.suggestionsFor(
+      _text.text,
+      known: widget.known,
+    );
+    final typed = _text.text.trim();
+
+    return AlertDialog(
+      key: const ValueKey<String>('release-studio-genre-dialog'),
+      title: const Text('Genre'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              key: const ValueKey<String>('release-studio-genre-field'),
+              controller: _text,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Genre',
+                hintText: 'Search or type a genre',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                key: const ValueKey<String>('release-studio-genre-options'),
+                shrinkWrap: true,
+                children: [
+                  for (final (index, genre) in suggestions.indexed)
+                    ListTile(
+                      key: ValueKey<String>(
+                        'release-studio-genre-option-$index',
+                      ),
+                      minTileHeight: 48,
+                      title: Text(genre),
+                      trailing: genre == typed
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => Navigator.of(context).pop(genre),
+                    ),
+                  if (suggestions.isEmpty && typed.isNotEmpty)
+                    ListTile(
+                      key: const ValueKey<String>(
+                        'release-studio-genre-custom',
+                      ),
+                      minTileHeight: 48,
+                      leading: const Icon(Icons.add_rounded),
+                      title: Text('Use "$typed"'),
+                      onTap: () => Navigator.of(context).pop(typed),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('release-studio-save-genre'),
+          // Read when pressed: what is in the field now.
+          onPressed: () => Navigator.of(context).pop(_text.text.trim()),
+          child: const Text('Save'),
         ),
       ],
     );

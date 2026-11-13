@@ -72,11 +72,15 @@ abstract final class SettingsDataCoverage {
         'What you permanently deleted, so it never comes back',
     DatabaseTables.libraryDeletionJournal:
         'What you permanently deleted, so it never comes back',
+    // BUG-09: the same approved label; it is part of the same record.
+    DatabaseTables.deletedAudioSignatures:
+        'What you permanently deleted, so it never comes back',
     DatabaseTables.albumReleaseClassifications:
         'Soundtrack and collaborator organization',
     DatabaseTables.artistProjectAssignments:
         'Soundtrack and collaborator organization',
     DatabaseTables.artworkCrops: 'How covers and artist photos are cropped',
+    DatabaseTables.albumEditionDiscLabels: 'Disc names',
   };
 
   static List<String> _labelsFor(BackupTablePolicy policy) {

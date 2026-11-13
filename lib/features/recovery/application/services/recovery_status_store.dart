@@ -128,12 +128,16 @@ class RecoveryStatusStore {
 
   Future<void> recordBackup(RecoveryBackupRecord record) async {
     final current = await read();
-    await _write(RecoveryStatus(lastBackup: record, lastRestore: current.lastRestore));
+    await _write(
+      RecoveryStatus(lastBackup: record, lastRestore: current.lastRestore),
+    );
   }
 
   Future<void> recordRestore(RecoveryRestoreRecord record) async {
     final current = await read();
-    await _write(RecoveryStatus(lastBackup: current.lastBackup, lastRestore: record));
+    await _write(
+      RecoveryStatus(lastBackup: current.lastBackup, lastRestore: record),
+    );
   }
 
   Future<void> _write(RecoveryStatus status) async {

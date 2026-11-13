@@ -112,6 +112,12 @@ class LibraryTrack {
   final String? filePath;
   final bool isAvailable;
 
+  /// Whether a music file for this song can be played now: its binding is
+  /// available and has a path. Album Profile shows only these; Edit Release
+  /// lists every member and marks the rest "File unavailable" (BUG-09).
+  bool get hasAvailableFile =>
+      isAvailable && filePath != null && filePath!.trim().isNotEmpty;
+
   final bool isSongBlocked;
 
   bool get isBlocked => isSongBlocked;

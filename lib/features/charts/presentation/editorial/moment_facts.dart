@@ -1,6 +1,8 @@
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/moments/chart_moment_artist_dominance.dart';
+import '../../domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
@@ -141,6 +143,8 @@ class MomentFacts {
     this.guests = const [],
     this.thresholds = const [],
     this.jump,
+    this.dominance,
+    this.jointPartner,
   });
 
   final ChartType chartType;
@@ -229,6 +233,13 @@ class MomentFacts {
 
   /// A chart jump's verified movement and stream facts (SN-50).
   final ChartJumpFacts? jump;
+
+  /// The recorded artist dominance this story tells (REF-19): its kind,
+  /// size and the history it may claim, decided when it was recorded.
+  final ArtistDominance? dominance;
+
+  /// The other artist of a joint control story (REF-19), by name.
+  final String? jointPartner;
 
   /// The rank before a run of weekly climbs began.
   int? get runFromRank => jump?.fromRank;
@@ -557,6 +568,11 @@ class MomentFacts {
       polished: polished,
       jump: jump,
       thresholds: refined ? _firstThresholds(item) : const [],
+      dominance: ArtistDominance.of(dominant),
+      jointPartner: switch (ArtistJointControl.of(dominant)) {
+        final joint? => lookups.artistName(joint.partnerArtistId),
+        null => null,
+      },
     );
   }
 

@@ -384,6 +384,74 @@ class PlaylistService {
     });
   }
 
+  /// App Update 1.2 (BUG-03): removes [songIds] from the playlist in one
+  /// transaction; the songs stay in the library. The remaining entries
+  /// keep their order and are renumbered once. Returns how many entries
+  /// were removed (songs not in the playlist are ignored).
+  Future<int> removeSongs({
+    required String playlistId,
+    required Iterable<String> songIds,
+    DateTime? now,
+  }) {
+    final normalizedPlaylistId = _requiredId(
+      playlistId,
+      'playlistId',
+      'Playlist id',
+    );
+
+    final normalizedSongIds = <String>{
+      for (final songId in songIds) _requiredId(songId, 'songIds', 'Song id'),
+    };
+
+    final timestamp = now ?? _now();
+
+    return mutationRunner.run((context) async {
+      final playlistRepository = _requirePlaylistRepository(context);
+
+      final playlist = await playlistRepository.getById(normalizedPlaylistId);
+
+      if (playlist == null) {
+        throw StateError('Playlist not found: $normalizedPlaylistId');
+      }
+
+      final items = await playlistRepository.getItems(normalizedPlaylistId);
+      final ordered = [...items]
+        ..sort((a, b) => a.position.compareTo(b.position));
+
+      final remaining = <PlaylistItem>[];
+      var removed = 0;
+
+      for (final item in ordered) {
+        if (normalizedSongIds.contains(item.songId)) {
+          await playlistRepository.removeItem(item.id);
+          removed++;
+        } else {
+          remaining.add(item);
+        }
+      }
+
+      if (removed == 0) {
+        return 0;
+      }
+
+      for (var index = 0; index < remaining.length; index++) {
+        final item = remaining[index];
+
+        if (item.position == index) {
+          continue;
+        }
+
+        await playlistRepository.saveItem(
+          item.copyWith(position: index, updatedAt: timestamp),
+        );
+      }
+
+      await playlistRepository.save(playlist.copyWith(updatedAt: timestamp));
+
+      return removed;
+    });
+  }
+
   Future<List<PlaylistItem>> reorderItems({
     required String playlistId,
     required List<String> orderedItemIds,

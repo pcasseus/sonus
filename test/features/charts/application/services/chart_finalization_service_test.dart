@@ -9,6 +9,7 @@ import 'package:sonus_next/features/analytics/domain/repositories/qualified_play
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_joint_control.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
@@ -85,13 +86,25 @@ void main() {
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
+    Future<DateTime?> Function()? dominanceFromUtc,
+    Future<DateTime?> Function()? chartHistoryOriginUtc,
+    Future<bool> Function(String chartType, DateTime weekStartUtc)?
+    isRecalculatedWeek,
+    Future<DateTime?> Function()? jointControlFromUtc,
+    ChartSongCreditLookup? songCredits,
+    List<String> extraAlbums = const [],
   }) {
     final library = _FakeLibraryQueryRepository(
       tracks: [
         track(songId: 'song-a', albumId: 'album-a'),
         track(songId: 'song-b', albumId: 'album-b'),
+        for (final id in extraAlbums) track(songId: 'song-$id', albumId: id),
       ],
-      albums: [album('album-a'), album('album-b')],
+      albums: [
+        album('album-a'),
+        album('album-b'),
+        for (final id in extraAlbums) album(id),
+      ],
     );
 
     final builder = ChartSnapshotBuilderService(
@@ -111,8 +124,71 @@ void main() {
       restoreGeneration: restoreGeneration,
       releaseEligibility: releaseEligibility,
       artistAttribution: artistAttribution,
+      dominanceFromUtc: dominanceFromUtc,
+      chartHistoryOriginUtc: chartHistoryOriginUtc,
+      isRecalculatedWeek: isRecalculatedWeek,
+      jointControlFromUtc: jointControlFromUtc,
+      songCredits: songCredits,
     );
   }
+
+  group('REF-19: artist dominance starts with the week running at '
+      'activation, never earlier', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    /// Three songs, all counting for "nova": a #1–3 sweep.
+    Future<List<ChartMomentEvent>> dominance(DateTime? from) async {
+      final moments = _RecordingMomentRepository();
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final (i, id) in ['album-a', 'album-b', 'album-c'].indexed)
+            for (var n = 0; n <= 2 - i; n++)
+              play(
+                id: '$id-$n',
+                songId: id == 'album-c' ? 'song-album-c' : 'song-${id[6]}',
+                albumId: id,
+                qualifiedAt: DateTime.utc(2026, 9, 28, 10, n),
+              ),
+        ]),
+        charts: _RecordingChartRepository(),
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'nova',
+          'song-album-c': 'nova',
+        },
+        dominanceFromUtc: () async => from,
+        extraAlbums: const ['album-c'],
+      ).reconcileCompletedWeek(week);
+      return [
+        for (final publication in moments.publications)
+          for (final event in publication.events)
+            if (event.sourceId?.startsWith('dominance:') ?? false) event,
+      ];
+    }
+
+    test('activated while the week runs: its sweep is recorded', () async {
+      final events = await dominance(DateTime.utc(2026, 10, 1));
+      expect(events, hasLength(1));
+      expect(events.single.chartType, ChartType.songs);
+      expect(events.single.sourceId, startsWith('dominance:sweep:3:'));
+      expect(events.single.entity.artistId, 'nova');
+    });
+
+    test('a week that had ended before activation never gets one, even '
+        'when it is finalized afterwards', () async {
+      expect(await dominance(DateTime.utc(2026, 10, 4)), isEmpty);
+      expect(await dominance(DateTime.utc(2026, 10, 9)), isEmpty);
+    });
+
+    test('no recorded start: none', () async {
+      expect(await dominance(null), isEmpty);
+    });
+  });
 
   test('SN-45: weekly artist achievements count for the artist each song '
       'belongs to, never for a contributor', () async {
@@ -148,6 +224,228 @@ void main() {
       {for (final event in artistEvents) event.entity.artistId},
       {'owner'},
     );
+  });
+
+  group('REF-19: dominance history evidence flows from stored weeks', () {
+    final first = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+    final second = ChartWeek(
+      startUtc: DateTime.utc(2026, 10, 4),
+      endUtc: DateTime.utc(2026, 10, 11),
+    );
+
+    /// Nova sweeps #1–3 in both weeks.
+    Future<List<String?>> secondWeekSources(DateTime? origin) async {
+      final moments = _RecordingMomentRepository();
+      final charts = _RecordingChartRepository();
+      final service = createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final week in [first, second])
+            for (final (i, id) in ['album-a', 'album-b', 'album-c'].indexed)
+              for (var n = 0; n <= 2 - i; n++)
+                play(
+                  id: '$id-$n-${week.startUtc.day}',
+                  songId: id == 'album-c' ? 'song-album-c' : 'song-${id[6]}',
+                  albumId: id,
+                  qualifiedAt: week.startUtc.add(Duration(days: 1, minutes: n)),
+                ),
+        ]),
+        charts: charts,
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'nova',
+          'song-album-c': 'nova',
+        },
+        dominanceFromUtc: () async => DateTime.utc(2026, 9, 1),
+        chartHistoryOriginUtc: () async => origin,
+        extraAlbums: const ['album-c'],
+      );
+      await service.reconcileCompletedWeek(first);
+      await service.reconcileCompletedWeek(second);
+      return [
+        for (final publication in moments.publications)
+          if (publication.weekStartUtc.toUtc() == second.startUtc)
+            for (final event in publication.events)
+              if (event.sourceId?.startsWith('dominance:') ?? false)
+                event.sourceId,
+      ];
+    }
+
+    test('two original weeks of the same sweep: told as a second straight '
+        'week', () async {
+      expect(await secondWeekSources(DateTime.utc(2026, 9, 1)), [
+        startsWith('dominance:sweep:3:streak2:'),
+      ]);
+    });
+
+    test('history that cannot be shown: the held sweep is quiet', () async {
+      expect(await secondWeekSources(null), isEmpty);
+      expect(
+        await secondWeekSources(DateTime.utc(2026, 9, 30)),
+        isEmpty,
+        reason: 'the first week was already under way at the origin',
+      );
+    });
+  });
+
+  group('REF-19: joint control needs its own start and known credits', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    /// Nova at #1 and #3, Juno at #2 and #4.
+    Future<List<String?>> joint({
+      DateTime? from,
+      ChartSongCreditLookup? credits,
+    }) async {
+      final moments = _RecordingMomentRepository();
+      const songs = ['song-a', 'song-b', 'song-album-c', 'song-album-d'];
+      const albums = ['album-a', 'album-b', 'album-c', 'album-d'];
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final (i, song) in songs.indexed)
+            for (var n = 0; n < 4 - i; n++)
+              play(
+                id: '$song-$n',
+                songId: song,
+                albumId: albums[i],
+                qualifiedAt: DateTime.utc(2026, 9, 28, 10, n),
+              ),
+        ]),
+        charts: _RecordingChartRepository(),
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'juno',
+          'song-album-c': 'nova',
+          'song-album-d': 'juno',
+        },
+        jointControlFromUtc: () async => from,
+        songCredits: credits,
+        extraAlbums: const ['album-c', 'album-d'],
+      ).reconcileCompletedWeek(week);
+      return [
+        for (final publication in moments.publications)
+          for (final event in publication.events)
+            if (event.sourceId?.startsWith('joint:') ?? false) event.sourceId,
+      ];
+    }
+
+    Future<Map<String, ChartSongCredits>> solo(Set<String> ids) async => {
+      for (final id in ids)
+        id: ChartSongCredits(artistIds: {'artist-$id'}, complete: true),
+    };
+
+    test('started while the week ran, with clear credits: one row per '
+        'artist', () async {
+      // Juno's row names its partner Nova, and Nova's names Juno.
+      expect(await joint(from: DateTime.utc(2026, 9, 1), credits: solo), [
+        startsWith('joint:4:nova:'),
+        startsWith('joint:4:juno:'),
+      ]);
+    });
+
+    test('no start, a start after the week, or no credits: none', () async {
+      expect(await joint(credits: solo), isEmpty);
+      expect(
+        await joint(from: DateTime.utc(2026, 10, 4), credits: solo),
+        isEmpty,
+      );
+      expect(await joint(from: DateTime.utc(2026, 9, 1)), isEmpty);
+    });
+
+    test('a collaboration between the pair: none', () async {
+      Future<Map<String, ChartSongCredits>> shared(Set<String> ids) async => {
+        ...await solo(ids),
+        'song-a': const ChartSongCredits(
+          artistIds: {'artist-album-a', 'artist-album-b'},
+          complete: true,
+        ),
+      };
+      expect(
+        await joint(from: DateTime.utc(2026, 9, 1), credits: shared),
+        isEmpty,
+      );
+    });
+  });
+
+  group('REF-19: each finalized week records where it came from', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    Future<Set<ChartSnapshotProvenance?>> finalize({
+      Future<DateTime?> Function()? origin,
+      bool recalculated = false,
+    }) async {
+      final charts = _RecordingChartRepository();
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          play(
+            id: '1',
+            songId: 'song-a',
+            albumId: 'album-a',
+            qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+          ),
+        ]),
+        charts: charts,
+        chartHistoryOriginUtc: origin,
+        isRecalculatedWeek: (_, _) async => recalculated,
+      ).reconcileCompletedWeek(week);
+      return {
+        for (final type in ChartType.values)
+          (await charts.getForWeek(
+            chartType: type,
+            weekStartUtc: week.startUtc,
+          ))!.provenance,
+      };
+    }
+
+    test('a week that began after the history did is original', () async {
+      expect(await finalize(origin: () async => DateTime.utc(2026, 9, 1)), {
+        ChartSnapshotProvenance.original,
+      });
+      expect(await finalize(origin: () async => week.startUtc), {
+        ChartSnapshotProvenance.original,
+      });
+    });
+
+    test('a week already under way when the history began is unverified, '
+        'never original', () async {
+      expect(await finalize(origin: () async => DateTime.utc(2026, 9, 28)), {
+        ChartSnapshotProvenance.unverified,
+      });
+    });
+
+    test(
+      'a week recalculated after a deletion or merge is unverified',
+      () async {
+        expect(
+          await finalize(
+            origin: () async => DateTime.utc(2026, 9, 1),
+            recalculated: true,
+          ),
+          {ChartSnapshotProvenance.unverified},
+        );
+      },
+    );
+
+    test('an origin that was never recorded is unverified', () async {
+      expect(await finalize(origin: () async => null), {
+        ChartSnapshotProvenance.unverified,
+      });
+    });
+
+    test('without an origin reader the provenance stays unknown', () async {
+      expect(await finalize(), {null});
+    });
   });
 
   group('SN-45: Singles on the release chart', () {

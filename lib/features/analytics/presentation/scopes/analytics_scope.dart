@@ -116,6 +116,14 @@ class AnalyticsRuntime {
       tracker: tracker,
       now: now,
       userIdProvider: userIdProvider,
+      // Recording failures were kept silently; they are logged (type
+      // only: messages can hold song ids and paths).
+      onError: (error, stackTrace) => developer.log(
+        'Listening could not be recorded (${error.runtimeType})',
+        name: 'sonus.analytics.listening',
+        level: 900,
+        stackTrace: stackTrace,
+      ),
     );
 
     return AnalyticsRuntime(

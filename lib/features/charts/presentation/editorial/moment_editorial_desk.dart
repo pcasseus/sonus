@@ -489,6 +489,10 @@ class MomentEditorialDesk {
         MomentFamily.artistTopArtist => 1,
         MomentFamily.artistSimultaneous ||
         MomentFamily.artistSimultaneousReleases ||
+        MomentFamily.artistChartSweep ||
+        MomentFamily.artistTop10Presence ||
+        MomentFamily.artistHot100Presence ||
+        MomentFamily.artistJointControl ||
         MomentFamily.artistStreamMilestone => null,
         _ => facts.rank,
       },
@@ -723,6 +727,10 @@ class MomentEditorialDesk {
     MomentFamily.artistTopArtist => 'TOP ARTIST',
     MomentFamily.artistSimultaneous ||
     MomentFamily.artistSimultaneousReleases => 'RECORD',
+    MomentFamily.artistChartSweep => 'CHART SWEEP',
+    MomentFamily.artistTop10Presence ||
+    MomentFamily.artistHot100Presence => 'RECORD',
+    MomentFamily.artistJointControl => 'JOINT CONTROL',
     MomentFamily.songBubblingUnderFall => 'FALL',
     MomentFamily.songHot100Exit => 'HOT 100 EXIT',
     // App Update 1.1: MomentChronicle writes these stories' status.
@@ -772,6 +780,10 @@ class MomentEditorialDesk {
     MomentFamily.artistStreamMilestone ||
     MomentFamily.artistSimultaneous ||
     MomentFamily.artistSimultaneousReleases ||
+    MomentFamily.artistChartSweep ||
+    MomentFamily.artistTop10Presence ||
+    MomentFamily.artistHot100Presence ||
+    MomentFamily.artistJointControl ||
     MomentFamily.songHot100ClimbRun ||
     MomentFamily.songBubblingUnderFall ||
     MomentFamily.songHot100Exit ||

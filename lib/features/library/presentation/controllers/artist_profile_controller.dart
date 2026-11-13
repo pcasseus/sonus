@@ -16,6 +16,7 @@ import '../../../artwork/application/services/artwork_crop_service.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../player/presentation/controllers/playback_shuffle_mode.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
@@ -32,7 +33,7 @@ import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../models/artist_profile_sections.dart';
 
-class ArtistProfileController extends ChangeNotifier {
+class ArtistProfileController extends ChangeNotifier with PlaybackShuffleMode {
   ArtistProfileController({
     required LibraryQueryRepository repository,
     required String artistId,
@@ -89,7 +90,9 @@ class ArtistProfileController extends ChangeNotifier {
     this._projectArtistId,
     this._clock,
     this._random,
-  );
+  ) {
+    watchPlaybackShuffle();
+  }
 
   final LibraryQueryRepository _repository;
   final String _artistId;
@@ -129,10 +132,6 @@ class ArtistProfileController extends ChangeNotifier {
   List<ContributorAppearance> _appearances = const [];
 
   bool _isLoading = false;
-  // Starts from the player's actual mode, which may have been restored
-  // from the listener's saved preference.
-  late bool _isShuffleEnabled =
-      _playbackCoordinator?.currentState.shuffleEnabled ?? false;
   Object? _error;
 
   String get artistId => _artistId;
@@ -275,7 +274,8 @@ class ArtistProfileController extends ChangeNotifier {
 
   bool get isLoading => _isLoading;
 
-  bool get isShuffleEnabled => _isShuffleEnabled;
+  @override
+  PlaybackCoordinator? get shufflePlayback => _playbackCoordinator;
 
   Object? get error => _error;
 
@@ -1077,7 +1077,7 @@ class ArtistProfileController extends ChangeNotifier {
       return;
     }
 
-    final startIndex = _isShuffleEnabled
+    final startIndex = isShuffleEnabled
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 
@@ -1098,27 +1098,6 @@ class ArtistProfileController extends ChangeNotifier {
       collaborator.tracks,
       startIndex: first,
     );
-  }
-
-  Future<void> setShuffleEnabled(bool enabled) async {
-    if (_isShuffleEnabled == enabled) {
-      return;
-    }
-
-    final playbackCoordinator = _playbackCoordinator;
-
-    if (playbackCoordinator == null) {
-      return;
-    }
-
-    await playbackCoordinator.setShuffleEnabled(enabled);
-
-    _isShuffleEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<void> toggleShuffle() {
-    return setShuffleEnabled(!_isShuffleEnabled);
   }
 
   Future<void> playNext(LibraryTrack track) async {

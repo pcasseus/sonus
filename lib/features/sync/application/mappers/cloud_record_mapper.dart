@@ -1,6 +1,7 @@
 import '../../../artwork/domain/entities/artwork_asset.dart';
 import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/entities/release_date.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
 import '../../../library/domain/entities/album_edition_track.dart';
@@ -44,11 +45,16 @@ abstract final class CloudRecordMapper {
     );
   }
 
+  /// [discLabels] (and the partial date) are carried only when
+  /// [withExtensions]: the edition columns of the proposed cloud migration.
   static CloudAlbumEditionRecord albumEdition({
     required AlbumEdition albumEdition,
     required String userId,
     List<MetadataFieldState> metadataFieldStates = const [],
+    bool withExtensions = false,
+    Map<int, String> discLabels = const {},
   }) {
+    final date = albumEdition.releaseDate;
     return CloudAlbumEditionRecord(
       id: albumEdition.id,
       userId: userId,
@@ -60,6 +66,10 @@ abstract final class CloudRecordMapper {
       genre: albumEdition.genre,
       artworkId: albumEdition.artworkId,
       metadataFieldStates: _metadataFieldStates(metadataFieldStates),
+      releaseDatePartial: withExtensions && date != null
+          ? ReleaseDate.fromStored(date, albumEdition.releaseDatePrecision).iso
+          : null,
+      discLabels: withExtensions ? Map.unmodifiable(discLabels) : null,
       createdAt: albumEdition.createdAt,
       updatedAt: albumEdition.updatedAt,
     );

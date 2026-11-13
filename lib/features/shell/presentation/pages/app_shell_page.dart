@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -47,6 +49,7 @@ class _AppShellPageState extends State<AppShellPage>
       vsync: this,
       initialIndex: _shellController.currentIndex,
     );
+    _tabController.addListener(_handleTabChange);
   }
 
   void _selectDestination(AppDestination destination) {
@@ -72,6 +75,7 @@ class _AppShellPageState extends State<AppShellPage>
       return;
     }
 
+    _animatingTo = destination.index;
     _pageController.animateToPage(
       destination.index,
       duration: motion.medium,
@@ -81,12 +85,111 @@ class _AppShellPageState extends State<AppShellPage>
     );
   }
 
+  /// App Update 1.2 (BUG-02): the destination a tab tap is sliding to.
+  /// The slide passes the pages in between, which report themselves as it
+  /// goes; they must not make the current destination pass back through
+  /// them (each one briefly became "current"). Cleared on arrival, or when
+  /// the listener takes over with a drag.
+  int? _animatingTo;
+
+  /// Each tab's label, to centre the selected tab once it has settled.
+  final Map<AppDestination, GlobalKey> _tabLabels = {
+    for (final destination in AppDestination.values) destination: GlobalKey(),
+  };
+
+  /// App Update 1.2 (BUG-02): the tab bar centres the selected tab when
+  /// the index changes, while the selected label is still turning bold
+  /// and the others back to regular, so tab widths are still changing and
+  /// it settles off centre (by about 0.6 to 0.7 dp, either way, depending
+  /// on how the change was made). Once the change is complete and the
+  /// final labels are laid out, the selected tab is centred on its real
+  /// width (or as near as the bar's ends allow).
+  void _handleTabChange() {
+    if (_tabController.indexIsChanging) return;
+    final label = _tabLabels[AppDestination.values[_tabController.index]]!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = label.currentContext;
+      if (!mounted || context == null || _tabController.indexIsChanging) {
+        return;
+      }
+      final motion = SonusTheme.of(this.context).motion;
+      unawaited(
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: motion.short,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    });
+  }
+
   void _handlePageChanged(int index) {
+    final target = _animatingTo;
+    if (target != null) {
+      // Neither the current destination nor the tab indicator follows the
+      // pages the slide passes: the tab already went to the target.
+      if (index != target) return;
+      _animatingTo = null;
+    }
+
     _shellController.selectIndex(index);
 
     if (_tabController.index != index) {
       _tabController.animateTo(index);
     }
+  }
+
+  /// App Update 1.2 (BUG-02): a horizontal list or pager inside a
+  /// destination (the Artist Roster's pages, a Home rail) holds the swipe,
+  /// so at its first or last item the swipe went nowhere and the next
+  /// destination could not be reached from there. Its overscroll now moves
+  /// the destinations on, and when the drag ends they settle on the
+  /// nearest one, as a swipe anywhere else does.
+  bool _handOff = false;
+
+  bool _handleNestedScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.horizontal) return false;
+
+    if (notification.depth == 0) {
+      // The destinations themselves: a drag takes over from a tab slide.
+      if (notification is ScrollStartNotification &&
+          notification.dragDetails != null) {
+        _animatingTo = null;
+      }
+      return false;
+    }
+
+    if (!_pageController.hasClients) return false;
+    final position = _pageController.position;
+
+    if (notification is OverscrollNotification &&
+        notification.dragDetails != null) {
+      _animatingTo = null;
+      _handOff = true;
+      position.jumpTo(
+        (position.pixels + notification.overscroll).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    } else if (_handOff && notification is ScrollEndNotification) {
+      _handOff = false;
+      final page = (_pageController.page ?? 0).round();
+      final motion = SonusTheme.of(context).motion;
+      if (motion.reduced) {
+        _pageController.jumpToPage(page);
+      } else {
+        unawaited(
+          _pageController.animateToPage(
+            page,
+            duration: motion.short,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+    }
+    return false;
   }
 
   void _openSearch() {
@@ -164,7 +267,15 @@ class _AppShellPageState extends State<AppShellPage>
               for (final destination in AppDestination.values)
                 Tab(
                   key: ValueKey<String>('app-tab-${destination.name}'),
-                  text: destination.label,
+                  // As Tab(text:) builds it, keyed so it can be centred.
+                  child: KeyedSubtree(
+                    key: _tabLabels[destination],
+                    child: Text(
+                      destination.label,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                    ),
+                  ),
                 ),
             ],
             onTap: (index) {
@@ -172,13 +283,16 @@ class _AppShellPageState extends State<AppShellPage>
             },
           ),
         ),
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: _handlePageChanged,
-          children: [
-            for (final destination in AppDestination.values)
-              _buildDestinationPage(destination),
-          ],
+        body: NotificationListener<ScrollNotification>(
+          onNotification: _handleNestedScroll,
+          child: PageView(
+            controller: _pageController,
+            onPageChanged: _handlePageChanged,
+            children: [
+              for (final destination in AppDestination.values)
+                _buildDestinationPage(destination),
+            ],
+          ),
         ),
       ),
     );

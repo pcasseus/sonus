@@ -139,9 +139,7 @@ void main() {
     await ArtworkAssetDao(db).insert(existing);
 
     final edition = (await AlbumEditionDao(db).findById(editionId))!;
-    await AlbumEditionDao(db).update(
-      edition.copyWith(artworkId: existing.id),
-    );
+    await AlbumEditionDao(db).update(edition.copyWith(artworkId: existing.id));
 
     await MetadataFieldStateDao(db).upsert(
       MetadataFieldState(
@@ -159,10 +157,7 @@ void main() {
       image: candidate,
     );
 
-    expect(
-      result.decision,
-      MetadataReplacementDecision.rejectLowerAuthority,
-    );
+    expect(result.decision, MetadataReplacementDecision.rejectLowerAuthority);
     expect(result.applied, isFalse);
     expect(result.changed, isFalse);
     expect(result.artworkId, existing.id);
@@ -209,10 +204,7 @@ void main() {
       image: candidate,
     );
 
-    expect(
-      result.decision,
-      MetadataReplacementDecision.rejectLowerAuthority,
-    );
+    expect(result.decision, MetadataReplacementDecision.rejectLowerAuthority);
     expect(result.applied, isFalse);
     expect(result.changed, isFalse);
     expect(result.artworkId, isNull);

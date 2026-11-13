@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_text_scale.dart';
+import '../../../../core/design/widgets/sonus_scroll_to_top.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../song_stats/presentation/song_stats_navigation.dart';
@@ -211,22 +212,8 @@ class _ScrollToTopHost extends StatefulWidget {
 }
 
 class _ScrollToTopHostState extends State<_ScrollToTopHost> {
-  static const double _showAfter = 800;
-
   final ScrollController _scroll = ScrollController();
   final _ChartRows _rows = _ChartRows();
-  bool _show = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(_update);
-  }
-
-  void _update() {
-    final show = _scroll.hasClients && _scroll.offset > _showAfter;
-    if (show != _show) setState(() => _show = show);
-  }
 
   @override
   void dispose() {
@@ -234,42 +221,15 @@ class _ScrollToTopHostState extends State<_ScrollToTopHost> {
     super.dispose();
   }
 
-  void _toTop() {
-    final motion = SonusTheme.of(context).motion;
-    if (motion.reduced) {
-      _scroll.jumpTo(0);
-    } else {
-      unawaited(
-        _scroll.animateTo(0, duration: motion.long, curve: motion.curve),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final motion = SonusTheme.of(context).motion;
-    return Stack(
-      children: [
-        widget.builder(_scroll, _rows),
-        PositionedDirectional(
-          end: 16,
-          bottom: 16,
-          child: IgnorePointer(
-            ignoring: !_show,
-            child: AnimatedOpacity(
-              opacity: _show ? 1 : 0,
-              duration: motion.short,
-              child: FloatingActionButton.small(
-                key: const ValueKey<String>('charts-scroll-to-top'),
-                heroTag: null,
-                tooltip: 'Back to top',
-                onPressed: _show ? _toTop : null,
-                child: const Icon(Icons.vertical_align_top_rounded),
-              ),
-            ),
-          ),
-        ),
-      ],
+    // Shared with Tracks (App Update 1.2, BUG-04). Its visibility also
+    // follows content changes without a scroll: another board, Moments
+    // or the Archive, a filter or a search.
+    return SonusScrollToTop(
+      controller: _scroll,
+      buttonKey: const ValueKey<String>('charts-scroll-to-top'),
+      child: widget.builder(_scroll, _rows),
     );
   }
 }

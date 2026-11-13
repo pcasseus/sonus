@@ -12,7 +12,6 @@ import 'package:sonus_next/features/library/application/models/external_metadata
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
-import 'package:sonus_next/features/library/presentation/widgets/cover_art_album_search_dialog.dart';
 import 'package:sonus_next/features/library/presentation/widgets/musicbrainz_search_dialog.dart';
 import 'package:sonus_next/features/settings/application/controllers/metadata_intelligence_settings_controller.dart';
 
@@ -50,10 +49,6 @@ void main() {
     entityKind: ExternalMetadataEntityKind.track,
     title: 'Song',
   );
-  const albumQuery = ExternalMetadataSearchQuery(
-    entityKind: ExternalMetadataEntityKind.album,
-    albumTitle: 'Album',
-  );
 
   Future<void> pump(WidgetTester tester, _Consent consent, Widget dialog) {
     return tester.pumpWidget(
@@ -70,8 +65,6 @@ void main() {
       query: trackQuery,
       applier: (_) async => const ExternalMetadataApplicationResult(),
     ),
-    'cover art search': (provider) =>
-        CoverArtAlbumSearchDialog(provider: provider, query: albumQuery),
   };
 
   for (final MapEntry(key: name, value: build) in dialogs.entries) {
@@ -87,6 +80,10 @@ void main() {
           find.byKey(const ValueKey<String>('online-lookup-disclosure')),
           findsOneWidget,
         );
+        // REF-18: Sonus no longer offers Cover Art Archive search, so the
+        // disclosure names only MusicBrainz.
+        expect(find.text(onlineLookupDisclosure), findsOneWidget);
+        expect(find.textContaining('Cover Art Archive'), findsNothing);
         expect(provider.searches, 0, reason: 'nothing sent before consent');
 
         await tester.tap(
@@ -96,6 +93,72 @@ void main() {
 
         expect(consent.isOnlineLookupAccepted, isTrue);
         expect(provider.searches, 1);
+      });
+
+      testWidgets(
+        'the disclosure says what is suggested, what is sent and that '
+        'manual edits stay',
+        (tester) async {
+          await pump(
+            tester,
+            _Consent(isOnlineLookupAccepted: false),
+            build(_CountingProvider()),
+          );
+          await tester.pumpAndSettle();
+
+          final shown = tester
+              .widget<Text>(
+                find.descendant(
+                  of: find.byKey(
+                    const ValueKey<String>('online-lookup-disclosure'),
+                  ),
+                  matching: find.textContaining('MusicBrainz can suggest'),
+                ),
+              )
+              .data!;
+          for (final statement in [
+            'MusicBrainz can suggest artist, release and song information, '
+                'and genres for albums.',
+            'Review the suggestions before applying them.',
+            'Your manual edits will not be replaced automatically.',
+            'Sonus sends only the search text (an artist, album or song '
+                'name, and for songs the album and length) to MusicBrainz.',
+            'Nothing else from your library leaves this device.',
+            'You can turn online lookups off in Settings.',
+          ]) {
+            expect(shown, contains(statement));
+          }
+          expect(shown, isNot(contains('Cover Art Archive')));
+          expect(shown, isNot(contains('artwork')));
+        },
+      );
+
+      testWidgets('the disclosure fits a 320 px phone at large text', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.view.reset);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+        await pump(
+          tester,
+          _Consent(isOnlineLookupAccepted: false),
+          build(_CountingProvider()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        final accept = find.byKey(
+          const ValueKey<String>('online-lookup-accept'),
+        );
+        await tester.ensureVisible(accept);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(accept).height, greaterThanOrEqualTo(40));
+        await tester.tap(accept);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
       });
 
       testWidgets('searches at once after consent', (tester) async {

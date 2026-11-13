@@ -72,9 +72,9 @@ class BackupArtworkInventoryService {
         );
       }
 
-      if (await File(sourcePath).stat().then(
-        (stat) => stat.type != FileSystemEntityType.file,
-      )) {
+      if (await File(
+        sourcePath,
+      ).stat().then((stat) => stat.type != FileSystemEntityType.file)) {
         missingIds.add(id);
       }
 

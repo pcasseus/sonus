@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../player/presentation/controllers/playback_shuffle_mode.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -16,7 +17,8 @@ import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../../core/state/dispose_safe_notifier.dart';
 
-class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
+class LibraryTracksController extends ChangeNotifier
+    with DisposeSafeNotifier, PlaybackShuffleMode {
   factory LibraryTracksController({
     required LibraryQueryRepository repository,
     required PlaybackCoordinator playbackCoordinator,
@@ -48,7 +50,9 @@ class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
     this._trackProfileEditingService,
     this._songBlockService,
     this._random,
-  );
+  ) {
+    watchPlaybackShuffle();
+  }
 
   final LibraryQueryRepository _repository;
   final PlaybackCoordinator _playbackCoordinator;
@@ -63,10 +67,6 @@ class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
   LibraryTrackOrder _order = LibraryTrackOrder.title;
 
   bool _isLoading = false;
-  // Starts from the player's actual mode, which may have been restored
-  // from the listener's saved preference.
-  late bool _isShuffleEnabled =
-      _playbackCoordinator.currentState.shuffleEnabled;
   Object? _error;
 
   List<LibraryTrack> get tracks => _tracks;
@@ -75,7 +75,8 @@ class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
 
   bool get isLoading => _isLoading;
 
-  bool get isShuffleEnabled => _isShuffleEnabled;
+  @override
+  PlaybackCoordinator get shufflePlayback => _playbackCoordinator;
 
   Object? get error => _error;
 
@@ -284,21 +285,6 @@ class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
     await load();
   }
 
-  Future<void> setShuffleEnabled(bool enabled) async {
-    if (_isShuffleEnabled == enabled) {
-      return;
-    }
-
-    await _playbackCoordinator.setShuffleEnabled(enabled);
-
-    _isShuffleEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<void> toggleShuffle() {
-    return setShuffleEnabled(!_isShuffleEnabled);
-  }
-
   Future<void> playTrack(LibraryTrack track) {
     final startIndex = _tracks.indexWhere(
       (candidate) => candidate.songId == track.songId,
@@ -328,7 +314,7 @@ class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
       return;
     }
 
-    final startIndex = _isShuffleEnabled
+    final startIndex = isShuffleEnabled
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 

@@ -86,6 +86,9 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.chartSnapshots,
       policy: BackupTablePolicy.portableData,
+      // Where each week came from (database version 46); weeks in older
+      // backups restore as unknown.
+      columnsAddedLater: {'provenance'},
     ),
     BackupTableCoverage(
       table: DatabaseTables.chartEntries,
@@ -151,6 +154,13 @@ abstract final class BackupCoverageContract {
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
     ),
+    // Disc names (database version 45). Backups made before restore
+    // without them.
+    BackupTableCoverage(
+      table: DatabaseTables.albumEditionDiscLabels,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(
@@ -200,6 +210,19 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.libraryDeletionJournal,
       policy: BackupTablePolicy.deviceLocal,
+    ),
+    // The audio of permanently deleted files (database version 43).
+    BackupTableCoverage(
+      table: DatabaseTables.deletedAudioSignatures,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
+    // When this database's chart history began (version 46): internal
+    // bookkeeping, never described to users and never taken from a backup
+    // (a restore starts it again at the restore). Not sync state, so it is
+    // not in RecoveryFingerprintService.syncStateTables.
+    BackupTableCoverage(
+      table: DatabaseTables.chartHistoryOrigin,
+      policy: BackupTablePolicy.internalState,
     ),
   ];
 

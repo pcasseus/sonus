@@ -1,6 +1,8 @@
 import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/entities/album_edition_disc_label.dart';
+import '../../../library/domain/entities/release_date.dart';
 import '../../../library/domain/repositories/album_edition_track_repository.dart';
 import '../../../library/domain/entities/album_edition_track.dart';
 import '../../../library/domain/entities/artist.dart';
@@ -299,15 +301,7 @@ class InboundCloudRecordApplier {
       type: _albumEditionType(record.type),
       isPrimary: record.isPrimary,
       releaseDate: record.releaseDate,
-      // The cloud record has no precision yet (SN-49): an unchanged date
-      // keeps this device's, and a changed one is shown as it is stored.
-      releaseDatePrecision:
-          existing != null &&
-              record.releaseDate != null &&
-              existing.releaseDate?.isAtSameMomentAs(record.releaseDate!) ==
-                  true
-          ? existing.releaseDatePrecision
-          : null,
+      releaseDatePrecision: _precisionOf(record, existing),
       genre: record.genre,
       artworkId: record.artworkId,
       createdAt: record.createdAt,
@@ -320,12 +314,60 @@ class InboundCloudRecordApplier {
       await context.albumEditionRepository.save(entity);
     }
 
+    // Disc names travel with the edition when the record carries them;
+    // a record without them (an older writer or server) leaves this
+    // device's names as they are.
+    final labels = record.discLabels;
+    final labelRepository = context.albumEditionDiscLabelRepository;
+    if (labels != null && labelRepository != null) {
+      await labelRepository.keepOnly(
+        editionId: record.id,
+        discs: labels.keys.toSet(),
+      );
+      final kept = {
+        for (final label in await labelRepository.getByEditionId(record.id))
+          label.discNumber: label,
+      };
+      for (final MapEntry(key: disc, value: text) in labels.entries) {
+        final current = kept[disc];
+        if (current?.label == text) continue;
+        await labelRepository.save(
+          AlbumEditionDiscLabel(
+            albumEditionId: record.id,
+            discNumber: disc,
+            label: text,
+            createdAt: current?.createdAt ?? record.updatedAt,
+            updatedAt: record.updatedAt,
+          ),
+        );
+      }
+    }
+
     await _restoreMetadataFieldStates(
       entityType: MetadataEntityType.albumEdition,
       entityId: record.id,
       cloudStates: record.metadataFieldStates,
       context: context,
     );
+  }
+
+  /// The precision of [record]'s release date. Its partial date wins when
+  /// it describes that date exactly; otherwise an unchanged date keeps this
+  /// device's precision, and a changed one is shown as it is stored (an
+  /// older writer moved it, so a stale partial is never trusted).
+  static ReleaseDatePrecision? _precisionOf(
+    CloudAlbumEditionRecord record,
+    AlbumEdition? existing,
+  ) {
+    final date = record.releaseDate;
+    if (date == null) return null;
+    final partial = ReleaseDate.tryParse(record.releaseDatePartial);
+    if (partial != null && partial.instant.isAtSameMomentAs(date)) {
+      return partial.precision;
+    }
+    return existing?.releaseDate?.isAtSameMomentAs(date) == true
+        ? existing!.releaseDatePrecision
+        : null;
   }
 
   Future<void> _applySong(

@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 35);
+    expect(tables.length, 38);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -19,7 +19,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(names.length, 20);
+    expect(names.length, 21);
 
     expect(
       names,
@@ -58,6 +58,7 @@ void main() {
         DatabaseTables.albumReleaseClassifications,
         DatabaseTables.artistProjectAssignments,
         DatabaseTables.artworkCrops,
+        DatabaseTables.albumEditionDiscLabels,
       },
     );
     expect(
@@ -99,6 +100,7 @@ void main() {
       DatabaseTables.songImportReviews,
       DatabaseTables.libraryDeletionLedger,
       DatabaseTables.libraryDeletionJournal,
+      DatabaseTables.deletedAudioSignatures,
     });
   });
 
@@ -108,7 +110,8 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(internal.length, 9);
+    expect(internal.length, 10);
+    expect(internal, contains(DatabaseTables.chartHistoryOrigin));
     expect(internal, contains(DatabaseTables.syncState));
     expect(internal, contains(DatabaseTables.syncOutbox));
     expect(internal, contains(DatabaseTables.localAccountBinding));
@@ -121,10 +124,15 @@ void main() {
   });
 
   test('every internal sync table is watched as sync state', () {
-    final internal = BackupCoverageContract.tables
-        .where((entry) => entry.policy == BackupTablePolicy.internalState)
-        .map((entry) => entry.table)
-        .toSet();
+    final internal =
+        BackupCoverageContract.tables
+            .where((entry) => entry.policy == BackupTablePolicy.internalState)
+            .map((entry) => entry.table)
+            .toSet()
+          // The chart history origin (version 46) is internal but not sync
+          // state: a restore resets it, which must never read as a change of
+          // sync state or as a cloud association.
+          ..remove(DatabaseTables.chartHistoryOrigin);
 
     // Restore change detection and the post-restore sync assessment both
     // rely on this list; an internal table missing here goes unnoticed.

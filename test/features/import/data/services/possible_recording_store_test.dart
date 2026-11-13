@@ -155,4 +155,49 @@ void main() {
       isFalse,
     );
   });
+
+  test('BUG-09: the kind and every candidate song round-trip', () async {
+    final store = storeOver({});
+    final base = entry();
+    await store.upsert(
+      PendingPossibleRecording(
+        normalizedPath: base.normalizedPath,
+        filePath: base.filePath,
+        candidateSongId: 'song-a',
+        otherCandidateSongIds: const ['song-b'],
+        title: base.title,
+        artistName: base.artistName,
+        albumTitle: base.albumTitle,
+        discNumber: base.discNumber,
+        trackNumber: base.trackNumber,
+        durationSeconds: base.durationSeconds,
+        firstSeenAt: base.firstSeenAt,
+        kind: PendingFileReviewKind.possibleReplacedFile,
+      ),
+    );
+
+    final saved = (await store.getPending()).single;
+    expect(saved.kind, PendingFileReviewKind.possibleReplacedFile);
+    expect(saved.candidateSongIds, ['song-a', 'song-b']);
+  });
+
+  test('BUG-09: entries saved before App Update 1.2 read as possible '
+      'different recordings', () async {
+    final values = <String, String>{};
+    final store = storeOver(values);
+    await store.upsert(entry());
+    values['import.possible_recordings.pending'] =
+        values['import.possible_recordings.pending']!.replaceAll(
+          ',"kind":"possibleDifferentRecording"',
+          '',
+        );
+    expect(
+      values['import.possible_recordings.pending'],
+      isNot(contains('kind')),
+    );
+
+    final saved = (await store.getPending()).single;
+    expect(saved.kind, PendingFileReviewKind.possibleDifferentRecording);
+    expect(saved.otherCandidateSongIds, isEmpty);
+  });
 }

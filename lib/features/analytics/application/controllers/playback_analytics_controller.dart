@@ -41,6 +41,10 @@ class PlaybackAnalyticsController {
   final PlaybackAnalyticsUserIdProvider? _userIdProvider;
   final PlaybackAnalyticsErrorHandler? _onError;
 
+  /// A change of entry was announced and its audio has not yet been heard
+  /// to progress (see [_handleState]).
+  bool _awaitingProgress = false;
+
   late final StreamSubscription<PlaybackState> _subscription;
 
   PlaybackState? _previousState;
@@ -148,11 +152,14 @@ class PlaybackAnalyticsController {
 
     final previous = _previousState;
     final track = state.queue.currentTrack;
+    if (state.transitionCause != null) _awaitingProgress = true;
 
     if (_tracker.hasActiveSession) {
       final activeSongId = _tracker.currentSession!.songId;
 
-      if (track == null || track.songId != activeSongId) {
+      if (track == null ||
+          track.songId != activeSongId ||
+          _movedToAnotherEntry(previous, state)) {
         await _tracker.end(
           reason: _endReasonForTrackChange(previous, state),
           position:
@@ -161,11 +168,16 @@ class PlaybackAnalyticsController {
         );
 
         _lastCheckpointAt = null;
-      } else if (_looksLikeCompletedRestart(previous, state)) {
+      } else if (state.transitionCause == PlaybackTransitionCause.repeated) {
+        // The song played to its end and started over by itself (Repeat
+        // One): that play is complete and the next one is a new listen.
+        // The engine reports it; a seek back, even from the last seconds,
+        // never is one (BUG-11 hardening).
         await _tracker.end(
           reason: PlaybackSessionEndReason.completed,
-          position: previous!.position,
-          trackDuration: _resolvedDuration(previous),
+          position:
+              previous?.position ?? _tracker.currentSession!.finalPosition,
+          trackDuration: _resolvedDuration(previous ?? state),
         );
 
         _lastCheckpointAt = null;
@@ -178,8 +190,21 @@ class PlaybackAnalyticsController {
     }
 
     if (!_tracker.hasActiveSession) {
-      if (state.status == PlaybackStatus.playing) {
+      // A song whose open session was just erased (it was permanently
+      // deleted while playing) is not recorded again in the moments before
+      // it leaves the queue.
+      // After a change of entry (a skip, the next song, a Repeat One
+      // loop) the listen starts once its audio is heard to progress. The
+      // next file is only loading when the change is announced, and one
+      // that cannot be read reports 0:00 before it fails; it leaves no
+      // listening behind (BUG-11 hardening). A fresh start or a resume
+      // starts at once, as before.
+      if (state.status == PlaybackStatus.playing &&
+          state.transitionCause == null &&
+          (!_awaitingProgress || state.position > Duration.zero) &&
+          track.songId != _tracker.erasedSongId) {
         await _startForTrack(track, state);
+        _awaitingProgress = false;
       }
 
       _previousState = state;
@@ -300,6 +325,7 @@ class PlaybackAnalyticsController {
         return PlaybackSessionEndReason.skipped;
 
       case PlaybackTransitionCause.automatic:
+      case PlaybackTransitionCause.repeated:
         return PlaybackSessionEndReason.completed;
 
       case null:
@@ -318,31 +344,15 @@ class PlaybackAnalyticsController {
     return PlaybackSessionEndReason.skipped;
   }
 
-  bool _looksLikeCompletedRestart(
-    PlaybackState? previous,
-    PlaybackState current,
-  ) {
-    if (previous == null) {
-      return false;
-    }
-
-    final previousTrack = previous.queue.currentTrack;
-    final currentTrack = current.queue.currentTrack;
-
-    if (previousTrack == null ||
-        currentTrack == null ||
-        previousTrack.songId != currentTrack.songId) {
-      return false;
-    }
-
-    if (!_wasNearTrackEnd(previous)) {
-      return false;
-    }
-
-    return current.status == PlaybackStatus.playing &&
-        current.position <= const Duration(seconds: 2) &&
-        current.position < previous.position;
-  }
+  /// Playback moved to another queue entry of the same song: the same
+  /// song queued twice, played into or skipped to (BUG-11 hardening). Each
+  /// entry is its own listen, as two different songs are. The engine gives
+  /// a cause only to a real change of entry, never to an edit that merely
+  /// shifts the current entry's position.
+  bool _movedToAnotherEntry(PlaybackState? previous, PlaybackState current) =>
+      previous != null &&
+      current.transitionCause != null &&
+      current.queue.currentIndex != previous.queue.currentIndex;
 
   bool _wasNearTrackEnd(PlaybackState state) {
     final duration = _resolvedDuration(state);

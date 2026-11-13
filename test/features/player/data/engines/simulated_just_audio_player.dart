@@ -14,6 +14,11 @@ import 'package:sonus_next/features/player/data/engines/support/playback_audio_p
 ///   future completes.
 /// * Audio is only heard while [playing] and ready.
 /// * Seeking a completed source makes it ready again.
+/// * [play] returns a Future that stays pending while playback goes on.
+///   As just_audio documents, and as its Android player does, it completes
+///   only when playback is paused or stopped, the queue reaches its end,
+///   another play request replaces it, or the player is disposed (BUG-11).
+///   Already playing, or at the end of the queue, it completes at once.
 class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   /// With [modelShuffle], shuffle mode plays in a real shuffle order, as
   /// just_audio does: a seeded [DefaultShuffleOrder], or the order given
@@ -119,13 +124,27 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     return const Duration(minutes: 3);
   }
 
+  /// The pending result of the last play request (see the class notes).
+  Completer<void>? _playResult;
+
+  /// Whether a play request is still pending: playback was asked for and
+  /// has not paused, stopped or ended since.
+  bool get playRequestPending => _playResult != null;
+
+  /// How many sources the player holds, to compare with the engine's queue.
+  int get sourceCountForTest => _length;
+
   @override
-  Future<void> play() async {
+  Future<void> play() {
     if (_playing) {
-      return;
+      return Future<void>.value();
     }
 
     _playing = true;
+
+    // A newer request answers the one before it, as on Android.
+    _settlePlay();
+    final result = _playResult = Completer<void>();
 
     // After stop(), just_audio prepares the same sources again and
     // resumes from the retained position.
@@ -133,10 +152,18 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
       _setProcessing(ProcessingState.loading);
       _setProcessing(ProcessingState.ready);
       _positions.add(_position);
-      return;
+    } else {
+      _emitState();
     }
 
-    _emitState();
+    if (_processing == ProcessingState.completed) _settlePlay();
+    return result.future;
+  }
+
+  void _settlePlay() {
+    final result = _playResult;
+    _playResult = null;
+    if (result != null && !result.isCompleted) result.complete();
   }
 
   @override
@@ -147,6 +174,7 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
 
     _playing = false;
     _emitState();
+    _settlePlay();
   }
 
   /// Like just_audio, stop() releases the decoder but keeps the position.
@@ -155,6 +183,7 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     _playing = false;
     _processing = ProcessingState.idle;
     _emitState();
+    _settlePlay();
   }
 
   /// Playback reached [position] (the platform's position updates).
@@ -163,8 +192,12 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     _positions.add(position);
   }
 
-  /// The last source finished. just_audio leaves `playing` set.
-  void complete() => _setProcessing(ProcessingState.completed);
+  /// The last source finished. just_audio leaves `playing` set, and the
+  /// pending play request completes.
+  void complete() {
+    _setProcessing(ProcessingState.completed);
+    _settlePlay();
+  }
 
   /// The current source cannot be read (for example its file was moved).
   /// just_audio reports the error and an idle player from the same event,
@@ -225,6 +258,16 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
       _index = current - 1;
       _indexes.add(_index);
     }
+    // Removing the playing source moves on to the next one, from its start.
+    // The platform reports that position later, after the removal returns.
+    if (current != null && index == current) {
+      _position = Duration.zero;
+      unawaited(
+        Future<void>.delayed(Duration.zero, () {
+          if (!_positions.isClosed) _positions.add(_position);
+        }),
+      );
+    }
   }
 
   @override
@@ -262,6 +305,7 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
 
   @override
   Future<void> dispose() async {
+    _settlePlay();
     await _positions.close();
     await _durations.close();
     await _indexes.close();

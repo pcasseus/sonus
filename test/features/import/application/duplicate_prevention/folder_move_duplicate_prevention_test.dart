@@ -6,6 +6,10 @@
 //   3. that folder renamed ("Zendaya"), import.
 // Exactly one album must remain, with 11 playable songs, its artwork,
 // release date and listening history.
+//
+// BUG-09 (App Update 1.2): moved files are recognised by their audio, so
+// each file holds real MP3 bytes (distinct audio per song) and every scan
+// runs the app's file identity pass.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -31,7 +35,12 @@ import 'package:sonus_next/features/import/data/services/file_system_import_cand
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/import/application/services/existing_song_tag_updater.dart';
+import 'package:sonus_next/features/import/application/services/file_identity_service.dart';
+import 'package:sonus_next/features/import/data/services/audio_byte_sources.dart';
 import 'package:sonus_next/features/library/application/services/duplicate_album_reconciliation_service.dart';
+
+import '../../../../support/synthetic_mp3.dart';
 
 /// Tags travel with the file: keyed by file name, whatever folder it is in.
 class _TagsByFileName implements AudioMetadataReader {
@@ -125,16 +134,23 @@ void main() {
     final db = await appDatabase.database;
     final createdAt = base.add(Duration(hours: ++scanNumber));
     final bindings = SqliteMediaFileBindingRepository(MediaFileBindingDao(db));
+    final resolver = MetadataResolver(
+      primaryReader: _TagsByFileName(tags),
+      fallbackReader: _TagsByFileName(tags),
+    );
     final workflow = ImportWorkflowService(
       candidateDiscovery: const FileSystemImportCandidateDiscovery(),
       batchRunner: ImportBatchExecutor(
         libraryImportService: LibraryImportService(
-          metadataResolver: MetadataResolver(
-            primaryReader: _TagsByFileName(tags),
-            fallbackReader: _TagsByFileName(tags),
-          ),
+          metadataResolver: resolver,
           atomicImporter: AtomicLibraryImporter(appDatabase: appDatabase),
           mediaFileBindingRepository: bindings,
+          fileIdentityService: FileIdentityService(
+            appDatabase: appDatabase,
+            openSource: audioByteSourceOpener(),
+            metadataResolver: resolver,
+            tagUpdater: const ExistingSongTagUpdater(),
+          ),
         ),
         batchRepository: SqliteImportBatchRepository(ImportBatchDao(db)),
       ),
@@ -175,7 +191,9 @@ void main() {
   void writeAlbumFiles(Directory folder) {
     folder.createSync(recursive: true);
     for (final (title, _) in _albumTracks) {
-      File(p.join(folder.path, _fileName(title))).writeAsBytesSync([0]);
+      File(p.join(folder.path, _fileName(title))).writeAsBytesSync(
+        syntheticMp3(syntheticAudio(frames: 60, seed: title.hashCode)),
+      );
     }
   }
 
@@ -459,7 +477,9 @@ void main() {
           'id': copy(binding['id']! as String),
           'song_id': copy(id),
           'file_path': newPath,
-          'normalized_path': newPath.replaceAll(r'', '/').toLowerCase(),
+          // Windows separators become '/', as the scan normalizes paths
+          // (BUG-09: the empty pattern here garbled every stored path).
+          'normalized_path': newPath.replaceAll('\\', '/').toLowerCase(),
           'is_available': 1,
         });
       }

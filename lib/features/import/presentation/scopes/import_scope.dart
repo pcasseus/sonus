@@ -56,6 +56,10 @@ import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
 import '../../../library/application/services/duplicate_album_reconciliation_service.dart';
 import '../../../library/application/services/duplicate_reconciliation_policy.dart';
+import '../../application/services/existing_song_release_mover.dart';
+import '../../application/services/existing_song_tag_updater.dart';
+import '../../application/services/file_identity_service.dart';
+import '../../data/services/audio_byte_sources.dart';
 
 typedef ImportMaintenanceLogger =
     void Function(String message, {required int level, StackTrace? stackTrace});
@@ -297,12 +301,27 @@ class _ImportScopeState extends State<ImportScope> {
 
     final possibleRecordingStore = PossibleRecordingStore();
 
+    // BUG-09: renamed, moved, rewritten and retagged files are recognised
+    // by their audio, read-only.
+    final fileIdentityService = FileIdentityService(
+      appDatabase: database,
+      openSource: audioByteSourceOpener(saf: Platform.isAndroid ? _saf : null),
+      metadataResolver: metadataResolver,
+      tagUpdater: ExistingSongTagUpdater(userId: userId),
+      reviewStore: possibleRecordingStore,
+      releaseMover: ExistingSongReleaseMover(
+        appDatabase: database,
+        userId: userId,
+      ),
+    );
+
     final libraryImportService = LibraryImportService(
       metadataResolver: metadataResolver,
       atomicImporter: atomicImporter,
       mediaFileBindingRepository: mediaFileBindingRepository,
       lyricsIngestionService: lyricsIngestionService,
       possibleRecordingStore: possibleRecordingStore,
+      fileIdentityService: fileIdentityService,
     );
 
     final reviewService =
@@ -325,6 +344,7 @@ class _ImportScopeState extends State<ImportScope> {
               fileProbe: LocalImportFileProbe(
                 saf: Platform.isAndroid ? _saf : null,
               ),
+              fileIdentityService: fileIdentityService,
             ),
           )
         : null;

@@ -30,30 +30,33 @@ RestorePreflight fakePreflight({
   availableBytes: availableBytes,
 );
 
-RestorePlan fakePlan({int songs = 12, int removed = 3, int missingAudio = 12}) =>
-    RestorePlan(
-      backupId: 'backup-1',
-      localPortableRowCount: removed,
-      tables: [
-        for (final coverage in BackupCoverageContract.portableTables)
-          RestoreTableChange(
-            table: coverage.table,
-            added: coverage.table == 'songs' ? songs : 1,
-            updated: 0,
-            unchanged: 0,
-            removed: coverage.table == 'songs' ? removed : 0,
-          ),
-      ],
-      deviceImpact: RestoreDeviceImpact(
-        mediaBindingsKept: 0,
-        mediaBindingsRemoved: 0,
-        importReviewsKept: 0,
-        importReviewsRemoved: 0,
-        songsWithoutAudio: missingAudio,
-        artworkReused: 0,
-        artworkInstalled: 1,
+RestorePlan fakePlan({
+  int songs = 12,
+  int removed = 3,
+  int missingAudio = 12,
+}) => RestorePlan(
+  backupId: 'backup-1',
+  localPortableRowCount: removed,
+  tables: [
+    for (final coverage in BackupCoverageContract.portableTables)
+      RestoreTableChange(
+        table: coverage.table,
+        added: coverage.table == 'songs' ? songs : 1,
+        updated: 0,
+        unchanged: 0,
+        removed: coverage.table == 'songs' ? removed : 0,
       ),
-    );
+  ],
+  deviceImpact: RestoreDeviceImpact(
+    mediaBindingsKept: 0,
+    mediaBindingsRemoved: 0,
+    importReviewsKept: 0,
+    importReviewsRemoved: 0,
+    songsWithoutAudio: missingAudio,
+    artworkReused: 0,
+    artworkInstalled: 1,
+  ),
+);
 
 RecoveryOverview fakeOverview({
   RecoveryHoldOverview hold = RecoveryHoldOverview.none,

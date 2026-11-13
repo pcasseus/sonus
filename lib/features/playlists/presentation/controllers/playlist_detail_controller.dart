@@ -6,11 +6,12 @@ import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_track.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../player/presentation/controllers/playback_shuffle_mode.dart';
 import '../../application/models/playlist_detail.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 
-class PlaylistDetailController extends ChangeNotifier {
+class PlaylistDetailController extends ChangeNotifier with PlaybackShuffleMode {
   PlaylistDetailController({
     required PlaylistService service,
     required String playlistId,
@@ -19,7 +20,9 @@ class PlaylistDetailController extends ChangeNotifier {
   }) : _service = service,
        _playlistId = playlistId.trim(),
        _playbackCoordinator = playbackCoordinator,
-       _random = random ?? Random();
+       _random = random ?? Random() {
+    watchPlaybackShuffle();
+  }
 
   final PlaylistService _service;
   final String _playlistId;
@@ -30,7 +33,6 @@ class PlaylistDetailController extends ChangeNotifier {
 
   bool _isLoading = false;
   bool _isMutating = false;
-  bool _isShuffleEnabled = false;
   Object? _error;
 
   int _requestGeneration = 0;
@@ -47,7 +49,8 @@ class PlaylistDetailController extends ChangeNotifier {
 
   bool get isBusy => _isLoading || _isMutating;
 
-  bool get isShuffleEnabled => _isShuffleEnabled;
+  @override
+  PlaybackCoordinator? get shufflePlayback => _playbackCoordinator;
 
   Object? get error => _error;
 
@@ -144,6 +147,38 @@ class PlaylistDetailController extends ChangeNotifier {
     } catch (error) {
       _error = error;
       return false;
+    } finally {
+      _isMutating = false;
+      notifyListeners();
+    }
+  }
+
+  /// App Update 1.2 (BUG-03): removes [songIds] from this playlist in one
+  /// change (the songs stay in the library). Returns how many entries
+  /// were removed, or null when it failed or another change was running.
+  Future<int?> removeSongs(Iterable<String> songIds) async {
+    if (_isMutating) {
+      return null;
+    }
+
+    _isMutating = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final removed = await _service.removeSongs(
+        playlistId: _playlistId,
+        songIds: songIds,
+      );
+
+      if (removed > 0) {
+        await _reloadAfterMutation();
+      }
+
+      return removed;
+    } catch (error) {
+      _error = error;
+      return null;
     } finally {
       _isMutating = false;
       notifyListeners();
@@ -321,32 +356,11 @@ class PlaylistDetailController extends ChangeNotifier {
       return;
     }
 
-    final startIndex = _isShuffleEnabled
+    final startIndex = isShuffleEnabled
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 
     await playback.playTracks(libraryTracks, startIndex: startIndex);
-  }
-
-  Future<void> setShuffleEnabled(bool enabled) async {
-    if (_isShuffleEnabled == enabled) {
-      return;
-    }
-
-    final playback = _playbackCoordinator;
-
-    if (playback == null) {
-      return;
-    }
-
-    await playback.setShuffleEnabled(enabled);
-
-    _isShuffleEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<void> toggleShuffle() {
-    return setShuffleEnabled(!_isShuffleEnabled);
   }
 
   Future<void> playNext(LibraryTrack track) async {

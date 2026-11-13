@@ -9,6 +9,8 @@ class ImportCandidate {
     this.lyricsPath,
     this.sourceId,
     this.structure = ImportCandidateStructure.singleFile,
+    this.fileSizeBytes,
+    this.modifiedAt,
   });
 
   final String filePath;
@@ -18,6 +20,11 @@ class ImportCandidate {
   final String? lyricsPath;
   final String? sourceId;
   final ImportCandidateStructure structure;
+
+  /// The file's size and last change, when the discovery listed them
+  /// (BUG-09): a changed file is read again, an unchanged one is not.
+  final int? fileSizeBytes;
+  final DateTime? modifiedAt;
 
   ImportCandidate copyWith({
     String? filePath,
@@ -36,6 +43,8 @@ class ImportCandidate {
       lyricsPath: lyricsPath ?? this.lyricsPath,
       sourceId: sourceId ?? this.sourceId,
       structure: structure ?? this.structure,
+      fileSizeBytes: fileSizeBytes,
+      modifiedAt: modifiedAt,
     );
   }
 

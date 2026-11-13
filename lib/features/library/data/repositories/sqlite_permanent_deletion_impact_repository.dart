@@ -1,6 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../../charts/domain/moments/chart_moment_artist_dominance.dart';
+import '../../../charts/domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
 
 /// Computes [PermanentDeletionImpact] for a song, edition, album or artist.
@@ -422,6 +424,7 @@ class SqlitePermanentDeletionImpactRepository {
         }
       }
     }
+    mentioning.addAll(await _dominanceCounting(songIds));
     mentioning.removeAll(about);
 
     // Playlists.
@@ -617,6 +620,84 @@ class SqlitePermanentDeletionImpactRepository {
       artworkAssetIds: artworkAssetIds,
       targetArtworkId: targetArtworkId,
     );
+  }
+
+  /// App Update 1.2 (REF-19): an artist-dominance Moment counts every song
+  /// its artist had on that week's Hot 100, not only the two it names, so
+  /// one whose count included a deleted song goes with it. Matched by the
+  /// week and by the artist the song charted for (its own, its chart
+  /// entry's, or its release's owner, as charts attribute it).
+  Future<Set<String>> _dominanceCounting(Set<String> songIds) async {
+    if (songIds.isEmpty) return const {};
+    final artistsByWeek = <DateTime, Set<String>>{};
+    final ownersBySong = <String, Set<String>>{};
+    for (final row in await _selectIn(
+      'SELECT s.id, s.artist_id AS song_artist, a.artist_id AS owner '
+      'FROM ${DatabaseTables.songs} s '
+      'LEFT JOIN ${DatabaseTables.albums} a ON a.id = s.album_id '
+      'WHERE s.id',
+      songIds,
+    )) {
+      ownersBySong[row['id']! as String] = {
+        for (final id in [row['song_artist'], row['owner']])
+          if (id is String) id,
+      };
+    }
+    for (final row in await _selectIn(
+      'SELECT e.entity_id, s.week_start_utc, e.artist_id '
+      'FROM ${DatabaseTables.chartEntries} e '
+      'JOIN ${DatabaseTables.chartSnapshots} s ON s.id = e.chart_snapshot_id '
+      "WHERE s.chart_type = 'songs' AND e.entity_id",
+      songIds,
+    )) {
+      artistsByWeek
+          .putIfAbsent(
+            DateTime.parse(row['week_start_utc']! as String).toUtc(),
+            () => {},
+          )
+          .addAll({
+            ...?ownersBySong[row['entity_id']],
+            if (row['artist_id'] case final String id) id,
+          });
+    }
+    if (artistsByWeek.isEmpty) return const {};
+    final counting = <String>{};
+    for (final prefix in [
+      ArtistDominance.sourcePrefix,
+      ArtistJointControl.sourcePrefix,
+    ]) {
+      for (final row in await _db.query(
+        DatabaseTables.chartMomentEvents,
+        columns: ['id', 'week_start_utc', 'entity_artist_id', 'source_id'],
+        where: "chart_type = 'songs' AND source_id LIKE ?",
+        whereArgs: ['$prefix%'],
+      )) {
+        final artists =
+            artistsByWeek[DateTime.parse(
+              row['week_start_utc']! as String,
+            ).toUtc()];
+        if (artists == null) continue;
+        // A joint control row stands for both artists' songs: a deleted
+        // song of either takes both rows of the pair.
+        final partner = prefix == ArtistJointControl.sourcePrefix
+            ? _jointPartner(row['source_id']! as String)
+            : null;
+        if (artists.contains(row['entity_artist_id']) ||
+            (partner != null && artists.contains(partner))) {
+          counting.add(row['id']! as String);
+        }
+      }
+    }
+    return counting;
+  }
+
+  /// The partner named in a joint control `source_id`
+  /// (`joint:<N>:<partner>:<snapshot>`), or null when malformed.
+  static String? _jointPartner(String sourceId) {
+    final parts = sourceId
+        .substring(ArtistJointControl.sourcePrefix.length)
+        .split(':');
+    return parts.length == 3 && parts[1].isNotEmpty ? parts[1] : null;
   }
 
   Future<String?> _firstString(String sql, String arg) async {

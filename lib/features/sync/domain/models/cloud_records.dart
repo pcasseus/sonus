@@ -125,6 +125,8 @@ class CloudAlbumEditionRecord extends CloudOwnedRecord {
     this.genre,
     this.artworkId,
     this.metadataFieldStates,
+    this.releaseDatePartial,
+    this.discLabels,
   });
 
   final String albumId;
@@ -132,6 +134,17 @@ class CloudAlbumEditionRecord extends CloudOwnedRecord {
   final String type;
   final bool isPrimary;
   final DateTime? releaseDate;
+
+  /// The release date as written ("2019", "2019-03" or "2019-03-15"), so
+  /// its precision survives (proposed cloud migration 20261113000001).
+  /// Trusted only while it describes [releaseDate] exactly. Null when not
+  /// provided: by older apps, by a server without the column, or while
+  /// [SyncDataContract.editionMetadataExtensionsEnabled] is off.
+  final String? releaseDatePartial;
+
+  /// The edition's disc names by disc number; `{}` when it has none. Null
+  /// when not provided (as [releaseDatePartial]), never "no names".
+  final Map<int, String>? discLabels;
   final String? genre;
   final String? artworkId;
   final List<CloudMetadataFieldState>? metadataFieldStates;

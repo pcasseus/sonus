@@ -43,24 +43,13 @@ void main() {
       findsOneWidget,
     );
 
-    expect(
-      find.byKey(
-        const ValueKey<String>('metadata-intelligence-cover-art-suggestions'),
-      ),
-      findsOneWidget,
-    );
-
     expect(find.text('MusicBrainz'), findsOneWidget);
-    expect(find.text('Cover Art Archive'), findsOneWidget);
   });
 
-  testWidgets('disabling online lookup disables cover art control', (
-    tester,
-  ) async {
+  testWidgets('REF-18: Cover Art Archive is not offered: no switch, no '
+      'provider entry, and online lookup stays usable', (tester) async {
     final controller = MetadataIntelligenceSettingsController();
-
     addTearDown(controller.dispose);
-
     await controller.load();
 
     await tester.pumpWidget(
@@ -70,21 +59,50 @@ void main() {
       ),
     );
 
-    final onlineFinder = find.byKey(
-      const ValueKey<String>('metadata-intelligence-online-lookup'),
-    );
-
-    await tester.tap(onlineFinder);
-    await tester.pumpAndSettle();
-
-    expect(controller.onlineMetadataLookupEnabled, isFalse);
-
-    final coverArtTile = tester.widget<SwitchListTile>(
+    expect(
       find.byKey(
         const ValueKey<String>('metadata-intelligence-cover-art-suggestions'),
       ),
+      findsNothing,
     );
+    expect(find.textContaining('Cover Art Archive'), findsNothing);
+    expect(find.textContaining('artwork suggestions'), findsNothing);
 
-    expect(coverArtTile.onChanged, isNull);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('metadata-intelligence-online-lookup')),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.onlineMetadataLookupEnabled, isFalse);
+  });
+
+  testWidgets('a saved Cover Art Archive choice is kept as it was', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      MetadataIntelligenceSettingsController.coverArtSuggestionsKey: false,
+    });
+    final controller = MetadataIntelligenceSettingsController();
+    addTearDown(controller.dispose);
+    await controller.load();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: controller,
+        child: const MaterialApp(home: MetadataIntelligenceSettingsPage()),
+      ),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('metadata-intelligence-online-lookup')),
+    );
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getBool(
+        MetadataIntelligenceSettingsController.coverArtSuggestionsKey,
+      ),
+      isFalse,
+    );
+    expect(controller.coverArtSuggestionsEnabled, isFalse);
   });
 }

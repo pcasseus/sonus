@@ -327,6 +327,71 @@ void main() {
     expect(assignments.single['album_id'], 'album-a');
   });
 
+  group('chart provenance (version 46)', () {
+    Future<VerifiedBackupContents> backupWithOriginalWeek() =>
+        verifiedFixtureContents(
+          directory: root,
+          seed: (db) async {
+            await seedConnectedLibrary(db, key: 'a');
+            await db.update(DatabaseTables.chartSnapshots, {
+              'provenance': 'original',
+            });
+          },
+        );
+
+    Future<DateTime> origin() async {
+      final rows = await (await target.database).query(
+        DatabaseTables.chartHistoryOrigin,
+      );
+      return DateTime.parse(rows.single['origin_utc']! as String);
+    }
+
+    test('restored weeks keep their provenance and the chart history '
+        'starts again at the restore', () async {
+      final contents = await backupWithOriginalWeek();
+      final before = await origin();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      await apply(contents);
+
+      final weeks = await (await target.database).query(
+        DatabaseTables.chartSnapshots,
+      );
+      expect(weeks, isNotEmpty);
+      expect(weeks.map((row) => row['provenance']), everyElement('original'));
+      expect((await origin()).isAfter(before), isTrue);
+    });
+
+    test('weeks from a backup made before version 46 restore as unknown, '
+        'never as original', () async {
+      final contents = await backupWithOriginalWeek();
+      final tables = {
+        ...contents.backup.payload.tables,
+        DatabaseTables.chartSnapshots: [
+          for (final row
+              in contents.backup.payload.tables[DatabaseTables.chartSnapshots]!)
+            {...row}..remove('provenance'),
+        ],
+      };
+      final older = VerifiedBackupContents(
+        backup: DecodedBackup(
+          manifest: contents.backup.manifest,
+          payload: BackupDataPayload(tables: tables),
+        ),
+        artwork: contents.artwork,
+        directory: contents.directory,
+      );
+
+      await apply(older);
+
+      final weeks = await (await target.database).query(
+        DatabaseTables.chartSnapshots,
+      );
+      expect(weeks, isNotEmpty);
+      expect(weeks.map((row) => row['provenance']), everyElement(isNull));
+    });
+  });
+
   test('a backup restores organization and crop positions exactly', () async {
     final cover = File(path.join(root.path, 'cover.jpg'));
     await cover.writeAsBytes([1, 2, 3]);

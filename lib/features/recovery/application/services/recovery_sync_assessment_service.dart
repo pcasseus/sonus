@@ -64,7 +64,10 @@ class RecoverySyncAssessmentService {
 
     switch (state) {
       case NoRecoverySyncHold():
-        return RecoverySyncAssessment(findings: const [], divergedTables: const []);
+        return RecoverySyncAssessment(
+          findings: const [],
+          divergedTables: const [],
+        );
       case UnreadableRecoverySyncHold():
         return RecoverySyncAssessment(
           findings: const [RecoverySyncFinding.holdUnreadable],

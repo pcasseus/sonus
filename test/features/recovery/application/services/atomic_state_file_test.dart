@@ -69,10 +69,9 @@ void main() {
       await target.writeAsString('old');
       final sources = <String>[];
 
-      await subject(rename: flakyRename(2, code, sources)).writeString(
-        target,
-        'new',
-      );
+      await subject(
+        rename: flakyRename(2, code, sources),
+      ).writeString(target, 'new');
 
       expect(await target.readAsString(), 'new');
       expect(sources, hasLength(3));
@@ -82,25 +81,30 @@ void main() {
     });
   }
 
-  test('persistent contention fails after bounded attempts, old content intact', () async {
-    await target.writeAsString('old');
-    final sources = <String>[];
+  test(
+    'persistent contention fails after bounded attempts, old content intact',
+    () async {
+      await target.writeAsString('old');
+      final sources = <String>[];
 
-    await expectLater(
-      subject(rename: flakyRename(1000, 5, sources)).writeString(target, 'new'),
-      throwsA(
-        isA<FileSystemException>().having(
-          (e) => e.osError?.errorCode,
-          'errno',
-          5,
+      await expectLater(
+        subject(
+          rename: flakyRename(1000, 5, sources),
+        ).writeString(target, 'new'),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.osError?.errorCode,
+            'errno',
+            5,
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(sources, hasLength(4)); // 1 attempt + 3 bounded retries
-    expect(await target.readAsString(), 'old');
-    expect(await names(), ['state.json'], reason: 'temporary removed');
-  });
+      expect(sources, hasLength(4)); // 1 attempt + 3 bounded retries
+      expect(await target.readAsString(), 'old');
+      expect(await names(), ['state.json'], reason: 'temporary removed');
+    },
+  );
 
   test('other errors are never retried', () async {
     await target.writeAsString('old');
@@ -116,66 +120,77 @@ void main() {
     expect(await names(), ['state.json']);
   });
 
-  test('outside Windows, access denied is a real failure and not retried', () async {
-    final sources = <String>[];
+  test(
+    'outside Windows, access denied is a real failure and not retried',
+    () async {
+      final sources = <String>[];
 
-    await expectLater(
-      subject(
-        rename: flakyRename(1, 5, sources),
-        windows: false,
-      ).writeString(target, 'new'),
-      throwsA(isA<FileSystemException>()),
-    );
-
-    expect(sources, hasLength(1));
-  });
-
-  test('each write uses its own temporary; a stale fixed .tmp cannot block it', () async {
-    // Earlier versions always used "<file>.tmp". Something occupying that
-    // name (here a directory, so it cannot be overwritten) no longer
-    // affects writes.
-    await Directory('${target.path}.tmp').create();
-    final sources = <String>[];
-    final writer = subject(rename: flakyRename(0, 5, sources));
-
-    await writer.writeString(target, 'one');
-    await writer.writeString(target, 'two');
-
-    expect(await target.readAsString(), 'two');
-    expect(sources.toSet(), hasLength(2));
-    for (final source in sources) {
-      expect(
-        AtomicStateFile.isTemporaryName('state.json', path.basename(source)),
-        isTrue,
+      await expectLater(
+        subject(
+          rename: flakyRename(1, 5, sources),
+          windows: false,
+        ).writeString(target, 'new'),
+        throwsA(isA<FileSystemException>()),
       );
-    }
-  });
 
-  test('delete retries transient contention and sweeps stale temporaries', () async {
-    await target.writeAsString('x');
-    final stale = File('${target.path}.0123456789abcdef.tmp');
-    await stale.writeAsString('partial');
-    await stale.setLastModified(DateTime.now().subtract(const Duration(hours: 2)));
-    final recent = File('${target.path}.fedcba9876543210.tmp');
-    await recent.writeAsString('in flight');
-    final unrelated = File(path.join(root.path, 'other.json.tmp'));
-    await unrelated.writeAsString('keep');
+      expect(sources, hasLength(1));
+    },
+  );
 
-    var attempts = 0;
-    await subject(
-      rename: flakyRename(0, 5, []),
-      delete: (file) async {
-        if (attempts++ < 2) throw _windowsError(32);
-        await file.delete();
-      },
-    ).delete(target);
+  test(
+    'each write uses its own temporary; a stale fixed .tmp cannot block it',
+    () async {
+      // Earlier versions always used "<file>.tmp". Something occupying that
+      // name (here a directory, so it cannot be overwritten) no longer
+      // affects writes.
+      await Directory('${target.path}.tmp').create();
+      final sources = <String>[];
+      final writer = subject(rename: flakyRename(0, 5, sources));
 
-    expect(attempts, 3);
-    expect(await target.exists(), isFalse);
-    expect(await stale.exists(), isFalse);
-    expect(await recent.exists(), isTrue, reason: 'may belong to a writer');
-    expect(await unrelated.exists(), isTrue);
-  });
+      await writer.writeString(target, 'one');
+      await writer.writeString(target, 'two');
+
+      expect(await target.readAsString(), 'two');
+      expect(sources.toSet(), hasLength(2));
+      for (final source in sources) {
+        expect(
+          AtomicStateFile.isTemporaryName('state.json', path.basename(source)),
+          isTrue,
+        );
+      }
+    },
+  );
+
+  test(
+    'delete retries transient contention and sweeps stale temporaries',
+    () async {
+      await target.writeAsString('x');
+      final stale = File('${target.path}.0123456789abcdef.tmp');
+      await stale.writeAsString('partial');
+      await stale.setLastModified(
+        DateTime.now().subtract(const Duration(hours: 2)),
+      );
+      final recent = File('${target.path}.fedcba9876543210.tmp');
+      await recent.writeAsString('in flight');
+      final unrelated = File(path.join(root.path, 'other.json.tmp'));
+      await unrelated.writeAsString('keep');
+
+      var attempts = 0;
+      await subject(
+        rename: flakyRename(0, 5, []),
+        delete: (file) async {
+          if (attempts++ < 2) throw _windowsError(32);
+          await file.delete();
+        },
+      ).delete(target);
+
+      expect(attempts, 3);
+      expect(await target.exists(), isFalse);
+      expect(await stale.exists(), isFalse);
+      expect(await recent.exists(), isTrue, reason: 'may belong to a writer');
+      expect(await unrelated.exists(), isTrue);
+    },
+  );
 
   group('stores use the contention-tolerant replacement', () {
     test('the restore journal survives transient contention', () async {
@@ -200,29 +215,32 @@ void main() {
       expect(await names(), isEmpty);
     });
 
-    test('a failed journal write keeps the previous complete journal', () async {
-      final good = RestoreJournalStore(directory: () async => root);
-      final journal = RestoreJournal(
-        sessionId: 'session0',
-        extractionDirectory: path.join(root.path, '.sonus_restore_session0'),
-        reservedTokens: const ['restoresession0n0'],
-        createdFiles: const [],
-      );
-      await good.write(journal);
+    test(
+      'a failed journal write keeps the previous complete journal',
+      () async {
+        final good = RestoreJournalStore(directory: () async => root);
+        final journal = RestoreJournal(
+          sessionId: 'session0',
+          extractionDirectory: path.join(root.path, '.sonus_restore_session0'),
+          reservedTokens: const ['restoresession0n0'],
+          createdFiles: const [],
+        );
+        await good.write(journal);
 
-      final contended = RestoreJournalStore(
-        directory: () async => root,
-        stateFile: subject(rename: flakyRename(1000, 5, [])),
-      );
+        final contended = RestoreJournalStore(
+          directory: () async => root,
+          stateFile: subject(rename: flakyRename(1000, 5, [])),
+        );
 
-      await expectLater(
-        contended.write(journal.reserve('restoresession0n1')),
-        throwsA(isA<FileSystemException>()),
-      );
+        await expectLater(
+          contended.write(journal.reserve('restoresession0n1')),
+          throwsA(isA<FileSystemException>()),
+        );
 
-      expect((await good.read())!.reservedTokens, ['restoresession0n0']);
-      expect(await names(), [RestoreJournalStore.fileName]);
-    });
+        expect((await good.read())!.reservedTokens, ['restoresession0n0']);
+        expect(await names(), [RestoreJournalStore.fileName]);
+      },
+    );
 
     test('the sync hold survives transient contention', () async {
       final store = RecoverySyncHoldStore(

@@ -51,28 +51,6 @@ class MetadataIntelligenceSettingsPage extends StatelessWidget {
                         );
                       },
                     ),
-                    SwitchListTile(
-                      key: const ValueKey<String>(
-                        'metadata-intelligence-cover-art-suggestions',
-                      ),
-                      secondary: const Icon(Icons.image_search_rounded),
-                      title: const Text('Cover Art Archive suggestions'),
-                      subtitle: Text(
-                        controller.onlineMetadataLookupEnabled
-                            ? 'Allow Sonus to search for album artwork suggestions.'
-                            : 'Enable online metadata lookup to use artwork suggestions.',
-                      ),
-                      value: controller.coverArtSuggestionsEnabled,
-                      onChanged: controller.onlineMetadataLookupEnabled
-                          ? (enabled) {
-                              unawaited(
-                                controller.setCoverArtSuggestionsEnabled(
-                                  enabled,
-                                ),
-                              );
-                            }
-                          : null,
-                    ),
                   ],
                 ),
                 const SettingsSection(
@@ -100,11 +78,6 @@ class MetadataIntelligenceSettingsPage extends StatelessWidget {
                       title: 'MusicBrainz',
                       body:
                           'Used for artist, album, and track metadata searches.',
-                    ),
-                    SettingsInfoTile(
-                      icon: Icons.photo_library_outlined,
-                      title: 'Cover Art Archive',
-                      body: 'Used for album artwork suggestions.',
                     ),
                   ],
                 ),

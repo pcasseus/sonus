@@ -440,6 +440,20 @@ class AlbumEditionManagementService {
     return added;
   }
 
+  /// Removes [edition]'s listing of [songId] inside [context]'s
+  /// transaction, as [removeTrack] does but without renumbering: for
+  /// deleting a disc in Release Studio (PATCH-02), which numbers the discs
+  /// itself. The song stays in the library; its home moves when needed.
+  /// Refused ([AlbumEditionRefusal.lastEditionOfSong]) for a song listed
+  /// on no other edition.
+  static Future<bool> removeListing(
+    SyncMutationContext context,
+    AlbumEdition edition,
+    String songId,
+    String? userId,
+    DateTime timestamp,
+  ) => _remove(context, edition, songId, userId, timestamp);
+
   /// Removes one listing; false when the edition does not list the song.
   static Future<bool> _remove(
     SyncMutationContext context,

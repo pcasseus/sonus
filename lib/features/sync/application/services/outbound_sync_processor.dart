@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
 import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../../library/domain/repositories/metadata_field_state_repository.dart';
+import '../../../library/domain/entities/album_edition_disc_label.dart';
+import '../../../library/domain/repositories/album_edition_disc_label_repository.dart';
 import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
@@ -126,6 +128,7 @@ class OutboundSyncProcessor {
     required this.albumEditionRepository,
     required this.songRepository,
     required this.metadataFieldStateRepository,
+    this.discLabelRepository,
     required this.artworkAssetRepository,
     required this.cloudArtworkStorage,
     required this.cloudSyncGateway,
@@ -170,6 +173,10 @@ class OutboundSyncProcessor {
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
   final MetadataFieldStateRepository metadataFieldStateRepository;
+
+  /// Disc names, sent with an edition only while
+  /// [SyncDataContract.editionMetadataExtensionsEnabled] is on.
+  final AlbumEditionDiscLabelRepository? discLabelRepository;
   final ArtworkAssetRepository artworkAssetRepository;
   final CloudArtworkStorage cloudArtworkStorage;
   final CloudSyncGateway cloudSyncGateway;
@@ -1218,6 +1225,17 @@ class OutboundSyncProcessor {
         albumEdition: entity,
         userId: userId,
         metadataFieldStates: metadataFieldStates,
+        withExtensions: SyncDataContract.editionMetadataExtensionsEnabled,
+        discLabels: SyncDataContract.editionMetadataExtensionsEnabled
+            ? {
+                for (final label
+                    in await discLabelRepository?.getByEditionId(
+                          normalizedEditionId,
+                        ) ??
+                        const <AlbumEditionDiscLabel>[])
+                  label.discNumber: label.label,
+              }
+            : const {},
       ),
       entityType: CloudDataEntity.albumEdition,
       explicitEntry: explicitEntry,

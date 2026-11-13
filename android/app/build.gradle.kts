@@ -25,6 +25,25 @@ android {
         versionName = flutter.versionName
     }
 
+    // Two installs of Sonus (App Update 1.2 device QA):
+    // - prod: the app as it has always been, com.sonus.sonus_next;
+    // - qa: com.sonus.sonus_next.qa, "Sonus QA", beside it. A separate package
+    //   has its own database, preferences, artwork and sign-in state, so QA
+    //   can never touch the real library. tool/build-qa.ps1 builds it with no
+    //   account settings, so it has no cloud at all.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("prod") {
+            dimension = "distribution"
+            manifestPlaceholders["appLabel"] = "Sonus"
+        }
+        create("qa") {
+            dimension = "distribution"
+            applicationIdSuffix = ".qa"
+            manifestPlaceholders["appLabel"] = "Sonus QA"
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

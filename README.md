@@ -57,8 +57,14 @@ Flutter · Dart · SQLite · Android
 
 ```
 flutter pub get
-flutter run
+flutter run --flavor prod
 ```
+
+The app has two Android flavors: `prod` is Sonus itself (`com.sonus.sonus_next`), and `qa` is a separate "Sonus QA" install (`com.sonus.sonus_next.qa`) with its own data and no cloud, for testing on a phone beside the real app. Release builds use `tool/build-release.ps1`; QA builds use `tool/build-qa.ps1`.
+
+Every build gets a new versionCode: the whole minutes since 2026-01-01 UTC. Both build scripts reserve it in a build ledger shared by all worktrees on the PC (`%LOCALAPPDATA%\Sonus\build-ledger.csv`, or `-Ledger`), which refuses a code that is not above every earlier one. They also refuse an APK whose package, artwork provider or signing certificate is not the expected one. `tool/build-release.ps1 -Mode debug` builds the debuggable app that phone backups need.
+
+`tool/install-device.ps1 -Serial <serial or ip:port> -BackupRoot <folder> -Apk <apk>` updates the app on a device over USB or Wireless debugging. It only installs a recorded build with a higher versionCode, signed like the installed app, and only after a verified backup. It never uninstalls, clears data or downgrades, and it checks the installed app and its data afterwards. Run it again with `-CheckOnly -Baseline <report.json>` after opening the updated app, to confirm no data was lost. It needs Python for its database check (`tool/sonus_db_check.py`).
 
 Sonus runs fully without an account. Sign-in and cloud sync are turned off unless the build is given its own account configuration. An example file for that configuration is in `config/`.
 

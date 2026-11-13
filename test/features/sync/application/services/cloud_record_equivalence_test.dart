@@ -125,6 +125,41 @@ void main() {
     );
   });
 
+  test('REF-12b/REF-13c: a different precision or disc name is a real '
+      'change, never skipped as equal', () {
+    CloudAlbumEditionRecord edition({
+      String? partial,
+      Map<int, String>? labels,
+    }) => CloudAlbumEditionRecord(
+      id: 'edition-1',
+      userId: 'u1',
+      albumId: 'album-1',
+      title: 'Edition',
+      type: 'standard',
+      isPrimary: true,
+      releaseDatePartial: partial,
+      discLabels: labels,
+      createdAt: t,
+      updatedAt: t,
+    );
+
+    bool same(CloudAlbumEditionRecord a, CloudAlbumEditionRecord b) =>
+        CloudRecordEquivalence.isEquivalent(a, b);
+    expect(
+      same(edition(partial: '2019'), edition(partial: '2019-03')),
+      isFalse,
+    );
+    expect(
+      same(edition(labels: {2: 'Bonus'}), edition(labels: {2: 'Extras'})),
+      isFalse,
+    );
+    expect(same(edition(labels: const {}), edition()), isFalse);
+    expect(
+      same(edition(labels: {2: 'Bonus'}), edition(labels: {2: 'Bonus'})),
+      isTrue,
+    );
+  });
+
   test('different record types are never equivalent', () {
     final album = CloudAlbumRecord(
       id: 'song-1',
@@ -165,6 +200,9 @@ void main() {
         title: 'C',
         type: 'standard',
         isPrimary: true,
+        // Carried (REF-12b/REF-13c), so their columns are on the wire.
+        releaseDatePartial: '2019',
+        discLabels: const {},
         createdAt: t,
         updatedAt: t,
       ),

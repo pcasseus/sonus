@@ -3,6 +3,7 @@ abstract final class DatabaseTables {
   static const String albums = 'albums';
   static const String albumEditions = 'album_editions';
   static const String albumEditionTracks = 'album_edition_tracks';
+  static const String albumEditionDiscLabels = 'album_edition_disc_labels';
   static const String songs = 'songs';
   static const String songArtistCredits = 'song_artist_credits';
   static const String mediaFileBindings = 'media_file_bindings';
@@ -24,6 +25,7 @@ abstract final class DatabaseTables {
   static const String chartSnapshots = 'chart_snapshots';
   static const String chartEntries = 'chart_entries';
   static const String chartMomentEvents = 'chart_moment_events';
+  static const String chartHistoryOrigin = 'chart_history_origin';
 
   static const String playlists = 'playlists';
   static const String playlistItems = 'playlist_items';
@@ -35,4 +37,5 @@ abstract final class DatabaseTables {
 
   static const String libraryDeletionLedger = 'library_deletion_ledger';
   static const String libraryDeletionJournal = 'library_deletion_journal';
+  static const String deletedAudioSignatures = 'deleted_audio_signatures';
 }

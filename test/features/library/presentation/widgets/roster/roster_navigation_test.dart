@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -175,18 +177,64 @@ void main() {
     expectFeatured(tester, 14, 'Page 2 of 3');
   });
 
-  testWidgets('returning within 15 minutes restores the page and artist', (
-    tester,
-  ) async {
+  // App Update 1.2 (BUG-01): entering the Library destination again starts
+  // on Page 1 with the first artist, however soon (App Update 1.1 restored
+  // the place for 15 minutes).
+  testWidgets('returning to the Library starts again on Page 1 with the '
+      'first artist, however soon', (tester) async {
     await enter(tester);
     await tester.tap(byKey('roster-page-next'));
     await tester.pumpAndSettle();
     await tapTile(tester, 16);
     await leave(tester);
 
-    clock.advance(const Duration(minutes: 14, seconds: 59));
+    clock.advance(const Duration(seconds: 5));
     await enter(tester);
+    expectFeatured(tester, 0, 'Page 1 of 3');
+  });
+
+  testWidgets('returning from a page opened over the Library, such as an '
+      'Artist Profile, keeps the page and artist', (tester) async {
+    await enter(tester);
+    await tester.tap(byKey('roster-page-next'));
+    await tester.pumpAndSettle();
+    await tapTile(tester, 16);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Artist Profile')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    clock.advance(const Duration(minutes: 30));
+    navigator.pop();
+    await tester.pumpAndSettle();
+
     expectFeatured(tester, 16, 'Page 2 of 3');
+  });
+
+  testWidgets('a page turn is quick and lands exactly on the page', (
+    tester,
+  ) async {
+    await enter(tester);
+    final pages = tester.widget<PageView>(byKey('roster-pages')).controller!;
+
+    await tester.tap(byKey('roster-page-next'));
+    await tester.pump();
+    var overshoot = false;
+    for (var ms = 0; ms < 150; ms += 10) {
+      await tester.pump(const Duration(milliseconds: 10));
+      if ((pages.page ?? 0) > 1.0001) overshoot = true;
+    }
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(overshoot, isFalse);
+    expect(pages.page, 1.0, reason: 'settled within 150 ms');
+    await tester.pumpAndSettle();
+    expectFeatured(tester, 10, 'Page 2 of 3');
   });
 
   testWidgets('returning after 15 minutes starts again on Page 1', (
@@ -332,7 +380,8 @@ void main() {
       expectFeatured(tester, 0, 'Page 1 of 3');
     });
 
-    testWidgets('3. a choice is kept within 15 minutes', (tester) async {
+    testWidgets('3. returning to the Library: Page 1, first artist '
+        '(App Update 1.2, BUG-01)', (tester) async {
       await enter(tester, artists: listed(), statsDelay: late);
       await tester.tap(byKey('roster-page-next'));
       await tester.pumpAndSettle();
@@ -341,7 +390,7 @@ void main() {
 
       clock.advance(const Duration(minutes: 10));
       await enter(tester, artists: listed(), statsDelay: late);
-      expectFeatured(tester, 14, 'Page 2 of 3');
+      expectFeatured(tester, 0, 'Page 1 of 3');
     });
 
     testWidgets('4. after 15 minutes: Page 1, first artist', (tester) async {

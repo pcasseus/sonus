@@ -1,4 +1,7 @@
 import 'dart:ui' show ImageFilter;
+import '../../domain/services/genre_catalog.dart';
+import '../../domain/entities/album_edition_disc_label.dart';
+import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
 import '../../../player/presentation/models/now_playing_mark.dart';
@@ -32,8 +35,6 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
-import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
-import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
@@ -154,6 +155,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
       artworkCropService: context.read<ArtworkCropService?>(),
+      discLabelRepository: _optionalDiscLabels(context),
     );
 
     // The artwork can change without this State rebuilding: when the album
@@ -405,7 +407,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                           controller: controller,
                           atmosphere: atmosphere,
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 8),
+                        _EditionSummary(controller: controller),
+                        const SizedBox(height: 14),
                       ],
                       _PlaybackControls(
                         controller: controller,
@@ -432,6 +436,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   child: _TracksSection(
                     profile: profile,
                     count: controller.tracks.where(_hasAvailableMedia).length,
+                    unavailableCount: controller.tracks
+                        .where((track) => !_hasAvailableMedia(track))
+                        .length,
+                    onReviewUnavailable: controller.canEditAlbumStudio(userId)
+                        ? () => _openAlbumStudio(controller, userId)
+                        : null,
                     child: _TracksList(
                       controller: controller,
                       selection: _selection,
@@ -661,10 +671,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
-    final coverArtCandidateDiscoveryService = context
-        .read<CoverArtCandidateDiscoveryService?>();
-    final coverArtAlbumEditionImportService = context
-        .read<CoverArtAlbumEditionImportService?>();
     final metadataProvider = context.read<MetadataProvider?>();
     final externalMetadataApplicationService = context
         .read<ExternalMetadataApplicationService?>();
@@ -678,10 +684,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             controller: controller,
             userId: userId,
             metadataProvider: metadataProvider,
-            coverArtAlbumEditionImportService:
-                coverArtAlbumEditionImportService,
-            coverArtCandidateDiscoveryService:
-                coverArtCandidateDiscoveryService,
             externalMetadataApplicationService:
                 externalMetadataApplicationService,
             externalMetadataProposalService: externalMetadataProposalService,
@@ -1048,11 +1050,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   }
 }
 
-bool _hasAvailableMedia(LibraryTrack track) {
-  return track.isAvailable &&
-      track.filePath != null &&
-      track.filePath!.trim().isNotEmpty;
-}
+bool _hasAvailableMedia(LibraryTrack track) => track.hasAvailableFile;
 
 /// Artwork, title, artist, edition and release details, on a background
 /// that flows from the artwork's tint into the page.
@@ -1258,17 +1256,22 @@ class _AlbumHero extends StatelessWidget {
     final parts = <String>[];
     final selectedEdition = controller.selectedEdition;
 
-    final releaseDate =
-        selectedEdition?.releaseDateValue ?? album.releaseDateValue;
+    // An edition shows its own date only (REF-12a): one without a date
+    // never borrows another edition's, so Deluxe never shows Standard's.
+    final releaseDate = selectedEdition != null
+        ? selectedEdition.releaseDateValue
+        : album.releaseDateValue;
 
     if (releaseDate != null) {
       parts.add(releaseDate.label);
     }
 
     // Genre is shared by the release: the primary edition's (SN-50 A1).
-    final genre = album.genre?.trim();
+    // Shown under its canonical name when it is an exact alias (REF-14);
+    // the stored genre is not changed.
+    final genre = GenreCatalog.display(album.genre);
 
-    if (genre != null && genre.isNotEmpty) {
+    if (genre != null) {
       parts.add(genre);
     }
 
@@ -1446,6 +1449,36 @@ class _ArtworkFallback extends StatelessWidget {
 /// A segmented control when every edition fits on one line, otherwise
 /// wrapping choices, so long edition titles are never clipped or hidden off
 /// screen.
+/// The selected edition at a glance under the selector (REF-15): its name,
+/// its own date (or that it has none) and its own track count.
+class _EditionSummary extends StatelessWidget {
+  const _EditionSummary({required this.controller});
+
+  final AlbumProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final edition = controller.selectedEdition;
+    if (edition == null) return const SizedBox.shrink();
+
+    final count = controller.tracks.where(_hasAvailableMedia).length;
+    final parts = [
+      _editionDisplayLabel(edition, controller.album?.title ?? ''),
+      edition.releaseDateValue?.label ?? 'Date not set',
+      count == 1 ? '1 track' : '$count tracks',
+    ];
+
+    return Text(
+      parts.join(' · '),
+      key: const ValueKey<String>('album-profile-edition-summary'),
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: SonusTheme.of(context).colors.textSecondary,
+      ),
+    );
+  }
+}
+
 class _EditionSelector extends StatelessWidget {
   const _EditionSelector({required this.controller, required this.atmosphere});
 
@@ -1454,10 +1487,10 @@ class _EditionSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedEdition = controller.selectedEdition;
+    final chosenEditionId = controller.chosenEditionId;
     final editions = controller.editions;
 
-    if (selectedEdition == null || editions.length < 2) {
+    if (chosenEditionId == null || editions.length < 2) {
       return const SizedBox.shrink();
     }
     final quiet = SonusTheme.of(context).decoration.allowGradients;
@@ -1495,7 +1528,7 @@ class _EditionSelector extends StatelessWidget {
                           label: labels[index],
                         ),
                     ],
-                    selected: selectedEdition.editionId,
+                    selected: chosenEditionId,
                     // Profile Lab: with effects, a quiet selected segment
                     // (faint accent over the surface, primary text, check)
                     // so it stays subordinate to Play.
@@ -1508,7 +1541,8 @@ class _EditionSelector extends StatelessWidget {
                     selectedForegroundColor: quiet
                         ? SonusTheme.of(context).colors.textPrimary
                         : atmosphere.onAccent,
-                    onChanged: _select,
+                    onChanged: (editionId) =>
+                        unawaited(_select(context, editionId)),
                   ),
                 ),
               ),
@@ -1518,19 +1552,27 @@ class _EditionSelector extends StatelessWidget {
           return _EditionChoices(
             editions: editions,
             labels: labels,
-            selectedId: selectedEdition.editionId,
+            selectedId: chosenEditionId,
             maxWidth: constraints.maxWidth,
             atmosphere: atmosphere,
-            onSelected: _select,
+            onSelected: (editionId) => unawaited(_select(context, editionId)),
           );
         },
       ),
     );
   }
 
-  void _select(String editionId) {
-    if (editionId == controller.selectedEdition?.editionId) return;
-    unawaited(controller.selectEdition(editionId));
+  /// One switch per deliberate tap: a tap on the edition already chosen,
+  /// even one still being read, does nothing (PATCH-01).
+  Future<void> _select(BuildContext context, String editionId) async {
+    if (editionId == controller.chosenEditionId) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (await controller.selectEdition(editionId)) return;
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('That edition could not be opened. Try again.'),
+      ),
+    );
   }
 
   /// Whether a segmented control holding [labels] fits in [maxWidth]. Its
@@ -1760,11 +1802,22 @@ class _TracksSection extends StatelessWidget {
   const _TracksSection({
     required this.profile,
     required this.count,
+    this.unavailableCount = 0,
+    this.onReviewUnavailable,
     required this.child,
   });
 
   final SonusProfileColors profile;
   final int count;
+
+  /// Songs on this edition whose file is unavailable, which the list does
+  /// not show (BUG-09): said in words so the gap is never silent.
+  final int unavailableCount;
+
+  /// Opens Edit Release, where those songs are listed; null when the user
+  /// cannot edit the release.
+  final VoidCallback? onReviewUnavailable;
+
   final Widget child;
 
   @override
@@ -1828,6 +1881,11 @@ class _TracksSection extends StatelessWidget {
                 ],
               ),
             ),
+            if (unavailableCount > 0)
+              _UnavailableTracksNotice(
+                count: unavailableCount,
+                onReview: onReviewUnavailable,
+              ),
             const SizedBox(height: 6),
             child,
           ],
@@ -1836,6 +1894,52 @@ class _TracksSection extends StatelessWidget {
     );
   }
 }
+
+/// "2 tracks aren't shown because their files are unavailable." (BUG-09)
+class _UnavailableTracksNotice extends StatelessWidget {
+  const _UnavailableTracksNotice({required this.count, this.onReview});
+
+  final int count;
+  final VoidCallback? onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return Padding(
+      key: const ValueKey<String>('album-profile-unavailable-notice'),
+      padding: const EdgeInsets.fromLTRB(26, 6, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            unavailableTracksNotice(count),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          if (onReview != null)
+            TextButton(
+              key: const ValueKey<String>('album-profile-review-unavailable'),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(44, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              onPressed: onReview,
+              child: const Text('Review in Edit Release'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The notice for [count] songs whose files are unavailable.
+@visibleForTesting
+String unavailableTracksNotice(int count) => count == 1
+    ? "1 track isn't shown because its file is unavailable."
+    : "$count tracks aren't shown because their files are unavailable.";
 
 class _TracksList extends StatelessWidget {
   const _TracksList({
@@ -1872,24 +1976,23 @@ class _TracksList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tracks = controller.tracks
-        .where(
-          (track) =>
-              track.isAvailable &&
-              track.filePath != null &&
-              track.filePath!.trim().isNotEmpty,
-        )
+    var tracks = controller.tracks
+        .where(_hasAvailableMedia)
         .toList(growable: false);
 
     if (tracks.isEmpty) {
       return const _EmptySection(message: 'No tracks yet');
     }
 
-    // Disc headings only when the edition really spans several discs. They
-    // follow the list's existing order; nothing is re-sorted here.
+    // Disc headings only when the edition really spans several discs. Each
+    // disc is then shown once, in disc order, keeping the edition's order
+    // within it (REF-13): a hand-made order can no longer split a disc.
     final multiDisc = spansMultipleDiscs(
       tracks.map((track) => track.discNumber),
     );
+    if (multiDisc) {
+      tracks = groupedByDisc(tracks, (track) => track.discNumber);
+    }
     final coordinator = context.read<PlaybackCoordinator?>();
 
     return StreamBuilder<NowPlayingMark>(
@@ -1916,8 +2019,14 @@ class _TracksList extends StatelessWidget {
       children: [
         for (final (index, track) in tracks.indexed) ...[
           if (multiDisc &&
-              (index == 0 || tracks[index - 1].discNumber != track.discNumber))
-            _DiscHeading(disc: track.discNumber, index: index)
+              (index == 0 ||
+                  shownDisc(tracks[index - 1].discNumber) !=
+                      shownDisc(track.discNumber)))
+            _DiscHeading(
+              disc: shownDisc(track.discNumber),
+              label: controller.discLabels[shownDisc(track.discNumber)],
+              index: index,
+            )
           else if (index > 0)
             // A hairline between rows, in the glass's rim colour.
             Divider(
@@ -1963,9 +2072,12 @@ class _TracksList extends StatelessWidget {
 }
 
 class _DiscHeading extends StatelessWidget {
-  const _DiscHeading({required this.disc, required this.index});
+  const _DiscHeading({required this.disc, required this.index, this.label});
 
   final int disc;
+
+  /// The disc's name, if it has one (REF-13c).
+  final String? label;
 
   /// Position in the list, so a disc that appears twice keeps unique keys.
   final int index;
@@ -1979,7 +2091,7 @@ class _DiscHeading extends StatelessWidget {
       child: Semantics(
         header: true,
         child: Text(
-          'Disc $disc',
+          discTitle(disc, label: label),
           key: ValueKey<String>('album-profile-disc-heading-$index'),
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
             color: colors.textSecondary,
@@ -2552,5 +2664,15 @@ class _AlbumNotFound extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Disc names, where the app provides them (REF-13c); pages built without
+/// them show discs by number.
+AlbumEditionDiscLabelRepository? _optionalDiscLabels(BuildContext context) {
+  try {
+    return context.read<AlbumEditionDiscLabelRepository?>();
+  } on ProviderNotFoundException {
+    return null;
   }
 }

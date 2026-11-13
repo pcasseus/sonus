@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../../../../../core/build/sonus_app_identity.dart';
+
 /// Builds the `content://` URIs that car hosts use to read artwork.
 ///
 /// Android Auto runs in another app and cannot open Sonus's private
@@ -16,8 +18,9 @@ class ArtworkContentUris {
   }) : _directory = p.normalize(artworkDirectory),
        _fileExists = fileExists ?? _exists;
 
-  /// Must match the provider's authority in AndroidManifest.xml.
-  static const String authority = 'com.sonus.sonus_next.artwork';
+  /// Must match the provider's authority in AndroidManifest.xml,
+  /// `${applicationId}.artwork`, so the QA install has its own.
+  static const String authority = '$sonusApplicationId.artwork';
 
   /// Managed artwork file names, as FileSystemArtworkManagedStorage
   /// creates them. The provider applies the same rule.

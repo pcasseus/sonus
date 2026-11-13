@@ -410,6 +410,17 @@ class ExternalMetadataApplicationService {
           reviewFields: reviewFields,
         );
 
+        await _applyGenre(
+          context,
+          repository: metadataRepository,
+          albumId: album.id,
+          candidate: candidate,
+          userId: userId,
+          timestamp: timestamp,
+          changedFields: changedFields,
+          protectedFields: protectedFields,
+        );
+
         return ExternalMetadataApplicationResult(
           changedFields: Set.unmodifiable(changedFields),
           provenanceUpdatedFields: Set.unmodifiable(provenanceFields),
@@ -875,6 +886,63 @@ class ExternalMetadataApplicationService {
     } else {
       return;
     }
+
+    await MetadataFieldStateService(repository: repository).record(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      authority: MetadataAuthority.external,
+      source: MetadataProvenanceSource.musicBrainz,
+      sourceReference: candidate.sourceReference,
+      updatedAt: timestamp,
+    );
+
+    await context.localSyncRepository.recordUpsert(
+      userId: userId?.trim(),
+      entityType: CloudDataEntity.albumEdition,
+      entityId: edition.id,
+    );
+  }
+
+  /// MusicBrainz's genre on a primary edition that has none (App Update
+  /// 1.2, REF-17). A genre already set, or one the listener cleared, is
+  /// kept; ambiguous genres suggest nothing.
+  static Future<void> _applyGenre(
+    SyncMutationContext context, {
+    required MetadataFieldStateRepository repository,
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required String? userId,
+    required DateTime timestamp,
+    required Set<String> changedFields,
+    required Set<String> protectedFields,
+  }) async {
+    const field = MetadataFields.editionGenre;
+    final proposed = candidate.suggestedGenre;
+    if (proposed == null) return;
+
+    final edition = await _primaryEdition(context, albumId);
+    if (edition == null || (edition.genre?.trim().isNotEmpty ?? false)) {
+      return;
+    }
+
+    final decision = await _evaluate(
+      repository: repository,
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      existingValuePresent: false,
+    );
+
+    if (decision != MetadataReplacementDecision.accept) {
+      protectedFields.add(field);
+      return;
+    }
+
+    await context.albumEditionRepository.save(
+      edition.copyWith(genre: proposed, updatedAt: timestamp),
+    );
+    changedFields.add(field);
 
     await MetadataFieldStateService(repository: repository).record(
       entityType: MetadataEntityType.albumEdition,

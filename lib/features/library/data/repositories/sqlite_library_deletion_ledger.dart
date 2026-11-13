@@ -74,6 +74,19 @@ class SqliteLibraryDeletionLedger {
     return rows.isNotEmpty;
   }
 
+  /// Whether any of [ids] was deleted by the user. Given a merge chain (a
+  /// duplicate, then each record it was merged into), this tells whether
+  /// the record the duplicate became was deleted later.
+  Future<bool> anyDeletedByUser(
+    DeletionLedgerEntity entity,
+    Iterable<String> ids,
+  ) async {
+    for (final id in ids) {
+      if (await deletedByUser(entity, id)) return true;
+    }
+    return false;
+  }
+
   /// The subset of [ids] that is in the ledger.
   Future<Set<String>> ledgered(
     DeletionLedgerEntity entity,

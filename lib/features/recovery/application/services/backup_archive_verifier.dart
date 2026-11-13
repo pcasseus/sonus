@@ -35,10 +35,7 @@ class BackupArchiveVerifier {
     required File backupFile,
     required Directory targetDirectory,
   }) async {
-    if (await FileSystemEntity.type(
-          targetDirectory.path,
-          followLinks: false,
-        ) !=
+    if (await FileSystemEntity.type(targetDirectory.path, followLinks: false) !=
         FileSystemEntityType.notFound) {
       throw StateError('Backup extraction directory must not exist.');
     }
@@ -88,8 +85,7 @@ class BackupArchiveVerifier {
 
   Future<DecodedBackup> _verify(
     File backupFile, {
-    Future<void> Function(_VerifiedArtwork artwork, List<int> bytes)?
-    onArtwork,
+    Future<void> Function(_VerifiedArtwork artwork, List<int> bytes)? onArtwork,
   }) async {
     if (!await backupFile.exists()) {
       throw const FormatException('Backup archive does not exist.');

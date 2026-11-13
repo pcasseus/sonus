@@ -8,15 +8,24 @@ import '../../domain/models/pending_possible_recording.dart';
 import '../../domain/models/resolved_metadata.dart';
 import '../../domain/repositories/media_file_binding_repository.dart';
 import '../../domain/services/import_file_probe.dart';
+import 'file_identity_service.dart';
 import 'library_import_service.dart';
 
 /// A pending possible different recording, with the song it may duplicate
 /// (null when that song is no longer in the library).
 class PossibleRecordingItem {
-  const PossibleRecordingItem({required this.entry, this.candidate});
+  const PossibleRecordingItem({
+    required this.entry,
+    this.candidate,
+    this.candidates = const [],
+  });
 
   final PendingPossibleRecording entry;
   final Song? candidate;
+
+  /// Every song the file may be that is still in the library, in the
+  /// entry's order (BUG-09).
+  final List<Song> candidates;
 }
 
 enum PossibleRecordingOutcome {
@@ -46,6 +55,18 @@ enum PossibleRecordingOutcome {
 
   /// The import failed; the file stays listed.
   failed,
+
+  /// BUG-09: the song now plays this file; its history is unchanged.
+  usedForSong,
+
+  /// BUG-09: the changed audio was kept as the same song.
+  audioKept,
+
+  /// BUG-09: the song already plays another file; nothing changed.
+  songHasFile,
+
+  /// BUG-09: the file or its audio was permanently deleted; nothing changed.
+  deletedRecording,
 }
 
 class PossibleRecordingActionResult {
@@ -65,8 +86,12 @@ class PossibleRecordingReviewService {
     required this.mediaFileBindingRepository,
     required this.songRepository,
     this.fileProbe,
+    this.fileIdentityService,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
+
+  /// BUG-09: attaches a replaced file to its song, or keeps changed audio.
+  final FileIdentityService? fileIdentityService;
 
   final PossibleRecordingStore store;
   final LibraryImportService libraryImportService;
@@ -86,10 +111,13 @@ class PossibleRecordingReviewService {
     final items = <PossibleRecordingItem>[];
 
     for (final entry in await store.getPending()) {
-      if (await mediaFileBindingRepository.getByNormalizedPath(
-            entry.normalizedPath,
-          ) !=
-          null) {
+      // A file whose audio changed is in the library by design; any other
+      // pending file that is now in the library is settled.
+      if (entry.kind != PendingFileReviewKind.audioChanged &&
+          await mediaFileBindingRepository.getByNormalizedPath(
+                entry.normalizedPath,
+              ) !=
+              null) {
         await store.remove(entry.normalizedPath);
         continue;
       }
@@ -99,10 +127,15 @@ class PossibleRecordingReviewService {
         continue;
       }
 
+      final candidates = [
+        for (final id in entry.candidateSongIds)
+          ?await songRepository.getById(id),
+      ];
       items.add(
         PossibleRecordingItem(
           entry: entry,
           candidate: await songRepository.getById(entry.candidateSongId),
+          candidates: List.unmodifiable(candidates),
         ),
       );
     }
@@ -228,6 +261,108 @@ class PossibleRecordingReviewService {
           : PossibleRecordingOutcome.handledByImport,
       importResult: result,
     );
+  }
+
+  /// BUG-09: the user said the file is [songId]'s file (one of
+  /// [PendingPossibleRecording.candidateSongIds]). Checked again first; the
+  /// song keeps its ID, plays, playlists and charts.
+  Future<PossibleRecordingActionResult> useFileForSong(
+    PendingPossibleRecording entry, {
+    required String songId,
+  }) async {
+    final service = fileIdentityService;
+    if (service == null || !entry.candidateSongIds.contains(songId)) {
+      return const PossibleRecordingActionResult(
+        PossibleRecordingOutcome.failed,
+      );
+    }
+    final unreachable = await _unreachable(entry);
+    if (unreachable != null) return unreachable;
+
+    final outcome = await service.useFileForSong(
+      _candidateOf(entry),
+      songId: songId,
+      now: _now(),
+    );
+    return _settle(entry, outcome, done: PossibleRecordingOutcome.usedForSong);
+  }
+
+  /// BUG-09: the user said a known file whose audio changed is still the
+  /// same song.
+  Future<PossibleRecordingActionResult> keepChangedAudio(
+    PendingPossibleRecording entry,
+  ) async {
+    final service = fileIdentityService;
+    if (service == null) {
+      return const PossibleRecordingActionResult(
+        PossibleRecordingOutcome.failed,
+      );
+    }
+    final unreachable = await _unreachable(entry);
+    if (unreachable != null) return unreachable;
+
+    final outcome = await service.keepChangedAudio(
+      _candidateOf(entry),
+      now: _now(),
+    );
+    return _settle(entry, outcome, done: PossibleRecordingOutcome.audioKept);
+  }
+
+  ImportCandidate _candidateOf(PendingPossibleRecording entry) =>
+      ImportCandidate(
+        filePath: entry.filePath,
+        normalizedPath: TextNormalizer.normalizePath(entry.filePath),
+        discoveredAt: _now(),
+        metadataFallbackPath: entry.metadataFallbackPath,
+        sourceId: entry.sourceId,
+      );
+
+  /// Null when the file can be read now.
+  Future<PossibleRecordingActionResult?> _unreachable(
+    PendingPossibleRecording entry,
+  ) async {
+    switch (await fileProbe?.probe(entry.filePath)) {
+      case ImportFileState.missing:
+        await store.remove(entry.normalizedPath);
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.fileUnavailable,
+        );
+      case ImportFileState.permissionLost:
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.permissionLost,
+        );
+      case ImportFileState.unknown:
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.checkFailed,
+        );
+      case ImportFileState.present || null:
+        return null;
+    }
+  }
+
+  Future<PossibleRecordingActionResult> _settle(
+    PendingPossibleRecording entry,
+    FileReviewDecisionOutcome outcome, {
+    required PossibleRecordingOutcome done,
+  }) async {
+    final result = switch (outcome) {
+      FileReviewDecisionOutcome.done => done,
+      FileReviewDecisionOutcome.songHasFile =>
+        PossibleRecordingOutcome.songHasFile,
+      FileReviewDecisionOutcome.songMissing =>
+        PossibleRecordingOutcome.candidateMissing,
+      FileReviewDecisionOutcome.deleted =>
+        PossibleRecordingOutcome.deletedRecording,
+      FileReviewDecisionOutcome.unreadable =>
+        PossibleRecordingOutcome.checkFailed,
+      FileReviewDecisionOutcome.notKnown =>
+        PossibleRecordingOutcome.alreadyImported,
+    };
+    if (result != PossibleRecordingOutcome.checkFailed &&
+        result != PossibleRecordingOutcome.songHasFile) {
+      await store.remove(entry.normalizedPath);
+    }
+    return PossibleRecordingActionResult(result);
   }
 
   /// Records that the file is the same recording as its song. Nothing is

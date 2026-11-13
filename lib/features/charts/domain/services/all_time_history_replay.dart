@@ -765,12 +765,10 @@ class AllTimeHistoryReplay {
           id: List.unmodifiable(list),
       },
       trackedPeaks: {
-        for (final id in collectDayStandings)
-          id: ?states[id]?.bestRank,
+        for (final id in collectDayStandings) id: ?states[id]?.bestRank,
       },
       trackedFirstCharted: {
-        for (final id in collectDayStandings)
-          id: ?states[id]?.firstInTopAt,
+        for (final id in collectDayStandings) id: ?states[id]?.firstInTopAt,
       },
       trackedRanks: {
         for (final id in collectDayStandings)

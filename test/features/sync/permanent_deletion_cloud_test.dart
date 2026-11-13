@@ -2,6 +2,7 @@
 // device holds on every device, including one that connects later, and no
 // stale device or old cloud copy brings it back. Disposable databases and
 // an in-memory cloud only.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/library/application/services/duplicate_album_reconciliation_service.dart';
 import 'package:sonus_next/features/library/application/services/permanent_deletion_service.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_deletion_journal_reader.dart';
 import 'package:sonus_next/features/library/domain/deletion/permanent_deletion_impact.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_archive_sync_service.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_cloud_record_applier.dart';
@@ -693,4 +695,202 @@ void main() {
       expect(await a.count(DatabaseTables.playbackSessions, "id = 'late'"), 0);
     },
   );
+
+  // App Update 1.2 patches, Checkpoint 1.
+
+  CloudArchiveRecord olderPlayOfDuplicate(String key) {
+    final record = oldClientPlay(key);
+    final session = {
+      ...(record.payload['session']! as Map<String, Object?>),
+      'song_id': 'second_dup',
+      'album_id': 'nova_dup',
+      'album_edition_id': 'nova_dup_std',
+      'song_title': 'second',
+    };
+    return CloudArchiveRecord(
+      kind: record.kind,
+      key: key,
+      payload: {...record.payload, 'session': session},
+      clientUpdatedAt: record.clientUpdatedAt,
+    );
+  }
+
+  test('BUG-00A: a play of a merged duplicate stays deleted once the song '
+      'it became is deleted, on every device', () async {
+    for (final device in [a, b]) {
+      await addDuplicate(device);
+    }
+    final report = await DuplicateAlbumReconciliationService(
+      appDatabase: a.database,
+      changes: LibraryChangeSignal(),
+    ).reconcile();
+    expect(report.merged.single.duplicateAlbumId, 'nova_dup');
+    final service = a.deletion();
+    await service.delete(
+      await service.preview(const PermanentDeletionTarget.song('second')),
+    );
+    await a.sync();
+
+    // A device still on App Update 1.1, which never learned of the merge
+    // or the deletion, uploads a play of its copy of the duplicate.
+    await cloud.insertIfAbsent(
+      userId: _user,
+      record: olderPlayOfDuplicate('late_dup'),
+    );
+
+    await a.sync();
+    expect(
+      await a.count(DatabaseTables.playbackSessions, "id = 'late_dup'"),
+      0,
+    );
+    expect(
+      await a.count(DatabaseTables.qualifiedPlays),
+      2,
+      reason: 'only the setUp plays of opening and glow',
+    );
+    final row = rows()['listening_session:late_dup']!;
+    expect(row.isDeleted, isTrue, reason: 'removed from the cloud');
+    expect(row.payload, isEmpty);
+
+    // A device that connects later, and never had the duplicate, keeps
+    // none of it either, whatever order the records arrive in.
+    final c = _Device('c', dir, cloud);
+    addTearDown(c.close);
+    await c.seedLibrary();
+    await c.sync();
+    expect(
+      await c.count(DatabaseTables.playbackSessions, "id = 'late_dup'"),
+      0,
+    );
+    expect(
+      await c.count(
+        DatabaseTables.playbackSessions,
+        "song_id IN ('second', 'second_dup')",
+      ),
+      0,
+    );
+
+    // Done once: later syncs leave everything alone.
+    final writes = cloud.writes;
+    await a.sync();
+    await c.sync();
+    expect(cloud.writes, writes);
+  });
+
+  test('BUG-00B: a merge from another device carries this device\'s chart '
+      'weeks and Moments to the record that stayed', () async {
+    for (final device in [a, b]) {
+      await addDuplicate(device);
+    }
+    // B listened to the duplicate, its stored weekly charts rank it, and it
+    // published a story about it. A has none of that, so A's merge is
+    // verified and automatic.
+    await b.play('second_dup', 'b_dup');
+    const earlier = '2026-10-18T04:00:00.000Z';
+    const week = '2026-10-25T04:00:00.000Z';
+    final bDb = await b.db;
+    Future<void> chartWeek(
+      String type,
+      String start,
+      String end,
+      String entity,
+    ) async {
+      final snapshot = 'snapshot_${type}_$start';
+      await bDb.insert(DatabaseTables.chartSnapshots, {
+        'id': snapshot,
+        'chart_type': type,
+        'week_start_utc': start,
+        'week_end_utc': end,
+        'finalized_at': end,
+        'created_at': end,
+        'updated_at': end,
+      });
+      await bDb.insert(DatabaseTables.chartEntries, {
+        'id': 'entry_${type}_$start',
+        'chart_snapshot_id': snapshot,
+        'entity_id': entity,
+        'title': entity,
+        'artist_id': 'nova',
+        'artist_name': 'nova',
+        'rank': 1,
+        'qualified_stream_count': 1,
+        'peak_rank': 1,
+        'peak_achieved_at': end,
+        'weeks_on_chart': 1,
+        'movement': 'newEntry',
+        'last_qualified_at': end,
+        'created_at': end,
+        'updated_at': end,
+      });
+    }
+
+    await chartWeek('songs', earlier, week, 'glow');
+    await chartWeek('songs', week, '2026-11-01T04:00:00.000Z', 'second_dup');
+    await chartWeek('albums', week, '2026-11-01T04:00:00.000Z', 'nova_dup');
+    await b.story('debut_second_dup', 'second_dup', 'nova');
+
+    final report = await DuplicateAlbumReconciliationService(
+      appDatabase: a.database,
+      changes: LibraryChangeSignal(),
+    ).reconcile();
+    expect(report.merged.single.duplicateAlbumId, 'nova_dup');
+    await a.sync();
+    await b.sync();
+
+    expect(await b.count(DatabaseTables.albums, "id = 'nova_dup'"), 0);
+    // No stored chart row points at a merged record.
+    expect(
+      await b.count(
+        DatabaseTables.chartEntries,
+        "entity_id IN ('second_dup', 'opening_dup', 'nova_dup')",
+      ),
+      0,
+    );
+    // Both charts from that week on wait to be rebuilt from history (D3);
+    // the earlier week is untouched.
+    expect(
+      await b.count(DatabaseTables.chartSnapshots, "week_start_utc >= '$week'"),
+      0,
+    );
+    expect(await b.count(DatabaseTables.chartEntries, "entity_id = 'glow'"), 1);
+    final journal = (await bDb.query(
+      DatabaseTables.libraryDeletionJournal,
+      where: "operation = 'duplicateMerge'",
+    )).single;
+    expect(
+      (jsonDecode(journal['rebuilt_weeks']! as String) as List),
+      containsAll(['songs:$week', 'albums:$week']),
+    );
+    // Those weeks publish no new Moments (D5).
+    final reader = SqliteDeletionJournalReader(() async => bDb);
+    expect(
+      await reader.isRecalculatedWeek('songs', DateTime.parse(week)),
+      isTrue,
+    );
+    expect(
+      await reader.isRecalculatedWeek('songs', DateTime.parse(earlier)),
+      isFalse,
+    );
+    // The story and the listening now name the song that stayed, on both
+    // devices (A downloads B's story after the merge); none was deleted.
+    await a.sync();
+    for (final device in [a, b]) {
+      final story = (await (await device.db).query(
+        DatabaseTables.chartMomentEvents,
+        where: "id = 'debut_second_dup'",
+      )).single;
+      expect(story['entity_id'], 'second', reason: device.name);
+    }
+    final moved = (await bDb.query(
+      DatabaseTables.qualifiedPlays,
+      where: "id = 'play_b_dup'",
+    )).single;
+    expect(moved['song_id'], 'second');
+
+    // Settled: syncing again writes nothing.
+    final writes = cloud.writes;
+    await a.sync();
+    await b.sync();
+    expect(cloud.writes, writes);
+  });
 }

@@ -19,6 +19,7 @@ abstract final class ChartSnapshotRowMapper {
           : DateTime.parse(snapshotRow['finalized_at']! as String),
       revision: snapshotRow['revision']! as int,
       entries: List<ChartEntry>.unmodifiable(entries),
+      provenance: ChartSnapshotProvenance.fromName(snapshotRow['provenance']),
     );
   }
 
@@ -34,6 +35,7 @@ abstract final class ChartSnapshotRowMapper {
       'week_end_utc': snapshot.weekEndUtc.toUtc().toIso8601String(),
       'finalized_at': snapshot.finalizedAt?.toUtc().toIso8601String(),
       'revision': snapshot.revision,
+      'provenance': snapshot.provenance?.name,
       'created_at': createdAt.toUtc().toIso8601String(),
       'updated_at': updatedAt.toUtc().toIso8601String(),
     };

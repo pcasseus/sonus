@@ -140,14 +140,6 @@ class DuplicateAlbumReconciliationService {
         at: timestamp,
       );
     }
-    // Listening downloaded here before the merge arrived still names the
-    // duplicate: it follows the record that stayed.
-    await MergeHistoryRemap.repointHistory(
-      txn,
-      songs: songs,
-      editions: editions,
-      albums: albums,
-    );
     await txn.insert(DatabaseTables.libraryDeletionJournal, {
       'id': operationId,
       'operation': DeletionLedgerReason.duplicateMerge.name,
@@ -162,6 +154,99 @@ class DuplicateAlbumReconciliationService {
       }),
       'committed_at': timestamp.toUtc().toIso8601String(),
     });
+    // Listening downloaded here before the merge arrived still names the
+    // duplicate: it follows the record that stayed, through any merge this
+    // device made of that record since (BUG-00C).
+    final chains = (await MergeHistoryRemap.load(txn)).chains;
+    Map<String, String> resolved(String kind, Map<String, String> map) => {
+      for (final duplicate in map.keys)
+        duplicate: chains.resolve(kind, duplicate),
+    };
+    await MergeHistoryRemap.repointHistory(
+      txn,
+      songs: resolved('songs', songs),
+      editions: resolved('editions', editions),
+      albums: resolved('albums', albums),
+    );
+    await _carryChartHistory(
+      txn,
+      operationId: operationId,
+      songs: songs.keys,
+      albums: albums.keys,
+    );
+  }
+
+  /// BUG-00B: a merge made on another device can meet stored weekly charts
+  /// or Moments this device has for the duplicate. (A merge made here never
+  /// does: such a duplicate is left for review, see [_DuplicatePlanner].)
+  ///
+  /// - Moments name the record that stayed, so none points at a deleted
+  ///   record. A story about the duplicate is a story about the same
+  ///   recording; none is deleted and none is invented.
+  /// - Stored weeks of both charts from the earliest week that ranks a
+  ///   duplicate are removed and rebuilt from the moved history by Charts,
+  ///   the approved D3 rule. The journal lists them, so they publish no new
+  ///   Moments (D5) and a restore does not bring the old weeks back.
+  ///
+  /// Runs after this merge's journal row is written, so merge chains
+  /// include it.
+  static Future<void> _carryChartHistory(
+    Transaction txn, {
+    required String operationId,
+    required Iterable<String> songs,
+    required Iterable<String> albums,
+  }) async {
+    final chains = (await MergeHistoryRemap.load(txn)).chains;
+    for (final (kind, duplicates) in [('songs', songs), ('albums', albums)]) {
+      for (final duplicate in duplicates) {
+        final kept = chains.resolve(kind, duplicate);
+        for (final column in ['entity_id', 'related_entity_id']) {
+          await txn.update(
+            DatabaseTables.chartMomentEvents,
+            {column: kept},
+            where: '$column = ? AND chart_type = ?',
+            whereArgs: [duplicate, kind],
+          );
+        }
+      }
+    }
+
+    final duplicates = [...songs, ...albums];
+    if (duplicates.isEmpty) return;
+    final marks = List.filled(duplicates.length, '?').join(', ');
+    final earliest =
+        (await txn.rawQuery(
+              'SELECT MIN(s.week_start_utc) AS week '
+              'FROM ${DatabaseTables.chartEntries} e '
+              'JOIN ${DatabaseTables.chartSnapshots} s '
+              'ON s.id = e.chart_snapshot_id '
+              'WHERE e.entity_id IN ($marks)',
+              duplicates,
+            )).single['week']
+            as String?;
+    if (earliest == null) return;
+
+    final rebuiltWeeks = <String>[];
+    for (final row in await txn.query(
+      DatabaseTables.chartSnapshots,
+      columns: ['id', 'chart_type', 'week_start_utc'],
+      where: 'week_start_utc >= ?',
+      whereArgs: [earliest],
+      orderBy: 'week_start_utc, chart_type',
+    )) {
+      rebuiltWeeks.add('${row['chart_type']}:${row['week_start_utc']}');
+      await txn.delete(
+        DatabaseTables.chartSnapshots,
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+    await txn.update(
+      DatabaseTables.libraryDeletionJournal,
+      {'rebuilt_weeks': jsonEncode(rebuiltWeeks)},
+      where: 'id = ?',
+      whereArgs: [operationId],
+    );
   }
 
   Future<void> _apply(
@@ -462,6 +547,12 @@ class DuplicateAlbumReconciliationService {
       }),
       'committed_at': stamp,
     });
+    await _carryChartHistory(
+      txn,
+      operationId: operation,
+      songs: duplicateSongIds,
+      albums: [merge.duplicateAlbumId],
+    );
 
     // Cloud: a record the cloud has seen gets a delete; one it never saw
     // simply stops waiting to be sent.

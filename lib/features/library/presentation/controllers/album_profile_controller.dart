@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -7,12 +8,14 @@ import '../../../artwork/application/services/artwork_crop_service.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../player/presentation/controllers/playback_shuffle_mode.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
+import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
@@ -22,7 +25,7 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 
-class AlbumProfileController extends ChangeNotifier {
+class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
   AlbumProfileController({
     required LibraryQueryRepository repository,
     required String albumId,
@@ -36,6 +39,7 @@ class AlbumProfileController extends ChangeNotifier {
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     ArtworkCropService? artworkCropService,
+    AlbumEditionDiscLabelRepository? discLabelRepository,
     Random? random,
   }) : this._(
          repository,
@@ -51,6 +55,7 @@ class AlbumProfileController extends ChangeNotifier {
          artworkCropService,
          random ?? Random(),
          initialEditionId,
+         discLabelRepository,
        );
 
   AlbumProfileController._(
@@ -67,7 +72,10 @@ class AlbumProfileController extends ChangeNotifier {
     this._artworkCropService,
     this._random,
     this._initialEditionId,
-  );
+    this._discLabelRepository,
+  ) {
+    watchPlaybackShuffle();
+  }
 
   final LibraryQueryRepository _repository;
   final String _albumId;
@@ -86,16 +94,19 @@ class AlbumProfileController extends ChangeNotifier {
   /// not one of this album's editions, the primary edition opens instead.
   final String? _initialEditionId;
 
+  /// Disc names (REF-13c); without it discs are shown by number only.
+  final AlbumEditionDiscLabelRepository? _discLabelRepository;
+
   LibraryAlbum? _album;
   List<LibraryAlbumEdition> _editions = const [];
   LibraryAlbumEdition? _selectedEdition;
   List<LibraryTrack> _tracks = const [];
+  Map<int, String> _discLabels = const {};
+
+  /// The selected edition's disc names, by disc number (REF-13c).
+  Map<int, String> get discLabels => _discLabels;
 
   bool _isLoading = false;
-  // Starts from the player's actual mode, which may have been restored
-  // from the listener's saved preference.
-  late bool _isShuffleEnabled =
-      _playbackCoordinator?.currentState.shuffleEnabled ?? false;
   Object? _error;
 
   String get albumId => _albumId;
@@ -678,7 +689,8 @@ class AlbumProfileController extends ChangeNotifier {
 
   bool get isLoading => _isLoading;
 
-  bool get isShuffleEnabled => _isShuffleEnabled;
+  @override
+  PlaybackCoordinator? get shufflePlayback => _playbackCoordinator;
 
   Object? get error => _error;
 
@@ -767,107 +779,246 @@ class AlbumProfileController extends ChangeNotifier {
     return List<String>.unmodifiable(titles);
   }
 
-  Future<void> load() async {
-    final preferredEditionId = _selectedEdition?.editionId ?? _initialEditionId;
+  /// Each load and each edition switch takes the next number. A result is
+  /// applied only while its number is still the latest, so an older, slower
+  /// read can never undo a newer choice (App Update 1.2, PATCH-01: a
+  /// refresh started before a tap used to finish after it and switch the
+  /// edition back).
+  int _viewRequest = 0;
 
+  /// The edition most recently chosen, while its songs are still being
+  /// read. Null once the view shows it.
+  String? _pendingEditionId;
+
+  bool _disposed = false;
+
+  /// The edition the selector shows: the one most recently chosen, even
+  /// before its songs have been read. Everything else on the page follows
+  /// [selectedEdition], which changes together with its songs.
+  String? get chosenEditionId =>
+      _pendingEditionId ?? _selectedEdition?.editionId;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> load() async {
+    final request = ++_viewRequest;
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notify();
 
     try {
-      final album = await _repository.getAlbumById(_albumId);
-
-      if (album == null) {
-        _album = null;
-        _editions = const [];
-        _selectedEdition = null;
-        _tracks = const [];
-        return;
-      }
-
-      final Object repository = _repository;
-
-      if (repository is AlbumEditionQueryRepository) {
-        final editions = await repository.getAlbumEditions(_albumId);
-
-        if (editions.isNotEmpty) {
-          final selectedEdition = _chooseEdition(
-            editions,
-            preferredEditionId: preferredEditionId,
-            primaryEditionId: album.primaryEditionId,
-          );
-
-          final tracks = await repository.getTracksByAlbumEditionId(
-            selectedEdition.editionId,
-          );
-
-          _album = album;
-          _editions = editions;
-          _selectedEdition = selectedEdition;
-          _tracks = tracks;
-          return;
-        }
-      }
-
-      final tracks = await _repository.getTracksByAlbumId(_albumId);
-
-      _album = album;
-      _editions = const [];
-      _selectedEdition = null;
-      _tracks = tracks;
-    } catch (error) {
+      final view = await _readView(
+        _pendingEditionId ?? _selectedEdition?.editionId ?? _initialEditionId,
+      );
+      if (request != _viewRequest) return;
+      _apply(view);
+    } catch (error, stackTrace) {
+      if (request != _viewRequest) return;
+      developer.log(
+        'Album $_albumId could not be loaded (${error.runtimeType})',
+        name: 'sonus.library.album_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _pendingEditionId = null;
       _error = error;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (request == _viewRequest) {
+        _isLoading = false;
+        _notify();
+      }
     }
+  }
+
+  /// Reads the album, its editions and the songs, disc names of the
+  /// edition to show: [preferredEditionId] when it is still one of them.
+  Future<_AlbumView> _readView(String? preferredEditionId) async {
+    final album = await _repository.getAlbumById(_albumId);
+    if (album == null) return const _AlbumView.missing();
+
+    final Object repository = _repository;
+    if (repository is AlbumEditionQueryRepository) {
+      final editions = await repository.getAlbumEditions(_albumId);
+      if (editions.isNotEmpty) {
+        final edition = _chooseEdition(
+          editions,
+          preferredEditionId: preferredEditionId,
+          primaryEditionId: album.primaryEditionId,
+        );
+        final tracks = await repository.getTracksByAlbumEditionId(
+          edition.editionId,
+        );
+        return _AlbumView(
+          album: album,
+          editions: editions,
+          edition: edition,
+          tracks: tracks,
+          discLabels: await _labelsOf(edition.editionId),
+        );
+      }
+    }
+    return _AlbumView(
+      album: album,
+      editions: const [],
+      edition: null,
+      tracks: await _repository.getTracksByAlbumId(_albumId),
+      discLabels: const {},
+    );
+  }
+
+  /// Shows [view] all at once: the edition never changes without its songs.
+  void _apply(_AlbumView view) {
+    _album = view.album;
+    _editions = view.editions;
+    _selectedEdition = view.edition;
+    _tracks = view.tracks;
+    _discLabels = view.discLabels;
+    _pendingEditionId = null;
   }
 
   Future<void> refresh() {
     return load();
   }
 
+  /// [editionId]'s disc names. They are an extra: one that cannot be read
+  /// leaves the discs shown by number.
+  Future<Map<int, String>> _labelsOf(String editionId) async {
+    final labels = _discLabelRepository;
+    if (labels == null) return const {};
+    try {
+      return {
+        for (final label in await labels.getByEditionId(editionId))
+          label.discNumber: label.label,
+      };
+    } on Object {
+      return const {};
+    }
+  }
+
+  /// Lays out the selected edition as [placements] says: its order, each
+  /// song's disc and automatic numbering (REF-13). Null when nothing
+  /// changed or editing is unavailable.
+  Future<AlbumEditionArrangeResult?> arrangeSelectedEdition({
+    String? userId,
+    required List<EditionPlacement> placements,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null ||
+        selectedEdition == null ||
+        _repository is! AlbumEditionQueryRepository) {
+      return null;
+    }
+
+    final result = await service.arrangeEdition(
+      albumEditionId: selectedEdition.editionId,
+      placements: placements,
+      userId: userId,
+    );
+    await refresh();
+    return result.changed ? result : null;
+  }
+
+  /// Deletes [disc] of the selected edition (PATCH-02): [placements] is
+  /// the edition afterwards and [removeSongIds] the listings it no longer
+  /// has. One transaction; null when editing is unavailable. Throws
+  /// [DiscDeletionException] when refused, with nothing changed.
+  Future<DiscDeletionResult?> deleteSelectedEditionDisc({
+    required int disc,
+    required List<EditionPlacement> placements,
+    Set<String> removeSongIds = const {},
+    String? userId,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null || selectedEdition == null) return null;
+
+    final result = await service.deleteDisc(
+      albumEditionId: selectedEdition.editionId,
+      discNumber: disc,
+      placements: placements,
+      removeSongIds: removeSongIds,
+      userId: userId,
+    );
+    await refresh();
+    return result;
+  }
+
+  /// Names [disc] of the selected edition, or clears its name when [label]
+  /// is blank (REF-13c).
+  Future<bool> setSelectedEditionDiscLabel({
+    required int disc,
+    required String? label,
+    String? userId,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null || selectedEdition == null) return false;
+
+    await service.setDiscLabel(
+      albumEditionId: selectedEdition.editionId,
+      discNumber: disc,
+      label: label,
+      userId: userId,
+    );
+    final labels = await _labelsOf(selectedEdition.editionId);
+    // Another edition may have been chosen meanwhile: never show these
+    // names on it.
+    if (_selectedEdition?.editionId == selectedEdition.editionId) {
+      _discLabels = labels;
+      _notify();
+    }
+    return true;
+  }
+
+  /// Shows [editionId]. The selector moves at once ([chosenEditionId]); the
+  /// edition's songs, disc names, date and cover follow together when read.
+  /// The latest choice always wins, whatever order the reads finish in.
+  /// Only reads: no edition is changed.
+  ///
+  /// False when [editionId] is not one of this album's editions or could
+  /// not be read; the edition on screen then stays. True otherwise, also
+  /// when a later choice has since replaced this one.
   Future<bool> selectEdition(String editionId) async {
-    final Object repository = _repository;
+    if (_repository is! AlbumEditionQueryRepository) return false;
 
-    if (repository is! AlbumEditionQueryRepository) {
-      return false;
-    }
+    final id = editionId.trim();
+    if (!_editions.any((edition) => edition.editionId == id)) return false;
+    if (id == chosenEditionId) return true;
 
-    final normalizedEditionId = editionId.trim();
-
-    if (normalizedEditionId.isEmpty) {
-      return false;
-    }
-
-    LibraryAlbumEdition? edition;
-
-    for (final candidate in _editions) {
-      if (candidate.editionId == normalizedEditionId) {
-        edition = candidate;
-        break;
-      }
-    }
-
-    if (edition == null) {
-      return false;
-    }
-
-    if (_selectedEdition?.editionId == edition.editionId) {
-      return true;
-    }
+    final request = ++_viewRequest;
+    _pendingEditionId = id;
+    _notify();
 
     try {
-      final tracks = await repository.getTracksByAlbumEditionId(
-        edition.editionId,
-      );
-
-      _selectedEdition = edition;
-      _tracks = tracks;
-      notifyListeners();
-
+      final view = await _readView(id);
+      if (request != _viewRequest) return true;
+      _apply(view);
+      _isLoading = false;
+      _notify();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (request != _viewRequest) return true;
+      developer.log(
+        'Edition $id of album $_albumId could not be read '
+        '(${error.runtimeType}); the edition on screen stays',
+        name: 'sonus.library.album_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _pendingEditionId = null;
+      _isLoading = false;
+      _notify();
       return false;
     }
   }
@@ -946,32 +1097,11 @@ class AlbumProfileController extends ChangeNotifier {
       return;
     }
 
-    final startIndex = _isShuffleEnabled
+    final startIndex = isShuffleEnabled
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 
     await playbackCoordinator.playTracks(_tracks, startIndex: startIndex);
-  }
-
-  Future<void> setShuffleEnabled(bool enabled) async {
-    if (_isShuffleEnabled == enabled) {
-      return;
-    }
-
-    final playbackCoordinator = _playbackCoordinator;
-
-    if (playbackCoordinator == null) {
-      return;
-    }
-
-    await playbackCoordinator.setShuffleEnabled(enabled);
-
-    _isShuffleEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<void> toggleShuffle() {
-    return setShuffleEnabled(!_isShuffleEnabled);
   }
 
   Future<void> playNext(LibraryTrack track) async {
@@ -1007,4 +1137,29 @@ class AlbumProfileController extends ChangeNotifier {
   bool _isPlayable(LibraryTrack track) {
     return !track.isBlocked && _isAvailable(track);
   }
+}
+
+/// One consistent read of the album page: an edition with its own songs
+/// and disc names.
+class _AlbumView {
+  const _AlbumView({
+    required this.album,
+    required this.editions,
+    required this.edition,
+    required this.tracks,
+    required this.discLabels,
+  });
+
+  const _AlbumView.missing()
+    : album = null,
+      editions = const [],
+      edition = null,
+      tracks = const [],
+      discLabels = const {};
+
+  final LibraryAlbum? album;
+  final List<LibraryAlbumEdition> editions;
+  final LibraryAlbumEdition? edition;
+  final List<LibraryTrack> tracks;
+  final Map<int, String> discLabels;
 }

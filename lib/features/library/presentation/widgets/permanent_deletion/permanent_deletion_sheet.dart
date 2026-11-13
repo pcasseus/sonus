@@ -16,11 +16,16 @@ import '../../../domain/deletion/permanent_deletion_impact.dart';
 /// or artist. Shows exactly what goes and what stays, then asks for the
 /// name to be typed before anything is deleted. Resolves to true when the
 /// deletion happened.
+///
+/// [beforeDelete] runs once the deletion is confirmed, just before it; a
+/// reason it returns stops the deletion and is shown (see
+/// [PermanentDeletionSheet.beforeDelete]).
 Future<bool> showPermanentDeletion(
   BuildContext context, {
   required PermanentDeletionTarget target,
   required String name,
   String? artworkPath,
+  Future<String?> Function()? beforeDelete,
 }) async {
   final service = permanentDeletionServiceOf(context);
   final deleted = await showModalBottomSheet<bool>(
@@ -33,6 +38,7 @@ Future<bool> showPermanentDeletion(
       artworkPath: artworkPath,
       loadPreview: (options) => service.preview(target, options: options),
       delete: (impact, options) => service.delete(impact, options: options),
+      beforeDelete: beforeDelete,
     ),
   );
   return deleted ?? false;
@@ -110,11 +116,18 @@ class PermanentDeletionSheet extends StatefulWidget {
     required this.loadPreview,
     required this.delete,
     this.artworkPath,
+    this.beforeDelete,
   });
 
   final PermanentDeletionTarget target;
   final String name;
   final String? artworkPath;
+
+  /// A last check of the caller's own condition once the deletion is
+  /// confirmed (Release Studio: the song's file is still unavailable).
+  /// Null lets the deletion go ahead; a reason stops it, nothing is
+  /// deleted, and the sheet says why.
+  final Future<String?> Function()? beforeDelete;
   final Future<PermanentDeletionImpact> Function(PermanentDeletionOptions)
   loadPreview;
   final Future<PermanentDeletionImpact> Function(
@@ -166,6 +179,15 @@ class _PermanentDeletionSheetState extends State<PermanentDeletionSheet> {
 
     setState(() => _busy = true);
     try {
+      final refusal = await widget.beforeDelete?.call();
+      if (refusal != null) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _notice = 'Nothing was deleted. $refusal';
+        });
+        return;
+      }
       await widget.delete(impact, _options);
       if (mounted) Navigator.of(context).pop(true);
     } on StaleDeletionPreview {

@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../domain/models/listening_record_missing.dart';
 
 class PlaybackSessionDao {
   const PlaybackSessionDao(this.db);
@@ -11,18 +12,32 @@ class PlaybackSessionDao {
     await db.insert(DatabaseTables.playbackSessions, row);
   }
 
+  /// The recording a session belongs to is set when it is created. Updates
+  /// (listening time, position, end, account) never write it back, so a
+  /// duplicate merge that repoints the session while it is open is kept
+  /// (BUG-11 hardening).
+  static const _recordingColumns = {
+    'song_id',
+    'artist_id',
+    'album_id',
+    'album_edition_id',
+  };
+
   Future<void> update(Map<String, Object?> row) async {
     final id = row['id'] as String;
 
     final updated = await db.update(
       DatabaseTables.playbackSessions,
-      row,
+      {
+        for (final MapEntry(:key, :value) in row.entries)
+          if (!_recordingColumns.contains(key)) key: value,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
 
     if (updated == 0) {
-      throw StateError('Playback session not found: $id');
+      throw ListeningRecordMissing('Playback session not found: $id');
     }
   }
 

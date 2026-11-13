@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
+import 'schema/album_edition_disc_label_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -18,6 +19,7 @@ import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 import 'schema/organization_schema.dart';
 import 'schema/release_date_precision_backfill.dart';
+import 'schema/media_file_signature_schema.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -501,6 +503,58 @@ abstract final class DatabaseMigrations {
         // App Update 1.2: the deletion ledger and journal. Two new tables;
         // every existing row is untouched.
         await DeletionSchema.create(db);
+        return;
+
+      case 43:
+        // App Update 1.2, BUG-09: the audio identity of each file binding
+        // (three nullable columns, filled by later scans) and the audio of
+        // deleted files. Device-local; every existing row is untouched.
+        await DeletedAudioSignatureSchema.create(db);
+        if (!await _tableExists(db, DatabaseTables.mediaFileBindings)) return;
+        for (final (name, definition) in MediaFileSignatureColumns.columns) {
+          await _addColumnIfMissing(
+            db,
+            table: DatabaseTables.mediaFileBindings,
+            columnName: name,
+            definition: definition,
+          );
+        }
+        await MediaFileSignatureColumns.createIndex(db);
+        return;
+
+      case 44:
+        // App Update 1.2, BUG-09 Refinement B: a fingerprint of each file's
+        // tags (one nullable column, filled by later scans), so an edit that
+        // keeps the size and time is noticed. Device-local; no row changes.
+        if (!await _tableExists(db, DatabaseTables.mediaFileBindings)) return;
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.mediaFileBindings,
+          columnName: MediaFileTagFingerprintColumn.name,
+          definition: MediaFileTagFingerprintColumn.definition,
+        );
+        return;
+
+      case 45:
+        // App Update 1.2, REF-13c: optional names for an edition's discs.
+        // One new table; every existing row is untouched.
+        await AlbumEditionDiscLabelSchema.create(db);
+        return;
+
+      case 46:
+        // App Update 1.2, REF-19: where each finalized chart week came from,
+        // so historical claims rest only on weeks known to be original.
+        // Every stored week keeps its values and is left unknown (null);
+        // the chart history starts now.
+        if (await _tableExists(db, DatabaseTables.chartSnapshots)) {
+          await _addColumnIfMissing(
+            db,
+            table: DatabaseTables.chartSnapshots,
+            columnName: ChartSchema.provenanceColumn,
+            definition: ChartSchema.provenanceDefinition,
+          );
+        }
+        await ChartSchema.createChartHistoryOrigin(db);
         return;
 
       default:

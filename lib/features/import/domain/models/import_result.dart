@@ -29,6 +29,12 @@ enum ImportSkipReason {
   /// library. The file stays on the device and is not imported again until
   /// the user allows it.
   deletedFromLibrary,
+
+  /// App Update 1.2, BUG-09: the file may be the file of a song already in
+  /// the library (renamed, moved, rewritten, or its audio changed), but that
+  /// could not be proven from its audio. It waits in Import Review for the
+  /// user; no song is created for it meanwhile.
+  awaitingFileReview,
 }
 
 class ImportResult {

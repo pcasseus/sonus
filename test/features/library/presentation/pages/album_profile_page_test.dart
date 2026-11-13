@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
-import 'package:sonus_next/features/library/domain/services/metadata_authority_policy.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_disc_label.dart';
+import 'package:sonus_next/features/library/domain/repositories/album_edition_disc_label_repository.dart';
 import 'package:sonus_next/features/artwork/data/services/cover_art_archive/cover_art_cancellation.dart';
 import 'package:sonus_next/features/artwork/application/services/cover_art_album_edition_assignment_service.dart';
 import 'package:sonus_next/features/artwork/application/services/cover_art_album_edition_import_service.dart';
 import 'package:sonus_next/features/artwork/application/models/cover_art_archive_image.dart';
-import 'package:sonus_next/features/artwork/application/services/cover_art_candidate_discovery_service.dart';
 import 'package:sonus_next/features/artwork/data/services/cover_art_archive/cover_art_archive_client.dart';
 import 'package:sonus_next/features/library/data/services/musicbrainz/musicbrainz_http_transport.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
@@ -51,6 +51,7 @@ import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
+import '../../../../support/release_date_editor_driver.dart';
 
 void main() {
   group('AlbumProfilePage', () {
@@ -509,13 +510,266 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
+      // App Update 1.2 BUG-09 (supersedes the SN-35 silent gap): the hidden
+      // song is said in words; without editing rights there is no action.
       expect(
-        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
+        find.text("1 track isn't shown because its file is unavailable."),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-review-unavailable')),
         findsNothing,
       );
 
-      expect(find.textContaining('1 track'), findsWidgets);
+      expect(find.textContaining('1 track •'), findsWidgets);
       expect(find.textContaining('2 tracks'), findsNothing);
+    });
+
+    testWidgets('BUG-09: no notice when every track has its file', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(),
+            tracks: [
+              createTrack(songId: 'a'),
+              createTrack(songId: 'b'),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-unavailable-notice')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('BUG-09: hidden tracks lead to Edit Release, which lists and '
+        'marks them', (tester) async {
+      LibraryTrack track(String id, String title, {bool available = true}) =>
+          createTrack(
+            songId: id,
+            title: title,
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+            filePath: available ? '/music/$id.mp3' : '',
+            isAvailable: available,
+          );
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            track('here', 'Here'),
+            track('gone-1', 'Gone One', available: false),
+            track('gone-2', 'Gone Two', available: false),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          albumEditionTrackOrderingService:
+              FakeAlbumEditionTrackOrderingService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("2 tracks aren't shown because their files are unavailable."),
+        findsOneWidget,
+      );
+      expect(find.text('Gone One'), findsNothing);
+
+      final review = find.byKey(
+        const ValueKey<String>('album-profile-review-unavailable'),
+      );
+      await tester.ensureVisible(review);
+      await tester.pumpAndSettle();
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      await openStudioSection(tester, 'tracklist');
+
+      for (final id in ['gone-1', 'gone-2']) {
+        final row = find.byKey(ValueKey<String>('album-studio-track-$id'));
+        await tester.ensureVisible(row);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.textContaining('File unavailable'),
+          ),
+          findsOneWidget,
+        );
+        // Purpose repair: from here such a song can be deleted.
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.byKey(ValueKey<String>('album-studio-delete-$id')),
+          ),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.byKey(const ValueKey<String>('album-studio-delete-here')),
+        findsNothing,
+      );
+      final here = find.byKey(
+        const ValueKey<String>('album-studio-track-here'),
+      );
+      await tester.ensureVisible(here);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: here,
+          matching: find.textContaining('File unavailable'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('REF-13: a multi-disc release shows each disc once, in '
+        'order, with its name', (tester) async {
+      LibraryTrack track(String id, int disc, int number) => createTrack(
+        songId: id,
+        title: 'Song $id',
+        albumEditionId: 'edition-standard',
+        albumEditionTitle: 'Standard',
+        discNumber: disc,
+        trackNumber: number,
+      );
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+        ],
+        // A hand-made order that put a Disc 1 song after Disc 2.
+        editionTracks: {
+          'edition-standard': [
+            track('one', 1, 1),
+            track('bonus', 2, 1),
+            track('two', 1, 2),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(
+        Provider<AlbumEditionDiscLabelRepository?>.value(
+          value: _MemoryDiscLabels({2: 'Bonus Tracks'}),
+          child: buildSubject(repository: repository),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final headings = [
+        for (final element
+            in find
+                .byWidgetPredicate(
+                  (widget) =>
+                      widget is Text &&
+                      widget.key is ValueKey<String> &&
+                      (widget.key! as ValueKey<String>).value.startsWith(
+                        'album-profile-disc-heading-',
+                      ),
+                )
+                .evaluate())
+          (element.widget as Text).data,
+      ];
+      expect(headings, ['Disc 1', 'Disc 2 — Bonus Tracks']);
+
+      // Disc 1's songs stay together, above Disc 2.
+      double top(String id) =>
+          tester.getTopLeft(find.byKey(ValueKey<String>('album-track-$id'))).dy;
+      expect(top('one'), lessThan(top('two')));
+      expect(top('two'), lessThan(top('bonus')));
+    });
+
+    group('REF-12a / REF-15: editions keep their own date and tracks', () {
+      LibraryTrack track(String id, String edition) => createTrack(
+        songId: id,
+        title: 'Song $id',
+        albumEditionId: edition,
+        albumEditionTitle: edition,
+      );
+      FakeEditionAwareLibraryQueryRepository repository() =>
+          FakeEditionAwareLibraryQueryRepository(
+            // As in the app: the release's date is the primary edition's.
+            album: createAlbum(
+              primaryEditionId: 'standard',
+              primaryEditionTitle: 'Standard',
+              releaseDate: DateTime.utc(2015, 11, 13),
+            ),
+            editions: [
+              createLibraryEdition(
+                editionId: 'standard',
+                title: 'Standard',
+                type: AlbumEditionType.standard,
+                isPrimary: true,
+                releaseDate: DateTime.utc(2015, 11, 13),
+                releaseDatePrecision: ReleaseDatePrecision.year,
+              ),
+              createLibraryEdition(
+                editionId: 'deluxe',
+                title: 'Deluxe',
+                type: AlbumEditionType.deluxe,
+              ),
+            ],
+            editionTracks: {
+              'standard': [track('s1', 'standard'), track('s2', 'standard')],
+              'deluxe': [
+                track('s1', 'deluxe'),
+                track('s2', 'deluxe'),
+                track('d3', 'deluxe'),
+              ],
+            },
+          );
+
+      Finder summary() =>
+          find.byKey(const ValueKey<String>('album-profile-edition-summary'));
+
+      testWidgets('each edition shows its own date (or none) and its own '
+          'track count', (tester) async {
+        await tester.pumpWidget(buildSubject(repository: repository()));
+        await tester.pumpAndSettle();
+
+        // Year-only precision is kept.
+        expect(
+          tester.widget<Text>(summary()).data,
+          'Standard · 2015 · 2 tracks',
+        );
+
+        await tester.tap(find.text('Deluxe').first);
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.widget<Text>(summary()).data,
+          'Deluxe · Date not set · 3 tracks',
+        );
+        // Deluxe never borrows Standard's date.
+        expect(find.textContaining('2015'), findsNothing);
+      });
     });
 
     testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
@@ -721,13 +975,18 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(target);
         await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(ValueKey<String>('release-studio-$field-field')),
-          value,
-        );
-        await tester.tap(
-          find.byKey(ValueKey<String>('release-studio-save-$field')),
-        );
+        if (field == 'date') {
+          await enterReleaseDate(tester, value);
+        } else {
+          await tester.enterText(
+            find.byKey(ValueKey<String>('release-studio-$field-field')),
+            value,
+          );
+        }
+        final save = find.byKey(ValueKey<String>('release-studio-save-$field'));
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        await tester.tap(save);
         await tester.pumpAndSettle();
       }
 
@@ -986,19 +1245,23 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-date')),
       );
       await tester.pumpAndSettle();
+      // BUG-10: only real dates can be entered, and a year is required.
       await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-date-field')),
-        '2026-02-31',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-date')),
+        find.byKey(const ValueKey<String>('release-date-year-field')),
+        '1850',
       );
       await tester.pump();
       expect(
-        find.text(
-          'Use 2026, 2026-04 or 2026-04-17, with a real month and day.',
-        ),
+        find.text('Use a year from 1900 to ${DateTime.now().year + 5}.'),
         findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey<String>('release-studio-save-date')),
+            )
+            .onPressed,
+        isNull,
       );
 
       expect(editingService.updateCallCount, 0);
@@ -1038,13 +1301,21 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(target);
         await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(ValueKey<String>('release-studio-$field-field')),
-          '',
-        );
-        await tester.tap(
-          find.byKey(ValueKey<String>('release-studio-save-$field')),
-        );
+        if (field == 'date') {
+          await tester.tap(
+            find.byKey(const ValueKey<String>('release-date-remove')),
+          );
+          await tester.pump();
+        } else {
+          await tester.enterText(
+            find.byKey(ValueKey<String>('release-studio-$field-field')),
+            '',
+          );
+        }
+        final save = find.byKey(ValueKey<String>('release-studio-save-$field'));
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        await tester.tap(save);
         await tester.pumpAndSettle();
         if (field == 'date') {
           expect(editingService.lastReleaseDate, isNull);
@@ -1109,6 +1380,95 @@ void main() {
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-primary');
       expect(editingService.lastGenre, 'Ambient');
+    });
+
+    group('REF-14: genre', () {
+      Future<FakeAlbumProfileEditingService> openGenre(
+        WidgetTester tester, {
+        String? genre,
+      }) async {
+        final editingService = FakeAlbumProfileEditingService();
+        await tester.pumpWidget(
+          buildSubject(
+            repository: FakeLibraryQueryRepository(
+              album: createAlbum(
+                primaryEditionId: 'edition-primary',
+                primaryEditionTitle: 'Standard',
+                primaryEditionType: AlbumEditionType.standard,
+                genre: genre,
+              ),
+            ),
+            albumProfileEditingService: editingService,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Release'));
+        await tester.pumpAndSettle();
+        return editingService;
+      }
+
+      testWidgets('typing an alias suggests its category; one tap saves it', (
+        tester,
+      ) async {
+        final editingService = await openGenre(tester);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('release-studio-genre-field')),
+          'hip hop',
+        );
+        await tester.pump();
+
+        final first = find.byKey(
+          const ValueKey<String>('release-studio-genre-option-0'),
+        );
+        expect(
+          find.descendant(of: first, matching: find.text('Hip-Hop/Rap')),
+          findsOneWidget,
+        );
+        await tester.tap(first);
+        await tester.pumpAndSettle();
+
+        expect(editingService.updateCallCount, 1);
+        expect(editingService.lastGenre, 'Hip-Hop/Rap');
+      });
+
+      testWidgets('a genre of its own is saved as typed', (tester) async {
+        final editingService = await openGenre(tester);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('release-studio-genre-field')),
+          'Hyperpop',
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre-custom')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(editingService.lastGenre, 'Hyperpop');
+      });
+
+      testWidgets('a stored alias is shown under its category and not '
+          'rewritten', (tester) async {
+        final editingService = await openGenre(tester, genre: 'hip hop');
+
+        final row = find.byKey(const ValueKey<String>('release-studio-genre'));
+        expect(
+          find.descendant(of: row, matching: find.text('Hip-Hop/Rap')),
+          findsOneWidget,
+        );
+        expect(editingService.updateCallCount, 0, reason: 'nothing saved');
+      });
     });
 
     testWidgets('album editing remains unavailable without editing service', (
@@ -1585,1235 +1945,6 @@ void main() {
         expect(clearArtworkCallCount, 1);
       },
     );
-    testWidgets('Album Studio browses CAA without applying metadata', (
-      tester,
-    ) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.accept,
-          changed: true,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      // CAA action disabled during browsing.
-      expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-import-success'),
-        ),
-        findsOneWidget,
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-      expect(importService.importCallCount, 1);
-      expect(importService.lastEditionId, 'edition-standard');
-      expect(importService.lastUserId, isNull);
-      expect(importService.lastImage, same(image));
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets(
-      'Album Studio imports CAA artwork into selected Deluxe edition',
-      (tester) async {
-        const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-        const candidate = ExternalMetadataCandidate(
-          provider: ExternalMetadataProviderKind.musicBrainz,
-          entityKind: ExternalMetadataEntityKind.album,
-          providerEntityId: releaseGroupId,
-          releaseGroupId: releaseGroupId,
-          displayName: 'Matched Album',
-        );
-
-        const image = CoverArtArchiveImage(
-          entity: CoverArtArchiveEntity.releaseGroup,
-          entityId: releaseGroupId,
-          imageUrl: 'https://coverartarchive.org/test.jpg',
-          front: true,
-          back: false,
-        );
-
-        final originalAlbum = createAlbum(
-          title: 'Original Album',
-          primaryEditionId: 'edition-standard',
-          primaryEditionTitle: 'Standard',
-        );
-
-        final repository = FakeEditionAwareLibraryQueryRepository(
-          album: originalAlbum,
-          editions: [
-            createLibraryEdition(
-              editionId: 'edition-standard',
-              title: 'Standard',
-              type: AlbumEditionType.standard,
-              isPrimary: true,
-            ),
-            createLibraryEdition(
-              editionId: 'edition-deluxe',
-              title: 'Deluxe',
-              type: AlbumEditionType.deluxe,
-              isPrimary: false,
-            ),
-          ],
-          editionTracks: const {'edition-standard': [], 'edition-deluxe': []},
-        );
-
-        final controller = AlbumProfileController(
-          repository: repository,
-          albumId: 'album-1',
-        );
-
-        addTearDown(controller.dispose);
-        await controller.load();
-        expect(await controller.selectEdition('edition-deluxe'), isTrue);
-        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
-
-        final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-        final client = FakeAlbumCoverArtClient(
-          responses: {
-            'release-group:$releaseGroupId': [image],
-          },
-        );
-
-        final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-        final applicationService = FakeAlbumExternalMetadataApplicationService(
-          onApply:
-              ({
-                required String? userId,
-                required String albumId,
-                required ExternalMetadataCandidate candidate,
-              }) async =>
-                  throw StateError('Metadata application is forbidden.'),
-        );
-
-        final importService = RecordingCoverArtImportService(
-          result: const CoverArtAlbumEditionAssignmentResult(
-            decision: MetadataReplacementDecision.accept,
-            changed: true,
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: ReleaseStudioPage(
-              controller: controller,
-              userId: null,
-              metadataProvider: provider,
-              externalMetadataApplicationService: applicationService,
-              coverArtCandidateDiscoveryService: discovery,
-              coverArtAlbumEditionImportService: importService,
-              initialSection: ReleaseStudioSection.artwork,
-            ),
-          ),
-        );
-
-        await tester.pumpAndSettle();
-
-        final searchTile = find.byKey(
-          const ValueKey<String>('album-studio-search-cover-art'),
-        );
-
-        expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-        await tester.ensureVisible(searchTile);
-        await tester.pumpAndSettle();
-        await tester.tap(searchTile);
-        await tester.pumpAndSettle();
-
-        // CAA action disabled during browsing.
-        expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-        expect(provider.searchCallCount, 1);
-        expect(
-          provider.lastQuery?.entityKind,
-          ExternalMetadataEntityKind.album,
-        );
-        expect(provider.lastQuery?.title, 'Original Album');
-
-        await tester.tap(
-          find.byKey(
-            const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-          ),
-        );
-
-        await tester.pumpAndSettle();
-
-        expect(client.requests, ['release-group:$releaseGroupId']);
-
-        expect(
-          find.byKey(
-            const ValueKey<String>('cover-art-image-selection-dialog'),
-          ),
-          findsOneWidget,
-        );
-
-        await tester.tap(
-          find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-        );
-
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(
-            const ValueKey<String>('album-studio-cover-art-import-success'),
-          ),
-          findsOneWidget,
-        );
-
-        expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-        expect(importService.importCallCount, 1);
-        expect(importService.lastEditionId, 'edition-deluxe');
-        expect(importService.lastUserId, isNull);
-        expect(importService.lastImage, same(image));
-        expect(applicationService.applyCallCount, 0);
-        expect(controller.album?.title, 'Original Album');
-        expect(controller.album?.albumId, 'album-1');
-      },
-    );
-    testWidgets('Album Studio handles unchanged CAA artwork', (tester) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.accept,
-          changed: false,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      // CAA action disabled during browsing.
-      expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-import-unchanged'),
-        ),
-        findsOneWidget,
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-      expect(importService.importCallCount, 1);
-      expect(importService.lastEditionId, 'edition-standard');
-      expect(importService.lastUserId, isNull);
-      expect(importService.lastImage, same(image));
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio handles CAA artwork import failure', (
-      tester,
-    ) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.accept,
-          changed: true,
-        ),
-        failure: StateError('Simulated artwork import failure'),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      // CAA action disabled during browsing.
-      expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-import-error'),
-        ),
-        findsOneWidget,
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-      expect(importService.importCallCount, 1);
-      expect(importService.lastEditionId, 'edition-standard');
-      expect(importService.lastUserId, isNull);
-      expect(importService.lastImage, same(image));
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio preserves manually protected CAA artwork', (
-      tester,
-    ) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.rejectLowerAuthority,
-          changed: false,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      // CAA action disabled during browsing.
-      expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-import-protected'),
-        ),
-        findsOneWidget,
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-      expect(importService.importCallCount, 1);
-      expect(importService.lastEditionId, 'edition-standard');
-      expect(importService.lastUserId, isNull);
-      expect(importService.lastImage, same(image));
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio preserves CAA artwork with unknown authority', (
-      tester,
-    ) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.requireReviewUnknownAuthority,
-          changed: false,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      // CAA action disabled during browsing.
-      expect(tester.widget<ListTile>(searchTile).enabled, isFalse);
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('cover-art-image-option-0')),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-import-protected'),
-        ),
-        findsOneWidget,
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-      expect(importService.importCallCount, 1);
-      expect(importService.lastEditionId, 'edition-standard');
-      expect(importService.lastUserId, isNull);
-      expect(importService.lastImage, same(image));
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio cancels CAA artwork selection', (tester) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      const image = CoverArtArchiveImage(
-        entity: CoverArtArchiveEntity.releaseGroup,
-        entityId: releaseGroupId,
-        imageUrl: 'https://coverartarchive.org/test.jpg',
-        front: true,
-        back: false,
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        responses: {
-          'release-group:$releaseGroupId': [image],
-        },
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      final importService = RecordingCoverArtImportService(
-        result: const CoverArtAlbumEditionAssignmentResult(
-          decision: MetadataReplacementDecision.accept,
-          changed: true,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: importService,
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-selected-message'),
-        ),
-        findsNothing,
-      );
-      expect(importService.importCallCount, 0);
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio shows empty CAA artwork results', (tester) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient();
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: _UnusedCoverArtImportService(),
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsOneWidget,
-      );
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-empty')),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-selected-message'),
-        ),
-        findsNothing,
-      );
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
-    testWidgets('Album Studio handles CAA discovery failure', (tester) async {
-      const releaseGroupId = '22222222-2222-4222-8222-222222222222';
-
-      const candidate = ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: releaseGroupId,
-        releaseGroupId: releaseGroupId,
-        displayName: 'Matched Album',
-      );
-
-      final originalAlbum = createAlbum(
-        title: 'Original Album',
-        primaryEditionId: 'edition-standard',
-        primaryEditionTitle: 'Standard',
-      );
-
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: originalAlbum,
-        editions: [
-          createLibraryEdition(
-            editionId: 'edition-standard',
-            title: 'Standard',
-            type: AlbumEditionType.standard,
-            isPrimary: true,
-          ),
-        ],
-        editionTracks: const {'edition-standard': []},
-      );
-
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
-
-      addTearDown(controller.dispose);
-      await controller.load();
-
-      final provider = FakeAlbumMetadataProvider(results: [candidate]);
-
-      final client = FakeAlbumCoverArtClient(
-        failure: StateError('CAA unavailable'),
-      );
-
-      final discovery = CoverArtCandidateDiscoveryService(client: client);
-
-      final applicationService = FakeAlbumExternalMetadataApplicationService(
-        onApply:
-            ({
-              required String? userId,
-              required String albumId,
-              required ExternalMetadataCandidate candidate,
-            }) async => throw StateError('Metadata application is forbidden.'),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: ReleaseStudioPage(
-            controller: controller,
-            userId: null,
-            metadataProvider: provider,
-            externalMetadataApplicationService: applicationService,
-            coverArtCandidateDiscoveryService: discovery,
-            coverArtAlbumEditionImportService: _UnusedCoverArtImportService(),
-            initialSection: ReleaseStudioSection.artwork,
-          ),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final searchTile = find.byKey(
-        const ValueKey<String>('album-studio-search-cover-art'),
-      );
-
-      expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
-
-      await tester.tap(searchTile);
-      await tester.pumpAndSettle();
-
-      expect(provider.searchCallCount, 1);
-      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.album);
-      expect(provider.lastQuery?.title, 'Original Album');
-
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('cover-art-album-result-$releaseGroupId'),
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(client.requests, ['release-group:$releaseGroupId']);
-
-      expect(
-        find.byKey(
-          const ValueKey<String>('album-studio-cover-art-search-error'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('cover-art-image-selection-dialog')),
-        findsNothing,
-      );
-      expect(applicationService.applyCallCount, 0);
-      expect(controller.album?.title, 'Original Album');
-      expect(controller.album?.albumId, 'album-1');
-    });
     testWidgets('Album Studio disables MusicBrainz without dependencies', (
       tester,
     ) async {
@@ -2840,12 +1971,20 @@ void main() {
 
       await openStudioSection(tester, 'artwork');
 
-      final coverArtTile = tester.widget<ListTile>(
+      // REF-18: Cover Art Archive is not offered; the other cover actions
+      // stay.
+      expect(
         find.byKey(const ValueKey<String>('album-studio-search-cover-art')),
+        findsNothing,
       );
-
-      expect(coverArtTile.enabled, isFalse);
-      expect(coverArtTile.onTap, isNull);
+      expect(find.textContaining('Cover Art Archive'), findsNothing);
+      for (final action in ['change-artwork', 'clear-artwork']) {
+        expect(
+          find.byKey(ValueKey<String>('album-studio-$action')),
+          findsOneWidget,
+          reason: action,
+        );
+      }
     });
 
     testWidgets('Album Studio requires proposal service for MusicBrainz', (
@@ -3044,6 +2183,108 @@ void main() {
         expect(find.text('Matched Album'), findsWidgets);
       },
     );
+    group('REF-17: the chosen match is looked up in full', () {
+      const searched = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.album,
+        providerEntityId: 'release-group-123',
+        displayName: 'Matched Album',
+      );
+      const full = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.album,
+        providerEntityId: 'release-group-123',
+        displayName: 'Matched Album',
+        genres: [ExternalMetadataGenre(name: 'hip hop', count: 4)],
+      );
+
+      Future<
+        (
+          FakeAlbumMetadataProposalService,
+          FakeAlbumExternalMetadataApplicationService,
+        )
+      >
+      chooseMatch(
+        WidgetTester tester,
+        FakeAlbumMetadataProvider provider,
+      ) async {
+        final proposalService = FakeAlbumMetadataProposalService();
+        final applicationService = FakeAlbumExternalMetadataApplicationService(
+          onApply:
+              ({
+                required String? userId,
+                required String albumId,
+                required ExternalMetadataCandidate candidate,
+              }) async => const ExternalMetadataApplicationResult(
+                changedFields: {'genre'},
+              ),
+        );
+        await tester.pumpWidget(
+          buildSubject(
+            repository: FakeEditionAwareLibraryQueryRepository(
+              album: createAlbum(primaryEditionId: 'edition-standard'),
+              editions: [
+                createLibraryEdition(
+                  editionId: 'edition-standard',
+                  title: 'Standard',
+                  type: AlbumEditionType.standard,
+                  isPrimary: true,
+                ),
+              ],
+              editionTracks: const {'edition-standard': []},
+            ),
+            albumProfileEditingService: FakeAlbumProfileEditingService(),
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Release'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-studio-search-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Matched Album'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
+        );
+        await tester.pumpAndSettle();
+        return (proposalService, applicationService);
+      }
+
+      testWidgets('its genres are previewed and applied', (tester) async {
+        final provider = FakeAlbumMetadataProvider(
+          results: const [searched],
+          lookedUp: full,
+        );
+        final (proposals, applications) = await chooseMatch(tester, provider);
+
+        expect(provider.lookups, ['album:release-group-123']);
+        expect(proposals.lastCandidate, same(full));
+        expect(applications.lastCandidate, same(full));
+      });
+
+      testWidgets('if the lookup fails, the search result is previewed and '
+          'applied, suggesting no genre', (tester) async {
+        final provider = FakeAlbumMetadataProvider(
+          results: const [searched],
+          lookupFailure: StateError('offline'),
+        );
+        final (proposals, applications) = await chooseMatch(tester, provider);
+
+        expect(provider.lookups, ['album:release-group-123']);
+        expect(proposals.lastCandidate, same(searched));
+        expect(applications.lastCandidate, same(searched));
+      });
+    });
+
     testWidgets('Album Studio edition selector swaps the editable track list', (
       tester,
     ) async {
@@ -3125,7 +2366,8 @@ void main() {
     });
 
     testWidgets(
-      'Album Studio reorder forwards visual order and auto-renumber',
+      'Album Studio reorder forwards the visual order as one arrangement '
+      '(REF-13: numbering is automatic, no switch)',
       (tester) async {
         final repository = FakeEditionAwareLibraryQueryRepository(
           album: createAlbum(
@@ -3182,14 +2424,10 @@ void main() {
         await tester.pumpAndSettle();
         await openStudioSection(tester, 'tracklist');
 
-        final autoRenumberFinder = find.byKey(
-          const ValueKey<String>('album-studio-auto-renumber'),
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-auto-renumber')),
+          findsNothing,
         );
-
-        await tester.tap(autoRenumberFinder);
-        await tester.pump();
-
-        expect(tester.widget<SwitchListTile>(autoRenumberFinder).value, isTrue);
 
         final listFinder = find.byKey(
           const ValueKey<String>('album-studio-track-list'),
@@ -3200,10 +2438,11 @@ void main() {
         list.onReorderItem!(0, 2);
         await tester.pumpAndSettle();
 
-        expect(service.reorderCallCount, 1);
+        expect(service.arrangeCallCount, 1);
+        expect(service.reorderCallCount, 0);
         expect(service.lastEditionId, 'edition-standard');
-        expect(service.lastAutoRenumber, isTrue);
         expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
+        expect(service.lastPlacements!.map((p) => p.discNumber).toSet(), {1});
       },
     );
 
@@ -3422,6 +2661,7 @@ LibraryAlbumEdition createLibraryEdition({
   required AlbumEditionType type,
   bool isPrimary = false,
   DateTime? releaseDate,
+  ReleaseDatePrecision? releaseDatePrecision,
   String? genre,
   String? artworkId,
   String? artworkPath,
@@ -3433,6 +2673,7 @@ LibraryAlbumEdition createLibraryEdition({
     type: type,
     isPrimary: isPrimary,
     releaseDate: releaseDate,
+    releaseDatePrecision: releaseDatePrecision,
     genre: genre,
     artworkId: artworkId,
     artworkPath: artworkPath,
@@ -3644,6 +2885,26 @@ class FakeAlbumEditionTrackOrderingService
     lastAutoRenumber = autoRenumber;
 
     return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+
+  /// REF-13: Release Studio lays out an edition in one call.
+  int arrangeCallCount = 0;
+  List<EditionPlacement>? lastPlacements;
+
+  @override
+  Future<AlbumEditionArrangeResult> arrangeEdition({
+    required String albumEditionId,
+    required List<EditionPlacement> placements,
+    String? userId,
+    DateTime? now,
+  }) async {
+    arrangeCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastPlacements = List<EditionPlacement>.from(placements);
+    lastOrderedSongIds = [for (final p in placements) p.songId];
+
+    return const AlbumEditionArrangeResult(memberships: [], changed: true);
   }
 
   @override
@@ -3923,9 +3184,6 @@ class RecordingCoverArtImportService extends Fake
   }
 }
 
-class _UnusedCoverArtImportService extends Fake
-    implements CoverArtAlbumEditionImportService {}
-
 class FakeAlbumCoverArtClient extends CoverArtArchiveClient {
   FakeAlbumCoverArtClient({this.responses = const {}, this.failure})
     : super(transport: _UnusedCoverArtTransport(), userAgent: 'SonusTests/1.0');
@@ -3959,9 +3217,16 @@ class _UnusedCoverArtTransport implements MusicBrainzHttpTransport {
 }
 
 class FakeAlbumMetadataProvider implements MetadataProvider {
-  FakeAlbumMetadataProvider({required this.results});
+  FakeAlbumMetadataProvider({
+    required this.results,
+    this.lookedUp,
+    this.lookupFailure,
+  });
 
   final List<ExternalMetadataCandidate> results;
+  final ExternalMetadataCandidate? lookedUp;
+  final Object? lookupFailure;
+  final List<String> lookups = [];
   int searchCallCount = 0;
   ExternalMetadataSearchQuery? lastQuery;
 
@@ -3983,7 +3248,9 @@ class FakeAlbumMetadataProvider implements MetadataProvider {
     required ExternalMetadataEntityKind entityKind,
     required String providerEntityId,
   }) async {
-    return null;
+    lookups.add('${entityKind.name}:$providerEntityId');
+    if (lookupFailure != null) throw lookupFailure!;
+    return lookedUp;
   }
 }
 
@@ -4142,4 +3409,40 @@ class _FakeArtistCreationService implements ArtistCreationService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Disc names kept in memory (REF-13c).
+class _MemoryDiscLabels implements AlbumEditionDiscLabelRepository {
+  _MemoryDiscLabels(this.labels);
+
+  final Map<int, String> labels;
+
+  @override
+  Future<List<AlbumEditionDiscLabel>> getByEditionId(String editionId) async =>
+      [
+        for (final MapEntry(:key, :value) in labels.entries)
+          AlbumEditionDiscLabel(
+            albumEditionId: editionId,
+            discNumber: key,
+            label: value,
+            createdAt: DateTime.utc(2026),
+            updatedAt: DateTime.utc(2026),
+          ),
+      ];
+
+  @override
+  Future<void> save(AlbumEditionDiscLabel label) async =>
+      labels[label.discNumber] = label.label;
+
+  @override
+  Future<void> delete({
+    required String editionId,
+    required int discNumber,
+  }) async => labels.remove(discNumber);
+
+  @override
+  Future<void> keepOnly({
+    required String editionId,
+    required Set<int> discs,
+  }) async => labels.removeWhere((disc, _) => !discs.contains(disc));
 }

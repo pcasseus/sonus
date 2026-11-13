@@ -13,6 +13,12 @@ enum ImportReviewReason {
   /// featured artists show a different recording. Imported as its own song;
   /// the user confirms or merges it.
   alternateRecording,
+
+  /// App Update 1.2, BUG-09: the song's file was edited outside Sonus and
+  /// its tags now name another artist, album or edition, but the song was
+  /// not moved there automatically (ambiguous, not in the library yet, or a
+  /// value set or confirmed in Sonus).
+  tagsNameAnotherRelease,
 }
 
 class ImportReviewPayload {

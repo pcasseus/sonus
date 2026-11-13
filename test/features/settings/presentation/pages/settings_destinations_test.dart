@@ -210,10 +210,14 @@ void main() {
         summary('settings-appearance-subtitle'),
         'Concrete & Spray · Street Bold',
       );
+      // REF-18: no Cover Art Archive wording, even with the older
+      // suggestions choice still saved.
       expect(
         summary('settings-metadata-intelligence-subtitle'),
-        'On, with cover art suggestions.',
+        'On. Sonus can search MusicBrainz.',
       );
+      expect(find.textContaining('cover art'), findsNothing);
+      expect(find.textContaining('Cover Art Archive'), findsNothing);
       expect(
         summary('settings-accessibility-subtitle'),
         'Contrast, motion and visual effects.',

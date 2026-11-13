@@ -51,8 +51,43 @@ class JustAudioPlaybackEngine
   PlaybackState _state = const PlaybackState();
 
   bool _disposed = false;
-  bool _isRemovingQueueTrack = false;
   PlaybackTransitionCause? _pendingTransitionCause;
+
+  /// BUG-05: the commands that change the queue, its order or the current
+  /// entry run one at a time. Each one computes the new queue from the
+  /// state the previous one left, so commands issued together (songs added
+  /// from several menus, an album added song by song) can never overwrite
+  /// each other and leave the engine's queue shorter than the player's.
+  Future<void>? _inFlight;
+
+  ///
+  /// A command waiting for its turn when the engine is disposed is dropped
+  /// when that turn comes: it was valid when it was issued, and the player
+  /// it was for is gone (the playback scope is replaced, or Sonus closes).
+  /// A command issued after disposal still fails, as before.
+  Future<void> _inTurn(Future<void> Function() command) {
+    final previous = _inFlight;
+    // Idle: run now, so the command's first state change is synchronous,
+    // exactly as before.
+    final result = previous == null
+        ? command()
+        : previous.then((_) => _disposed ? null : command());
+    final done = result.then<void>((_) {}, onError: (Object _) {});
+    _inFlight = done;
+    unawaited(
+      done.then((_) {
+        if (identical(_inFlight, done)) _inFlight = null;
+      }),
+    );
+    return result;
+  }
+
+  /// While the player's sources are being changed, its index events are
+  /// held back: an insert, move or removal shifts the current index, which
+  /// is not a song change. The last one is reconciled when the change is
+  /// done ([_reconcileIndexAfterQueueChange]).
+  bool _changingQueue = false;
+  int? _indexDuringQueueChange;
 
   @override
   Stream<PlaybackState> get states => _stateController.stream;
@@ -65,7 +100,9 @@ class JustAudioPlaybackEngine
     List<PlaybackTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = false,
-  }) => _loadQueue(tracks, startIndex: startIndex, autoPlay: autoPlay);
+  }) => _inTurn(
+    () => _loadQueue(tracks, startIndex: startIndex, autoPlay: autoPlay),
+  );
 
   @override
   List<int>? get shuffleOrder {
@@ -82,13 +119,15 @@ class JustAudioPlaybackEngine
     required List<int> shuffleOrder,
     int startIndex = 0,
     bool autoPlay = false,
-  }) => _loadQueue(
-    tracks,
-    startIndex: startIndex,
-    autoPlay: autoPlay,
-    shuffleOrder: isShuffleOrderFor(shuffleOrder, tracks.length)
-        ? shuffleOrder
-        : null,
+  }) => _inTurn(
+    () => _loadQueue(
+      tracks,
+      startIndex: startIndex,
+      autoPlay: autoPlay,
+      shuffleOrder: isShuffleOrderFor(shuffleOrder, tracks.length)
+          ? shuffleOrder
+          : null,
+    ),
   );
 
   Future<void> _loadQueue(
@@ -195,16 +234,50 @@ class JustAudioPlaybackEngine
       final atEnd = _isAtEndOfQueue;
       _pausedAtSeekedPosition = false;
 
+      // BUG-05: songs added after the queue finished. The player stays at
+      // its end until it is moved, so Play goes on with the first of them,
+      // as the queue reads, instead of replaying the finished song.
+      if (_state.status == PlaybackStatus.completed) {
+        final next = _audioPlayer.adjacentIndex(1);
+        if (next != null &&
+            next != _state.queue.currentIndex &&
+            _state.repeatMode != PlaybackRepeatMode.all) {
+          await _seekPlayer(Duration.zero, index: next);
+          _startPlaying();
+          return;
+        }
+      }
+
       if (atEnd) {
         await _replayFinalSong();
         return;
       }
 
-      await _audioPlayer.play();
+      _startPlaying();
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// Asks the player to play and returns at once (BUG-11).
+  ///
+  /// just_audio's play() Future completes only when playback later pauses,
+  /// stops, reaches the end of the queue or is replaced by another play
+  /// request; never when it starts. Awaiting it held the command queue
+  /// ([_inTurn]) for the whole song after a queue was loaded with autoplay,
+  /// so Shuffle, Repeat, Next, Previous and every queue edit waited until
+  /// the listener paused. Playback starting is reported by the player's
+  /// own state events; a failure, whenever it comes, is reported here.
+  void _startPlaying() {
+    unawaited(
+      _audioPlayer.play().then<void>(
+        (_) {},
+        onError: (Object error) {
+          if (!_disposed) _emitFailure(error);
+        },
+      ),
+    );
   }
 
   /// Whether the paused position was set by a seek, as a restored session
@@ -236,8 +309,8 @@ class JustAudioPlaybackEngine
       await _audioPlayer.pause();
     }
 
-    await _audioPlayer.seek(Duration.zero);
-    await _audioPlayer.play();
+    await _seekPlayer(Duration.zero);
+    _startPlaying();
   }
 
   @override
@@ -270,7 +343,7 @@ class JustAudioPlaybackEngine
 
     try {
       _pausedAtSeekedPosition = !_state.isPlaying;
-      await _audioPlayer.seek(clamped);
+      await _seekPlayer(clamped);
     } catch (error) {
       _emitFailure(error);
       rethrow;
@@ -278,7 +351,11 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> skipNext() async {
+  Future<void> skipNext() {
+    return _inTurn(_skipNext);
+  }
+
+  Future<void> _skipNext() async {
     _ensureNotDisposed();
 
     // Repeat One repeats a song that finishes on its own; an explicit Next
@@ -296,7 +373,7 @@ class JustAudioPlaybackEngine
 
     try {
       if (repeatOneTarget != null) {
-        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+        await _seekPlayer(Duration.zero, index: repeatOneTarget);
       } else if (_state.repeatMode != PlaybackRepeatMode.one) {
         await _audioPlayer.seekToNext();
       }
@@ -312,7 +389,11 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> skipPrevious() async {
+  Future<void> skipPrevious() {
+    return _inTurn(_skipPrevious);
+  }
+
+  Future<void> _skipPrevious() async {
     _ensureNotDisposed();
 
     if (_state.position > const Duration(seconds: 3)) {
@@ -338,7 +419,7 @@ class JustAudioPlaybackEngine
 
     try {
       if (repeatOneTarget != null) {
-        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+        await _seekPlayer(Duration.zero, index: repeatOneTarget);
       } else {
         await _audioPlayer.seekToPrevious();
       }
@@ -353,7 +434,11 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> skipToIndex(int index) async {
+  Future<void> skipToIndex(int index) {
+    return _inTurn(() => _skipToIndex(index));
+  }
+
+  Future<void> _skipToIndex(int index) async {
     _ensureNotDisposed();
 
     if (index < 0 || index >= _state.queue.length) {
@@ -380,7 +465,7 @@ class JustAudioPlaybackEngine
         );
         await _audioPlayer.shuffle();
       }
-      await _audioPlayer.seek(Duration.zero, index: index);
+      await _seekPlayer(Duration.zero, index: index);
     } catch (error) {
       if (changesTrack &&
           _pendingTransitionCause == PlaybackTransitionCause.skipToIndex) {
@@ -393,7 +478,16 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> insertTrack(PlaybackTrack track, {required int index}) async {
+  Future<void> insertTrack(PlaybackTrack track, {required int index}) {
+    return _inTurn(() => _insertTrack(track, index: () => index));
+  }
+
+  /// [index] is read when the insert runs, after any command before it, so
+  /// an append always goes after everything already added.
+  Future<void> _insertTrack(
+    PlaybackTrack track, {
+    required int Function() index,
+  }) async {
     _ensureNotDisposed();
 
     if (!track.hasPlayablePath || track.isBlocked) {
@@ -404,14 +498,17 @@ class JustAudioPlaybackEngine
       );
     }
 
-    if (index < 0 || index > _state.queue.length) {
-      throw RangeError.range(index, 0, _state.queue.length, 'index');
+    final at = index();
+    if (at < 0 || at > _state.queue.length) {
+      throw RangeError.range(at, 0, _state.queue.length, 'index');
     }
 
-    final updatedQueue = _state.queue.insertTrack(track, index: index);
+    final updatedQueue = _state.queue.insertTrack(track, index: at);
 
     try {
-      await _audioPlayer.insertAudioSource(index, _audioSourceFor(track));
+      await _changeSources(
+        () => _audioPlayer.insertAudioSource(at, _audioSourceFor(track)),
+      );
 
       _emit(
         _state.copyWith(
@@ -419,10 +516,34 @@ class JustAudioPlaybackEngine
           clearError: true,
         ),
       );
+      _reconcileIndexAfterQueueChange();
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// Runs a change to the player's sources with its index events held back
+  /// (see [_changingQueue]).
+  Future<void> _changeSources(Future<void> Function() change) async {
+    _changingQueue = true;
+    _indexDuringQueueChange = null;
+    try {
+      await change();
+    } finally {
+      _changingQueue = false;
+    }
+  }
+
+  /// After a queue change: if the player moved to a different entry while
+  /// the change was in flight (the song ended and the next one began),
+  /// that is a real song change and the queue follows it. An index that
+  /// only reflects the shift is the entry already current, so nothing is
+  /// reported.
+  void _reconcileIndexAfterQueueChange() {
+    final index = _indexDuringQueueChange;
+    _indexDuringQueueChange = null;
+    if (index != null) _handleCurrentIndexChanged(index);
   }
 
   /// [queue], built before an await on the player, with the display
@@ -448,12 +569,18 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> appendTrack(PlaybackTrack track) async {
-    await insertTrack(track, index: _state.queue.length);
+  Future<void> appendTrack(PlaybackTrack track) {
+    // The end of the queue as it is when this append runs, after anything
+    // added before it.
+    return _inTurn(() => _insertTrack(track, index: () => _state.queue.length));
   }
 
   @override
-  Future<void> removeTrackAt(int index) async {
+  Future<void> removeTrackAt(int index) {
+    return _inTurn(() => _removeTrackAt(index));
+  }
+
+  Future<void> _removeTrackAt(int index) async {
     _ensureNotDisposed();
 
     if (index < 0 || index >= _state.queue.length) {
@@ -461,30 +588,40 @@ class JustAudioPlaybackEngine
     }
 
     final updatedQueue = _state.queue.removeTrackAt(index);
+    // Removing the playing entry makes the next one current, from its
+    // start; it never inherits the removed song's position (which made the
+    // next song look as if it had just finished and restarted).
+    final removesCurrent = index == _state.queue.currentIndex;
 
     try {
-      _isRemovingQueueTrack = true;
-
-      await _audioPlayer.removeAudioSourceAt(index);
+      await _changeSources(() => _audioPlayer.removeAudioSourceAt(index));
 
       _emit(
         _state.copyWith(
           queue: _withCurrentDisplay(updatedQueue),
-          position: updatedQueue.isEmpty ? Duration.zero : _state.position,
+          position: updatedQueue.isEmpty || removesCurrent
+              ? Duration.zero
+              : _state.position,
           duration: updatedQueue.currentTrack?.duration ?? Duration.zero,
           clearError: true,
         ),
       );
+      _reconcileIndexAfterQueueChange();
     } catch (error) {
       _emitFailure(error);
       rethrow;
-    } finally {
-      _isRemovingQueueTrack = false;
     }
   }
 
   @override
-  Future<void> moveTrack({required int oldIndex, required int newIndex}) async {
+  Future<void> moveTrack({required int oldIndex, required int newIndex}) {
+    return _inTurn(() => _moveTrack(oldIndex: oldIndex, newIndex: newIndex));
+  }
+
+  Future<void> _moveTrack({
+    required int oldIndex,
+    required int newIndex,
+  }) async {
     _ensureNotDisposed();
 
     if (oldIndex < 0 || oldIndex >= _state.queue.length) {
@@ -507,7 +644,9 @@ class JustAudioPlaybackEngine
     try {
       // A moved entry keeps its place in the shuffled play order.
       _shuffleOrder?.beginMove();
-      await _audioPlayer.moveAudioSource(oldIndex, newIndex);
+      await _changeSources(
+        () => _audioPlayer.moveAudioSource(oldIndex, newIndex),
+      );
 
       _emit(
         _state.copyWith(
@@ -515,6 +654,7 @@ class JustAudioPlaybackEngine
           clearError: true,
         ),
       );
+      _reconcileIndexAfterQueueChange();
     } catch (error) {
       _emitFailure(error);
       rethrow;
@@ -525,15 +665,21 @@ class JustAudioPlaybackEngine
   SonusShuffleOrder? _shuffleOrder;
 
   @override
-  Future<void> setShuffleEnabled(bool enabled) async {
+  Future<void> setShuffleEnabled(bool enabled) {
+    return _inTurn(() => _setShuffleEnabled(enabled));
+  }
+
+  Future<void> _setShuffleEnabled(bool enabled) async {
     _ensureNotDisposed();
 
     try {
-      if (enabled) {
+      // BUG-06: shuffle that is already on stays as it is. Shuffling again
+      // would deal the songs already played back into the cycle.
+      if (enabled && !_state.shuffleEnabled) {
         // Turning shuffle on keeps the entries already played (before the
         // current one in queue order) first; only the rest are shuffled.
         final queue = _state.queue;
-        if (!_state.shuffleEnabled && queue.hasCurrentTrack) {
+        if (queue.hasCurrentTrack) {
           _shuffleOrder?.arrange(
             orderKeepingPlayed(queue.length, current: queue.currentIndex),
           );
@@ -551,7 +697,11 @@ class JustAudioPlaybackEngine
   }
 
   @override
-  Future<void> setRepeatMode(PlaybackRepeatMode mode) async {
+  Future<void> setRepeatMode(PlaybackRepeatMode mode) {
+    return _inTurn(() => _setRepeatMode(mode));
+  }
+
+  Future<void> _setRepeatMode(PlaybackRepeatMode mode) async {
     _ensureNotDisposed();
 
     final loopMode = switch (mode) {
@@ -632,8 +782,52 @@ class JustAudioPlaybackEngine
     await session.configure(const AudioSessionConfiguration.music());
   }
 
+  /// Seeks Sonus asked for that the player has not finished, and whether
+  /// the first position after the last one is still to come (BUG-11
+  /// hardening). Position jumps they cause are seeks, never the song
+  /// starting over.
+  int _seeksInFlight = 0;
+  bool _seekLanding = false;
+
+  /// The smallest backward jump that is taken as the song starting over.
+  static const _loopJump = Duration(seconds: 1);
+
+  Future<void> _seekPlayer(Duration position, {int? index}) async {
+    _seeksInFlight++;
+    try {
+      await _audioPlayer.seek(position, index: index);
+    } finally {
+      _seeksInFlight--;
+      _seekLanding = true;
+    }
+  }
+
+  /// Whether the playing entry starts over by itself when it ends: Repeat
+  /// One, or Repeat All over a single entry.
+  bool get _repeatsCurrentEntry =>
+      _state.repeatMode == PlaybackRepeatMode.one ||
+      (_state.repeatMode == PlaybackRepeatMode.all && _state.queue.length == 1);
+
   void _handlePositionChanged(Duration position) {
     if (_disposed) {
+      return;
+    }
+
+    if (_seeksInFlight > 0 || _seekLanding) {
+      // The seek arriving: the first position after it is where it went.
+      if (_seeksInFlight == 0) _seekLanding = false;
+    } else if (_repeatsCurrentEntry &&
+        _state.isPlaying &&
+        position + _loopJump < _state.position) {
+      // The song played to its end and started over (Repeat One), with no
+      // seek asked for: a new play of it, whatever position updates came
+      // before (they are sparse in the background).
+      _emit(
+        _state.copyWith(
+          position: position,
+          transitionCause: PlaybackTransitionCause.repeated,
+        ),
+      );
       return;
     }
 
@@ -649,7 +843,14 @@ class JustAudioPlaybackEngine
   }
 
   void _handleCurrentIndexChanged(int? index) {
-    if (_disposed || _isRemovingQueueTrack || index == null) {
+    if (_disposed || index == null) {
+      return;
+    }
+
+    // Mid-change, the index may be in the old queue's numbering or the
+    // new one's; only the last is meaningful, once the change is done.
+    if (_changingQueue) {
+      _indexDuringQueueChange = index;
       return;
     }
 

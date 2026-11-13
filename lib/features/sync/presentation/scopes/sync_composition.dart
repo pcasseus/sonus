@@ -1,4 +1,5 @@
 import '../../application/services/cloud_deletion_readiness.dart';
+import '../../../library/data/repositories/sqlite_album_edition_disc_label_repository.dart';
 import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'dart:async';
 
@@ -161,6 +162,7 @@ class SyncComposition {
       metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
         MetadataFieldStateDao(executor),
       ),
+      discLabelRepository: SqliteAlbumEditionDiscLabelRepository(executor),
       artworkAssetRepository: SqliteArtworkAssetRepository(
         ArtworkAssetDao(executor),
       ),

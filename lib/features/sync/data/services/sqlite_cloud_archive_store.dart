@@ -189,17 +189,38 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
       case CloudArchiveKind.playlist:
         // Entries for songs the user permanently deleted here are dropped
         // instead of holding the whole playlist back (App Update 1.2).
+        // A merged duplicate's entry follows its whole merge chain to the
+        // song that stayed, once per playlist, and is dropped when that
+        // song was deleted later (BUG-00A, BUG-00C).
         final playlistLedger = SqliteLibraryDeletionLedger(txn);
+        final playlistMerges = (await MergeHistoryRemap.load(txn)).chains;
         final items = <Map<String, Object?>>[];
+        final placed = <String>{};
         var dropped = false;
         for (final raw in (payload['items'] as List? ?? const [])) {
           final item = Map<String, Object?>.from(raw as Map);
-          if (await playlistLedger.deletedByUser(
+          final song = item['song_id'];
+          final List<String> chain;
+          try {
+            chain = song is String
+                ? playlistMerges.path('songs', song)
+                : const [];
+          } on MergeChainException {
+            return CloudArchiveApplyOutcome.missingDependencies;
+          }
+          if (await playlistLedger.anyDeletedByUser(
             DeletionLedgerEntity.song,
-            item['song_id'] as String?,
+            chain,
           )) {
             dropped = true;
             continue;
+          }
+          if (chain.isNotEmpty) {
+            if (!placed.add(chain.last)) {
+              dropped = true;
+              continue;
+            }
+            item['song_id'] = chain.last;
           }
           items.add(item);
         }
@@ -242,25 +263,54 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
 
       case CloudArchiveKind.listeningSession:
         final session = Map<String, Object?>.from(payload['session'] as Map);
+        final play = payload['qualified_play'];
         // App Update 1.2: listening the user permanently deleted here, or
-        // of a song they deleted, never comes back from the archive.
+        // of a song they deleted, never comes back from the archive. The
+        // song is checked along its whole merge chain (BUG-00A): a play of
+        // a duplicate merged into a song that was deleted later is deleted
+        // listening too.
         final ledger = SqliteLibraryDeletionLedger(txn);
+        final merges = await MergeHistoryRemap.load(txn);
+        final List<String> songChain;
+        try {
+          songChain = [
+            for (final id in {
+              session['song_id'],
+              if (play is Map) play['song_id'],
+            })
+              if (id is String) ...merges.chains.path('songs', id),
+          ];
+        } on MergeChainException {
+          // A merge chain that loops cannot be placed safely: nothing is
+          // written, and the record is offered again on a later sync.
+          return CloudArchiveApplyOutcome.missingDependencies;
+        }
         if (await ledger.contains(
               DeletionLedgerEntity.playbackSession,
               session['id'] as String?,
             ) ||
-            await ledger.deletedByUser(
+            await ledger.anyDeletedByUser(
               DeletionLedgerEntity.song,
-              session['song_id'] as String?,
+              songChain,
             )) {
           return CloudArchiveApplyOutcome.deletedHere;
         }
-        // Listening of a release merged here follows the one that stayed.
-        final merges = await MergeHistoryRemap.load(txn);
+        // Listening of a release merged here follows the one that stayed,
+        // through every merge after it.
+        final Map<String, Object?> followedSession;
+        final Map<String, Object?>? followedPlay;
+        try {
+          followedSession = merges.follow(session);
+          followedPlay = play is Map
+              ? merges.follow(Map<String, Object?>.from(play))
+              : null;
+        } on MergeChainException {
+          return CloudArchiveApplyOutcome.missingDependencies;
+        }
         await _insert(
           txn,
           DatabaseTables.playbackSessions,
-          merges.follow(session),
+          followedSession,
           ConflictAlgorithm.ignore,
         );
         for (final segment in (payload['segments'] as List? ?? const [])) {
@@ -271,12 +321,11 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
             ConflictAlgorithm.ignore,
           );
         }
-        final play = payload['qualified_play'];
-        if (play is Map) {
+        if (followedPlay != null) {
           await _insert(
             txn,
             DatabaseTables.qualifiedPlays,
-            merges.follow(Map<String, Object?>.from(play)),
+            followedPlay,
             ConflictAlgorithm.ignore,
           );
         }
@@ -339,22 +388,40 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
         if (await ledger.contains(DeletionLedgerEntity.moment, record.key)) {
           return CloudArchiveApplyOutcome.deletedHere;
         }
-        for (final (entity, column) in [
-          (DeletionLedgerEntity.song, 'entity_id'),
-          (DeletionLedgerEntity.album, 'entity_id'),
-          (DeletionLedgerEntity.artist, 'entity_id'),
-          (DeletionLedgerEntity.song, 'related_entity_id'),
-          (DeletionLedgerEntity.album, 'related_entity_id'),
-          (DeletionLedgerEntity.artist, 'entity_artist_id'),
-        ]) {
-          if (await ledger.deletedByUser(entity, payload[column] as String?)) {
-            return CloudArchiveApplyOutcome.deletedHere;
+        // Songs and releases are checked along their merge chains
+        // (BUG-00A), and a story about a merged duplicate is filed under
+        // the record that stayed (BUG-00B), as it is when the merge itself
+        // arrives.
+        final momentMerges = (await MergeHistoryRemap.load(txn)).chains;
+        final moment = {...payload};
+        try {
+          for (final (entity, kind, column) in [
+            (DeletionLedgerEntity.song, 'songs', 'entity_id'),
+            (DeletionLedgerEntity.album, 'albums', 'entity_id'),
+            (DeletionLedgerEntity.artist, null, 'entity_id'),
+            (DeletionLedgerEntity.song, 'songs', 'related_entity_id'),
+            (DeletionLedgerEntity.album, 'albums', 'related_entity_id'),
+            (DeletionLedgerEntity.artist, null, 'entity_artist_id'),
+          ]) {
+            final id = payload[column];
+            if (id is! String) continue;
+            final chain = kind == null ? [id] : momentMerges.path(kind, id);
+            if (await ledger.anyDeletedByUser(entity, chain)) {
+              return CloudArchiveApplyOutcome.deletedHere;
+            }
           }
+          final kind = payload['chart_type'] == 'albums' ? 'albums' : 'songs';
+          for (final column in ['entity_id', 'related_entity_id']) {
+            final id = payload[column];
+            if (id is String) moment[column] = momentMerges.resolve(kind, id);
+          }
+        } on MergeChainException {
+          return CloudArchiveApplyOutcome.missingDependencies;
         }
         await _insert(
           txn,
           _tables[record.kind]!,
-          payload,
+          moment,
           ConflictAlgorithm.ignore,
         );
 

@@ -175,6 +175,9 @@ class _ProposalFieldRow extends StatelessWidget {
     if (fieldName == MetadataFields.editionReleaseDate) {
       return 'Release date';
     }
+    if (fieldName == MetadataFields.editionGenre) {
+      return 'Genre';
+    }
     return fieldName;
   }
 

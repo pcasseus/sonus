@@ -17,11 +17,16 @@ abstract final class BackupCompatibility {
   /// not stated) and 41 only added the nullable Leaked column to the same
   /// table (older rows restore as not leaked), 42 only added the
   /// device-local deletion ledger and the internal deletion journal (never
-  /// in a backup), so backups from 31 onward
-  /// restore unchanged. Each entry must be proven by a migration test
-  /// before it is added; the schema validator still checks every payload
-  /// against the local columns. Listed explicitly so a schema bump fails
-  /// the compatibility tests until this set is reviewed.
+  /// in a backup), and 43 only added audio identity columns to the
+  /// device-local file bindings and the device-local table of deleted
+  /// audio (neither in a backup), and 44 only added the tags' fingerprint
+  /// to the same device-local bindings, and 45 only added the optional
+  /// disc names (a backup without them restores with none), so backups
+  /// from 31 onward restore unchanged. Each entry must be proven by a
+  /// migration test before it is added; the schema validator still checks
+  /// every payload against the local columns. Listed explicitly so a
+  /// schema bump fails the compatibility tests until this set is
+  /// reviewed.
   static const restorableDatabaseVersions = {
     31,
     32,
@@ -35,6 +40,10 @@ abstract final class BackupCompatibility {
     40,
     41,
     42,
+    43,
+    44,
+    45,
+    46,
   };
 
   static bool canRestore(BackupManifest manifest) =>

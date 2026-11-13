@@ -168,12 +168,44 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// If Sonus was started just for it, the saved queue is restored first.
   @override
   Future<void> play() async {
-    await _awaitSavedSession();
+    final restoredInTime = await _awaitSavedSession();
     await _run('play', (c) => c.play());
+    if (!restoredInTime) _playOnceRestored();
   }
 
+  /// A Play that came while the saved session was still being restored,
+  /// past the readiness timeout, found nothing queued and did nothing; the
+  /// restore then loads the queue paused. The Play is applied once the
+  /// queue is there, unless the listener paused or stopped since, or
+  /// something already plays (BUG-11 hardening).
+  void _playOnceRestored() {
+    final restored = _restored;
+    if (restored == null) return;
+    final asked = _stopOrPauseCount;
+    unawaited(
+      restored.then<void>((_) async {
+        final state = _coordinator?.currentState;
+        if (_stopOrPauseCount != asked ||
+            state == null ||
+            !state.queue.hasCurrentTrack ||
+            state.isPlaying) {
+          return;
+        }
+        _log('Play applied once the saved session was restored.');
+        await _run('play', (c) => c.play());
+      }, onError: (Object _) {}),
+    );
+  }
+
+  /// Pause and Stop requests so far; a Play waiting for a slow restore is
+  /// dropped when one came after it.
+  int _stopOrPauseCount = 0;
+
   @override
-  Future<void> pause() => _run('pause', (c) => c.pause());
+  Future<void> pause() {
+    _stopOrPauseCount++;
+    return _run('pause', (c) => c.pause());
+  }
 
   @override
   Future<void> seek(Duration position) => _run('seek', (c) => c.seek(position));
@@ -446,7 +478,9 @@ class SonusAudioHandler extends media.BaseAudioHandler {
 
   /// Waits, up to the readiness timeout, for the player and, while its
   /// queue is empty, for the saved session to be restored.
-  Future<void> _awaitSavedSession() async {
+  /// False when the saved session was still being restored at the
+  /// readiness timeout.
+  Future<bool> _awaitSavedSession() async {
     if (_coordinator == null) {
       await _waitWhileWaking(_attached.future);
     }
@@ -457,12 +491,14 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     if (restored == null ||
         coordinator == null ||
         coordinator.currentState.queue.isNotEmpty) {
-      return;
+      return true;
     }
 
     if (!await _waitWhileWaking(restored)) {
       _log('The saved session was not restored in time.', level: 900);
+      return false;
     }
+    return true;
   }
 
   /// Waits up to the readiness timeout for [future], requesting frames
@@ -498,6 +534,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// published.
   @override
   Future<void> stop() async {
+    _stopOrPauseCount++;
     await _run('stop', (c) => c.stop());
 
     if (_published?.snapshot.state.processingState !=

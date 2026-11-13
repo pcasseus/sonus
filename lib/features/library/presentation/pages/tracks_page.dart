@@ -5,9 +5,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/database/app_database.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/widgets/sonus_scroll_to_top.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../account/application/controllers/account_controller.dart';
@@ -31,6 +33,7 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
 import '../controllers/track_selection_controller.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/permanent_deletion/batch_song_deletion.dart';
 import '../widgets/track_selection_bar.dart';
 import '../widgets/track_studio_launcher.dart';
 import 'album_profile_page.dart';
@@ -55,6 +58,7 @@ class _TracksPageState extends State<TracksPage> {
   LibraryQueryRepository? _repository;
 
   final ScrollController _scroll = ScrollController();
+  bool _canDeleteFromLibrary = false;
   final TrackSelectionController _selection = TrackSelectionController();
   final GlobalKey _listStartKey = GlobalKey();
   final GlobalKey _jumpTargetKey = GlobalKey();
@@ -73,6 +77,15 @@ class _TracksPageState extends State<TracksPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    // Deleting from the library needs the app database (App Update 1.2,
+    // BUG-03); pages hosted without one only offer the other actions.
+    try {
+      context.read<AppDatabase>();
+      _canDeleteFromLibrary = true;
+    } on ProviderNotFoundException {
+      _canDeleteFromLibrary = false;
+    }
 
     final repository = context.watch<LibraryQueryRepository?>();
 
@@ -212,82 +225,92 @@ class _TracksPageState extends State<TracksPage> {
           final alphabet = _alphabetFor(visibleTracks, controller.order);
           final railSpace = alphabet == null ? 0.0 : AlphabetRail.width + 2;
 
-          final list = RefreshIndicator(
-            onRefresh: controller.refresh,
-            child: StreamBuilder<NowPlayingMark>(
-              stream: _nowPlaying,
-              initialData: _coordinator == null
-                  ? const NowPlayingMark()
-                  : NowPlayingMark.of(_coordinator!.currentState),
-              builder: (context, current) => CustomScrollView(
-                key: const PageStorageKey<String>('tracks-list'),
-                controller: _scroll,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: _TracksHeader(trackCount: visibleTracks.length),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _TracksControls(controller: controller),
-                  ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(key: _listStartKey, height: 0),
-                  ),
-                  SliverPadding(
-                    padding: EdgeInsets.fromLTRB(
-                      gutter - 4,
-                      4,
-                      gutter - 4 + railSpace,
-                      120 + MediaQuery.paddingOf(context).bottom,
+          // App Update 1.2 (BUG-04): Back to top, as on Charts, clear of the
+          // A-Z rail. It only scrolls: the search, sort and selection stay.
+          final list = SonusScrollToTop(
+            controller: _scroll,
+            buttonKey: const ValueKey<String>('tracks-scroll-to-top'),
+            end: 16 + railSpace,
+            child: RefreshIndicator(
+              onRefresh: controller.refresh,
+              child: StreamBuilder<NowPlayingMark>(
+                stream: _nowPlaying,
+                initialData: _coordinator == null
+                    ? const NowPlayingMark()
+                    : NowPlayingMark.of(_coordinator!.currentState),
+                builder: (context, current) => CustomScrollView(
+                  key: const PageStorageKey<String>('tracks-list'),
+                  controller: _scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: _TracksHeader(trackCount: visibleTracks.length),
                     ),
-                    // Lazy: only rows on screen are built, for large libraries.
-                    sliver: SliverList.builder(
-                      itemCount: visibleTracks.length,
-                      itemBuilder: (context, index) {
-                        final track = visibleTracks[index];
-
-                        final tile = _TrackTile(
-                          track: track,
-                          isPlayable: controller.isTrackPlayable(track),
-                          isCurrent: current.data?.marks(track.songId) ?? false,
-                          isNowPlaying: current.data?.isPlaying ?? false,
-                          canEditArtwork: controller.canEditArtwork,
-                          canEditTrack: controller.canEditTrack(userId),
-                          canSetBlocked: controller.canSetTrackBlocked(userId),
-                          selected: selecting
-                              ? _selection.isSelected(track.songId)
-                              : null,
-                          onSelect: () => _selection.start(track.songId),
-                          onToggleSelected: () =>
-                              _selection.toggle(track.songId),
-                          onGoToAlbum: () => _openAlbum(track),
-                          onGoToArtist: () => _openArtist(track),
-                          onPlay: () => controller.playTrack(track),
-                          onPlayNext: () => controller.playNext(track),
-                          onAddToQueue: () => controller.addToQueue(track),
-                          onAddToPlaylist: () =>
-                              showAddToPlaylistFlow(context, track),
-                          onEditTrack: () =>
-                              _editTrack(controller, track, userId),
-                          onChangeArtwork: () =>
-                              _changeArtwork(controller, track),
-                          onClearArtwork: () =>
-                              _clearArtwork(controller, track),
-                          onSetBlocked: (isBlocked) => _setTrackBlocked(
-                            controller,
-                            track,
-                            userId,
-                            isBlocked,
-                          ),
-                        );
-
-                        return track.songId == _jumpSongId
-                            ? KeyedSubtree(key: _jumpTargetKey, child: tile)
-                            : tile;
-                      },
+                    SliverToBoxAdapter(
+                      child: _TracksControls(controller: controller),
                     ),
-                  ),
-                ],
+                    SliverToBoxAdapter(
+                      child: SizedBox(key: _listStartKey, height: 0),
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        gutter - 4,
+                        4,
+                        gutter - 4 + railSpace,
+                        120 + MediaQuery.paddingOf(context).bottom,
+                      ),
+                      // Lazy: only rows on screen are built, for large libraries.
+                      sliver: SliverList.builder(
+                        itemCount: visibleTracks.length,
+                        itemBuilder: (context, index) {
+                          final track = visibleTracks[index];
+
+                          final tile = _TrackTile(
+                            track: track,
+                            isPlayable: controller.isTrackPlayable(track),
+                            isCurrent:
+                                current.data?.marks(track.songId) ?? false,
+                            isNowPlaying: current.data?.isPlaying ?? false,
+                            canEditArtwork: controller.canEditArtwork,
+                            canEditTrack: controller.canEditTrack(userId),
+                            canSetBlocked: controller.canSetTrackBlocked(
+                              userId,
+                            ),
+                            selected: selecting
+                                ? _selection.isSelected(track.songId)
+                                : null,
+                            onSelect: () => _selection.start(track.songId),
+                            onToggleSelected: () =>
+                                _selection.toggle(track.songId),
+                            onGoToAlbum: () => _openAlbum(track),
+                            onGoToArtist: () => _openArtist(track),
+                            onPlay: () => controller.playTrack(track),
+                            onPlayNext: () => controller.playNext(track),
+                            onAddToQueue: () => controller.addToQueue(track),
+                            onAddToPlaylist: () =>
+                                showAddToPlaylistFlow(context, track),
+                            onEditTrack: () =>
+                                _editTrack(controller, track, userId),
+                            onChangeArtwork: () =>
+                                _changeArtwork(controller, track),
+                            onClearArtwork: () =>
+                                _clearArtwork(controller, track),
+                            onSetBlocked: (isBlocked) => _setTrackBlocked(
+                              controller,
+                              track,
+                              userId,
+                              isBlocked,
+                            ),
+                          );
+
+                          return track.songId == _jumpSongId
+                              ? KeyedSubtree(key: _jumpTargetKey, child: tile)
+                              : tile;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -296,6 +319,7 @@ class _TracksPageState extends State<TracksPage> {
           return TrackSelectionScope(
             controller: _selection,
             visibleTracks: visibleTracks,
+            onDeleteFromLibrary: _canDeleteFromLibrary ? _deleteSelected : null,
             child: alphabet == null
                 ? list
                 : Stack(
@@ -321,6 +345,16 @@ class _TracksPageState extends State<TracksPage> {
         },
       ),
     );
+  }
+
+  /// App Update 1.2 (BUG-03): deletes the selected songs from the library
+  /// after the batch confirmation; their files on the device are kept.
+  /// Selection ends only when every song was deleted: after a partial
+  /// result the songs kept stay selected (the deleted ones leave the
+  /// list), as the message says.
+  Future<void> _deleteSelected(List<LibraryTrack> tracks) async {
+    final outcome = await showBatchSongDeletion(context, tracks);
+    if (outcome != null && outcome.isComplete && mounted) _selection.exit();
   }
 
   void _openAlbum(LibraryTrack track) {

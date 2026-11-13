@@ -4,6 +4,7 @@
 // family's refined lines, so a family approved later is covered too.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_dominance.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_headlines.dart';
@@ -16,7 +17,37 @@ import 'package:sonus_next/features/library/domain/entities/library_organization
 const _weeklyOnly = {
   MomentFamily.songBubblingUnderFall,
   MomentFamily.songHot100Exit,
+  // App Update 1.2 (REF-19): finalized weekly charts only.
+  MomentFamily.artistChartSweep,
+  MomentFamily.artistTop10Presence,
+  MomentFamily.artistHot100Presence,
+  MomentFamily.artistJointControl,
 };
+
+/// REF-19 facts large enough for every line, Pulse Pop minimums included:
+/// a Top 10 sweep, 6 Top 10 songs, 17 Hot 100 songs.
+(ArtistDominance, int threshold, int count)? _dominance(MomentFamily family) =>
+    switch (family) {
+      MomentFamily.artistChartSweep => (
+        const ArtistDominance(ArtistDominanceKind.sweep, 10),
+        10,
+        10,
+      ),
+      MomentFamily.artistTop10Presence => (
+        const ArtistDominance(ArtistDominanceKind.top10, 5),
+        10,
+        6,
+      ),
+      MomentFamily.artistHot100Presence => (
+        const ArtistDominance(ArtistDominanceKind.hot100, 15),
+        100,
+        17,
+      ),
+      _ => null,
+    };
+
+/// Joint control facts large enough for every line: a Top 6 held 4–2.
+bool _isJoint(MomentFamily family) => family == MomentFamily.artistJointControl;
 
 MomentFacts _facts(MomentFamily family, {required bool weekly}) {
   final releaseFamily = family.isRelease;
@@ -30,6 +61,7 @@ MomentFacts _facts(MomentFamily family, {required bool weekly}) {
     MomentFamily.songHot100Exit => (121, 94, 35),
     _ => (7, 30, 9),
   };
+  final dominance = _dominance(family);
   return MomentFacts(
     chartType: releaseFamily ? ChartType.albums : ChartType.songs,
     weekly: weekly,
@@ -45,12 +77,14 @@ MomentFacts _facts(MomentFamily family, {required bool weekly}) {
     streams: 57,
     milestone: 100,
     ordinal: 3,
-    threshold: 10,
+    threshold: _isJoint(family) ? 6 : dominance?.$2 ?? 10,
     weeks: 5,
     rivalTitle: 'Glass Harbor',
     rivalArtist: 'Ilse Moor',
     consecutive: true,
-    count: 3,
+    count: _isJoint(family) ? 4 : dominance?.$3 ?? 3,
+    dominance: dominance?.$1,
+    jointPartner: _isJoint(family) ? 'Juno Hart' : null,
     thresholds: const [75, 50, 40],
     jump: rank == 7
         ? const ChartJumpFacts(

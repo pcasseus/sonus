@@ -173,6 +173,11 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
           metadataFallbackPath: entry.relativePath,
           lyricsPath: lyricsBySidecarKey[_sidecarKey(relativePath)],
           structure: structure,
+          fileSizeBytes: entry.file.length,
+          modifiedAt: DateTime.fromMillisecondsSinceEpoch(
+            entry.file.lastModified,
+            isUtc: true,
+          ),
         ),
       );
     }

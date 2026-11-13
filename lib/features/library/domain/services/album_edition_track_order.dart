@@ -27,3 +27,18 @@ int compareByDiscAndTrack(AlbumEditionTrack a, AlbumEditionTrack b) {
 /// unknown disc counts as disc 1.
 bool spansMultipleDiscs(Iterable<int> discNumbers) =>
     {for (final disc in discNumbers) disc <= 0 ? 1 : disc}.length > 1;
+
+/// The disc a track is shown on: an unknown disc (0) is disc 1.
+int shownDisc(int disc) => disc <= 0 ? 1 : disc;
+
+/// [items] grouped by shown disc in ascending order, keeping their order
+/// within each disc (App Update 1.2, REF-13). Stable: items already
+/// grouped come back in the same order.
+List<T> groupedByDisc<T>(List<T> items, int Function(T item) discOf) {
+  final indexed = [for (final (i, item) in items.indexed) (i, item)];
+  indexed.sort((a, b) {
+    final byDisc = shownDisc(discOf(a.$2)).compareTo(shownDisc(discOf(b.$2)));
+    return byDisc != 0 ? byDisc : a.$1.compareTo(b.$1);
+  });
+  return [for (final (_, item) in indexed) item];
+}

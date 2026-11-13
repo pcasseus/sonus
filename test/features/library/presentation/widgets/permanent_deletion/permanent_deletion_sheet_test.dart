@@ -293,6 +293,79 @@ void main() {
     }
   }
 
+  group('a last check before deleting (Release Studio)', () {
+    Future<void> pumpWithCheck(
+      WidgetTester tester,
+      Future<String?> Function() beforeDelete,
+    ) async {
+      tester.view.devicePixelRatio = 2.8125;
+      tester.view.physicalSize = const Size(384, 832) * 2.8125;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  key: const ValueKey<String>('open'),
+                  onPressed: () async {
+                    result = await showModalBottomSheet<bool>(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (_) => PermanentDeletionSheet(
+                        target: const PermanentDeletionTarget.song('s1'),
+                        name: 'Nova',
+                        loadPreview: (_) async => impact(),
+                        delete: (i, o) async {
+                          deletions.add(i);
+                          return i;
+                        },
+                        beforeDelete: beforeDelete,
+                      ),
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(_key('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(_key('permanent-deletion-continue'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_key('permanent-deletion-confirm-field'), 'Nova');
+      await tester.pump();
+      await tester.tap(_key('permanent-deletion-confirm-delete'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a reason stops the deletion and is shown', (tester) async {
+      await pumpWithCheck(tester, () async => 'Its file is back.');
+
+      expect(deletions, isEmpty);
+      expect(result, isNull, reason: 'the sheet stays open');
+      expect(
+        find.text('Nothing was deleted. Its file is back.'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(_key('permanent-deletion-continue'))
+            .onPressed,
+        isNotNull,
+      );
+    });
+
+    testWidgets('no reason: the deletion goes ahead', (tester) async {
+      await pumpWithCheck(tester, () async => null);
+
+      expect(deletions, hasLength(1));
+      expect(result, isTrue);
+    });
+  });
+
   testWidgets('deletes exactly the impact that was shown', (tester) async {
     final shown = impact();
     await pumpSheet(tester, load: (_) => shown);

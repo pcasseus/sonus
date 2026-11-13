@@ -14,6 +14,7 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
   final SupabaseClient client;
 
   bool? _songExtensionsSupported;
+  bool? _editionExtensionsSupported;
 
   /// The row to write. Song memberships and credits are sent only when the
   /// server has their columns, so this app works before and after the
@@ -31,7 +32,37 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
       );
     }
 
+    final carriesEditionExtensions = row.keys.any(
+      SupabaseSyncContract.editionExtensionColumns.contains,
+    );
+    if (carriesEditionExtensions && !await _supportsEditionExtensions()) {
+      row.removeWhere(
+        (column, _) =>
+            SupabaseSyncContract.editionExtensionColumns.contains(column),
+      );
+    }
+
     return row;
+  }
+
+  /// As [_supportsSongExtensions], for the edition columns of the proposed
+  /// migration 20261113000001.
+  Future<bool> _supportsEditionExtensions() async {
+    final known = _editionExtensionsSupported;
+    if (known != null) return known;
+
+    try {
+      await client
+          .from(SupabaseSyncContract.albumEditionsTable)
+          .select(SupabaseSyncContract.editionExtensionColumns.join(','))
+          .limit(0);
+      return _editionExtensionsSupported = true;
+    } on PostgrestException catch (error) {
+      if (error.code == '42703' || error.code == 'PGRST204') {
+        return _editionExtensionsSupported = false;
+      }
+      rethrow;
+    }
   }
 
   /// Asks the server once whether the song extension columns exist. Only

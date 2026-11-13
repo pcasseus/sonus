@@ -1,3 +1,4 @@
+import 'artist_dominance_headlines.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import 'moment_facts.dart';
@@ -1912,6 +1913,10 @@ class RefinedHeadlineCatalog {
         when: _weeklyFromBubblingUnder,
         approved: true,
       ),
+      // App Update 1.2 (REF-19): artist sweeps and presence (approved
+      // 2026-11-12) and joint chart control (drafts). New families, so no
+      // story already told changes.
+      ...ArtistDominanceHeadlines.additions,
     ],
   );
 
@@ -1954,6 +1959,8 @@ class RefinedHeadlineCatalog {
 }
 
 bool _hasGuest(MomentFacts f) => f.featured != null;
+
+/// A count of songs and the zone it is counted in (REF-19 drafts).
 
 /// A Hot 100 arrival whose previous rank is a Bubbling Under position.
 bool _fromBubblingUnder(MomentFacts f) =>

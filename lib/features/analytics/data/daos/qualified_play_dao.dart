@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../domain/models/listening_record_missing.dart';
 
 class QualifiedPlayDao {
   const QualifiedPlayDao(this.db);
@@ -30,7 +31,7 @@ class QualifiedPlayDao {
     );
 
     if (updated != 1) {
-      throw StateError('Qualified play not found: $id');
+      throw ListeningRecordMissing('Qualified play not found: $id');
     }
   }
 

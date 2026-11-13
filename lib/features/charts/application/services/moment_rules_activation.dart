@@ -36,6 +36,24 @@ abstract interface class MomentChronicleStore {
   Future<void> writeChronicleStart(String fromUtc);
 }
 
+/// Where artist-dominance Moments start (App Update 1.2, REF-19).
+abstract interface class MomentDominanceStore {
+  /// Null until a build carrying them has recorded one.
+  Future<String?> readDominanceStart();
+
+  Future<void> writeDominanceStart(String fromUtc);
+}
+
+/// Where joint chart control Moments start (App Update 1.2, REF-19): their
+/// own start, so approving them later never reaches back to weeks since
+/// the artist-dominance start.
+abstract interface class MomentJointControlStore {
+  /// Null until a build carrying them has recorded one.
+  Future<String?> readJointControlStart();
+
+  Future<void> writeJointControlStart(String fromUtc);
+}
+
 /// Decides which Moments rules this run uses (SN-50 R2).
 ///
 /// Only a build compiled with
@@ -57,9 +75,13 @@ class MomentRulesActivation {
     int catalogVersion = ChartMomentRules.currentCatalogVersion,
     MomentDevicePolishStore? devicePolish,
     MomentChronicleStore? chronicle,
+    MomentDominanceStore? dominance,
+    MomentJointControlStore? jointControl,
     MomentRulesActivationNow? now,
   }) : _store = store,
        _chronicle = chronicle,
+       _dominance = dominance,
+       _jointControl = jointControl,
        _approved = approved,
        _catalogVersion = catalogVersion,
        _devicePolish = devicePolish,
@@ -82,6 +104,18 @@ class MomentRulesActivation {
   /// recorded or told.
   final MomentChronicleStore? _chronicle;
   DateTime? _chronicleStart;
+
+  /// Where artist-dominance Moments start; without it, none are recorded.
+  final MomentDominanceStore? _dominance;
+
+  /// The start being read or recorded, kept once known; cleared after a
+  /// failure so a later call tries again.
+  Future<DateTime?>? _dominanceStart;
+
+  /// Where joint chart control Moments start; without it, none are
+  /// recorded.
+  final MomentJointControlStore? _jointControl;
+  Future<DateTime?>? _jointControlStart;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -93,6 +127,11 @@ class MomentRulesActivation {
   /// The rules for this run. Shared by every caller; retried after a
   /// storage failure, which falls back to the earlier rules meanwhile.
   Future<ChartMomentRules> rules() async {
+    // REF-19: the dominance and joint control starts are recorded when the
+    // rules first load on a run, not when a week is next finalized: that
+    // could be days later, after the week running at installation ended,
+    // and so leave that week out.
+    await Future.wait([dominanceFrom(), jointControlFrom()]);
     final chronicleFrom = await _chronicleFrom();
     return (await _rulesWithoutChronicle()).withChronicle(chronicleFrom);
   }
@@ -120,6 +159,74 @@ class MomentRulesActivation {
       developer.log(
         'The Moments chronicle start could not be read or saved '
         '(${error.runtimeType}); no chronicle stories this run',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  /// Where artist-dominance Moments start on this install (REF-19):
+  /// recorded once, on the first run of a build that carries them, and
+  /// never moved. Weekly charts that ended before it never get them, so
+  /// nothing is backfilled. Unreadable or unsaved: none this run, and a
+  /// later run tries again.
+  Future<DateTime?> dominanceFrom() {
+    final store = _dominance;
+    if (store == null) return Future.value();
+    // One read-or-write at a time: the rules and a finalization pass may ask
+    // together, and must never record two different starts.
+    return _dominanceStart ??=
+        _startOnce(
+          read: store.readDominanceStart,
+          write: store.writeDominanceStart,
+          what: 'artist-dominance',
+        ).then((start) {
+          if (start == null) _dominanceStart = null;
+          return start;
+        });
+  }
+
+  /// Where joint chart control Moments start on this install (REF-19),
+  /// recorded once like [dominanceFrom], on the first run of a build whose
+  /// joint control lines are approved.
+  Future<DateTime?> jointControlFrom() {
+    final store = _jointControl;
+    if (store == null) return Future.value();
+    return _jointControlStart ??=
+        _startOnce(
+          read: store.readJointControlStart,
+          write: store.writeJointControlStart,
+          what: 'joint chart control',
+        ).then((start) {
+          if (start == null) _jointControlStart = null;
+          return start;
+        });
+  }
+
+  /// A start read back, or written now and read back; null (logged) when
+  /// it cannot be read or saved, so none are recorded this run.
+  Future<DateTime?> _startOnce({
+    required Future<String?> Function() read,
+    required Future<void> Function(String fromUtc) write,
+    required String what,
+  }) async {
+    try {
+      var stored = await read();
+      if (stored == null) {
+        await write(_now().toUtc().toIso8601String());
+        stored = await read();
+        if (stored == null) {
+          throw StateError('The $what start was not saved.');
+        }
+      }
+      return _instant(stored);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The $what Moments start could not be read or saved '
+        '(${error.runtimeType}); none are recorded this run',
         name: 'sonus.charts',
         level: 900,
         error: error,

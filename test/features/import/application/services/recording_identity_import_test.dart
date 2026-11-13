@@ -518,7 +518,8 @@ void main() {
     );
   });
 
-  test('a moved file of the same recording still relinks', () async {
+  test('BUG-09: a moved file known only by its tags waits for review under '
+      'the same song', () async {
     final files = {
       'old/ErrTime.mp3': errTime(seconds: 146),
       'new/ErrTime.mp3': errTime(seconds: 146),
@@ -539,8 +540,9 @@ void main() {
       now: now,
     );
 
-    expect(moved.status, ImportResultStatus.relinked);
+    expect(moved.skipReason, ImportSkipReason.awaitingFileReview);
     expect(moved.songId, first.songId);
+    expect(await SongDao(db).findAll(), hasLength(1));
   });
 
   test('a missing file never relinks to a different recording', () async {
@@ -675,7 +677,8 @@ void main() {
       }
     });
 
-    test('a missing file still relinks to the same track position', () async {
+    test('BUG-09: a missing file at the same track position, known only by '
+        'its tags, waits for review', () async {
       final (importer, kept) = await importKept();
       await markMissing(kept.songId!);
 
@@ -687,32 +690,35 @@ void main() {
       final bindings = await MediaFileBindingDao(
         await appDatabase.database,
       ).findBySongId(kept.songId!);
-      expect(moved.status, ImportResultStatus.relinked);
+      expect(moved.skipReason, ImportSkipReason.awaitingFileReview);
       expect(moved.songId, kept.songId);
-      expect(bindings.single.filePath, 'new/track03.mp3');
-      expect(bindings.single.isAvailable, isTrue);
+      expect(bindings.single.filePath, isNot('new/track03.mp3'));
+      expect(bindings.single.isAvailable, isFalse);
     });
 
-    test('a missing file listed with no known position still relinks, as a '
-        'restored library needs', () async {
-      final (importer, _) = await service({
-        'old/untagged.mp3': errTime(seconds: 146, trackNumber: 0),
-        'new/track09.mp3': errTime(seconds: 146, trackNumber: 9),
-      });
-      final kept = await importer.importCandidate(
-        candidate('old/untagged.mp3'),
-        now: now,
-      );
-      await markMissing(kept.songId!);
+    test(
+      'BUG-09: a missing file listed with no known position waits for '
+      'review too (a restore relinks through its own relink-only pass)',
+      () async {
+        final (importer, _) = await service({
+          'old/untagged.mp3': errTime(seconds: 146, trackNumber: 0),
+          'new/track09.mp3': errTime(seconds: 146, trackNumber: 9),
+        });
+        final kept = await importer.importCandidate(
+          candidate('old/untagged.mp3'),
+          now: now,
+        );
+        await markMissing(kept.songId!);
 
-      final moved = await importer.importCandidate(
-        candidate('new/track09.mp3'),
-        now: now,
-      );
+        final moved = await importer.importCandidate(
+          candidate('new/track09.mp3'),
+          now: now,
+        );
 
-      expect(moved.status, ImportResultStatus.relinked);
-      expect(moved.songId, kept.songId);
-    });
+        expect(moved.skipReason, ImportSkipReason.awaitingFileReview);
+        expect(moved.songId, kept.songId);
+      },
+    );
 
     test('a song with no file is bound at the same track position', () async {
       final (importer, kept) = await importKept();

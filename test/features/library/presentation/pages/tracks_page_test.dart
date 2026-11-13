@@ -1813,7 +1813,9 @@ class RecordingPlaybackEngine implements PlaybackEngine {
   Stream<PlaybackState> get states => const Stream.empty();
 
   @override
-  PlaybackState get currentState => const PlaybackState();
+  PlaybackState get currentState => PlaybackState(
+    shuffleEnabled: shuffleValues.isNotEmpty && shuffleValues.last,
+  );
 
   @override
   Future<void> loadQueue(

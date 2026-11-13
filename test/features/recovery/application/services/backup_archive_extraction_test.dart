@@ -42,12 +42,20 @@ void main() {
     final contents = await verifiedFixtureContents(
       directory: root,
       seed: (db) async {
-        await seedConnectedLibrary(db, key: 'b', week: 1, artworkPath: coverB.path);
+        await seedConnectedLibrary(
+          db,
+          key: 'b',
+          week: 1,
+          artworkPath: coverB.path,
+        );
         await seedConnectedLibrary(db, key: 'a', artworkPath: coverA.path);
       },
     );
 
-    expect(contents.artwork.map((a) => a.artworkId), ['artwork-a', 'artwork-b']);
+    expect(contents.artwork.map((a) => a.artworkId), [
+      'artwork-a',
+      'artwork-b',
+    ]);
 
     final a = contents.artwork.first;
     expect(await a.file.readAsBytes(), [1, 2, 3, 4]);
@@ -81,26 +89,35 @@ void main() {
     }
   });
 
-  test('refuses an existing extraction directory and leaves it intact', () async {
-    final source = fileAppDatabase(root, 'source.db');
+  test(
+    'refuses an existing extraction directory and leaves it intact',
+    () async {
+      final source = fileAppDatabase(root, 'source.db');
 
-    try {
-      final backup = await createFixtureBackup(source: source, directory: root);
-      final target = Directory(path.join(root.path, 'occupied'));
-      await target.create();
-      final keep = File(path.join(target.path, 'keep.txt'));
-      await keep.writeAsString('keep');
+      try {
+        final backup = await createFixtureBackup(
+          source: source,
+          directory: root,
+        );
+        final target = Directory(path.join(root.path, 'occupied'));
+        await target.create();
+        final keep = File(path.join(target.path, 'keep.txt'));
+        await keep.writeAsString('keep');
 
-      await expectLater(
-        verifier.verifyAndExtract(backupFile: backup, targetDirectory: target),
-        throwsStateError,
-      );
+        await expectLater(
+          verifier.verifyAndExtract(
+            backupFile: backup,
+            targetDirectory: target,
+          ),
+          throwsStateError,
+        );
 
-      expect(await keep.readAsString(), 'keep');
-    } finally {
-      await source.close();
-    }
-  });
+        expect(await keep.readAsString(), 'keep');
+      } finally {
+        await source.close();
+      }
+    },
+  );
 
   group('tampered archives leave no extraction behind', () {
     late Directory staging;
@@ -109,7 +126,9 @@ void main() {
 
     setUp(() async {
       staging = Directory(path.join(root.path, 'staging'));
-      await Directory(path.join(staging.path, 'artwork')).create(recursive: true);
+      await Directory(
+        path.join(staging.path, 'artwork'),
+      ).create(recursive: true);
       backup = File(path.join(root.path, 'tampered.sonusbackup'));
       target = Directory(path.join(root.path, 'extract'));
     });
@@ -164,7 +183,10 @@ void main() {
       );
 
       await File(path.join(staging.path, 'library.json')).writeAsString(
-        const BackupIntegrityCodec().encode(manifest: manifest, payload: payload),
+        const BackupIntegrityCodec().encode(
+          manifest: manifest,
+          payload: payload,
+        ),
       );
 
       await File(

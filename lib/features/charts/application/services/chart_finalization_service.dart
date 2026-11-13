@@ -8,6 +8,9 @@ import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_week.dart';
 import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
+import '../../domain/moments/chart_history_evidence.dart';
+import '../../domain/moments/chart_moment_artist_dominance.dart';
+import '../../domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/moments/chart_moment_finalized_detector.dart';
 import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
 import '../../domain/moments/chart_moment_longevity_calculator.dart';
@@ -28,6 +31,10 @@ typedef ChartArtistAttribution = Future<Map<String, String>> Function();
 
 typedef ChartRestoreGeneration = int Function();
 
+/// The credits of each song, for joint chart control (REF-19).
+typedef ChartSongCreditLookup =
+    Future<Map<String, ChartSongCredits>> Function(Set<String> songIds);
+
 class ChartFinalizationService {
   ChartFinalizationService({
     required ChartSnapshotBuilderService builder,
@@ -38,6 +45,13 @@ class ChartFinalizationService {
         const ChartMomentFinalizedDetector(),
     ChartMomentArtistAchievementDetector artistAchievementDetector =
         const ChartMomentArtistAchievementDetector(),
+    ChartMomentArtistDominanceDetector dominanceDetector =
+        const ChartMomentArtistDominanceDetector(),
+    Future<DateTime?> Function()? dominanceFromUtc,
+    ChartMomentArtistJointControlDetector jointControlDetector =
+        const ChartMomentArtistJointControlDetector(),
+    Future<DateTime?> Function()? jointControlFromUtc,
+    ChartSongCreditLookup? songCredits,
     ChartMomentLongevityCalculator longevityCalculator =
         const ChartMomentLongevityCalculator(),
     ChartMomentMilestoneDetector milestoneDetector =
@@ -52,12 +66,19 @@ class ChartFinalizationService {
     ChartWeekFinalizer? weekFinalizer,
     Future<bool> Function(String chartType, DateTime weekStartUtc)?
     isRecalculatedWeek,
+    Future<DateTime?> Function()? chartHistoryOriginUtc,
+    bool verifiedWindowClaims = false,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
        _moments = moments,
        _finalizedMomentDetector = finalizedMomentDetector,
        _artistAchievementDetector = artistAchievementDetector,
+       _dominanceDetector = dominanceDetector,
+       _dominanceFromUtc = dominanceFromUtc,
+       _jointControlDetector = jointControlDetector,
+       _jointControlFromUtc = jointControlFromUtc,
+       _songCredits = songCredits,
        _longevityCalculator = longevityCalculator,
        _milestoneDetector = milestoneDetector,
        _lifetimeStreamService =
@@ -70,7 +91,21 @@ class ChartFinalizationService {
        _releaseEligibility = releaseEligibility,
        _artistAttribution = artistAttribution,
        _weekFinalizer = weekFinalizer,
-       _isRecalculatedWeek = isRecalculatedWeek;
+       _isRecalculatedWeek = isRecalculatedWeek,
+       _chartHistoryOriginUtc = chartHistoryOriginUtc,
+       _verifiedWindowClaims = verifiedWindowClaims;
+
+  /// Whether dominance claims may be made within the verified history
+  /// window when the full history cannot support them (REF-19). Off until
+  /// their wording is approved.
+  final bool _verifiedWindowClaims;
+
+  /// When this database's chart history began (local version 46): its
+  /// creation, upgrade or latest restore. Each week is finalized as
+  /// [ChartSnapshotProvenance.original] only when it began at or after it
+  /// and was not recalculated; otherwise as unverified. Without it, weeks
+  /// are stored with their provenance unknown.
+  final Future<DateTime?> Function()? _chartHistoryOriginUtc;
 
   /// App Update 1.2 (D5): a week recalculated after a permanent deletion
   /// publishes no new Moments; its surviving stories stay as they were.
@@ -99,6 +134,25 @@ class ChartFinalizationService {
   final ChartMomentRepository? _moments;
   final ChartMomentFinalizedDetector _finalizedMomentDetector;
   final ChartMomentArtistAchievementDetector _artistAchievementDetector;
+  final ChartMomentArtistDominanceDetector _dominanceDetector;
+
+  /// Where artist-dominance Moments start on this install (REF-19): the
+  /// first run of a build that carries them, recorded once. Only weeks
+  /// still running then, or later, get them; a week that had already ended
+  /// is never given them, even when it is finalized afterwards, so nothing
+  /// is backfilled. Null (or unreadable): none this pass.
+  final Future<DateTime?> Function()? _dominanceFromUtc;
+
+  final ChartMomentArtistJointControlDetector _jointControlDetector;
+
+  /// Where joint chart control Moments start (REF-19), like
+  /// [_dominanceFromUtc] but their own: null until their lines are
+  /// approved, so none are recorded before.
+  final Future<DateTime?> Function()? _jointControlFromUtc;
+
+  /// Without credits, joint control cannot be told from a collaboration,
+  /// so none is recorded.
+  final ChartSongCreditLookup? _songCredits;
   final ChartMomentLongevityCalculator _longevityCalculator;
   final ChartMomentMilestoneDetector _milestoneDetector;
   final ChartMomentLifetimeStreamService _lifetimeStreamService;
@@ -122,6 +176,7 @@ class ChartFinalizationService {
       weekEndUtc: snapshot.weekEndUtc,
       finalizedAt: snapshot.finalizedAt,
       revision: snapshot.revision,
+      provenance: snapshot.provenance,
       entries: [
         for (final entry in snapshot.entries)
           ChartEntry(
@@ -256,7 +311,7 @@ class ChartFinalizationService {
       return existing;
     }
 
-    final candidate = await _builder.build(
+    final built = await _builder.build(
       chartType: chartType,
       weekStartUtc: week.startUtc,
       weekEndUtc: week.endUtc,
@@ -265,6 +320,9 @@ class ChartFinalizationService {
       excludedAlbumIds: chartType == ChartType.albums
           ? await excludedReleaseIds(_releaseEligibility)
           : const {},
+    );
+    final candidate = built.withProvenance(
+      await _provenanceOf(chartType, week),
     );
 
     final events = await _detectFinalizedMoments(candidate);
@@ -293,6 +351,27 @@ class ChartFinalizationService {
     await _charts.replaceSnapshot(candidate);
 
     return candidate;
+  }
+
+  /// How [week] is being finalized now (REF-19). Unknown without a history
+  /// origin reader; unverified when the origin is missing, the week began
+  /// before it, or a deletion or merge recalculated the week.
+  Future<ChartSnapshotProvenance?> _provenanceOf(
+    ChartType chartType,
+    ChartWeek week,
+  ) async {
+    final originReader = _chartHistoryOriginUtc;
+    if (originReader == null) return null;
+    final origin = await originReader();
+    if (origin == null || week.startUtc.toUtc().isBefore(origin.toUtc())) {
+      return ChartSnapshotProvenance.unverified;
+    }
+    final recalculated = _isRecalculatedWeek;
+    if (recalculated != null &&
+        await recalculated(chartType.name, week.startUtc.toUtc())) {
+      return ChartSnapshotProvenance.unverified;
+    }
+    return ChartSnapshotProvenance.original;
   }
 
   /// The week's finalized Moments, or null when Moments are off or the
@@ -328,13 +407,47 @@ class ChartFinalizationService {
         .toList();
 
     final artists = await _artistAttribution?.call() ?? const {};
+    final attributed = _attributed(snapshot, artists);
+    final attributedHistory = [
+      for (final week in history) _attributed(week, artists),
+    ];
     events.addAll(
       _artistAchievementDetector.detect(
-        snapshot: _attributed(snapshot, artists),
-        history: [for (final week in history) _attributed(week, artists)],
+        snapshot: attributed,
+        history: attributedHistory,
         createdAt: createdAt,
       ),
     );
+    if (await _dominanceApplies(snapshot)) {
+      events.addAll(
+        _dominanceDetector.detect(
+          snapshot: attributed,
+          history: attributedHistory,
+          createdAt: createdAt,
+          evidence: await _historyEvidence(snapshot, history),
+          verifiedWindowClaims: _verifiedWindowClaims,
+        ),
+      );
+    }
+
+    final songCredits = _songCredits;
+    if (songCredits != null &&
+        await _startsBefore(_jointControlFromUtc, snapshot)) {
+      events.addAll(
+        _jointControlDetector.detect(
+          snapshot: attributed,
+          history: attributedHistory,
+          createdAt: createdAt,
+          credits: await songCredits({
+            for (final entry in snapshot.entries) entry.entity.entityId,
+          }),
+          chartArtists: {
+            for (final entry in snapshot.entries)
+              entry.entity.entityId: entry.entity.artistId,
+          },
+        ),
+      );
+    }
 
     final previousSnapshot =
         _immediatePreviousSnapshot(snapshot: snapshot, history: history) ??
@@ -378,6 +491,54 @@ class ChartFinalizationService {
     }
 
     return events;
+  }
+
+  /// What can be shown about the history behind [snapshot] (REF-19):
+  /// nothing unless the week itself is original; otherwise the history's
+  /// origin and every earlier week with plays but no finalized chart.
+  Future<ChartHistoryEvidence> _historyEvidence(
+    ChartSnapshot snapshot,
+    List<ChartSnapshot> history,
+  ) async {
+    if (snapshot.provenance != ChartSnapshotProvenance.original) {
+      return ChartHistoryEvidence.unverified;
+    }
+    final finalized = {
+      for (final week in history)
+        if (week.isFinalized && week.chartType == snapshot.chartType)
+          week.weekStartUtc.toUtc(),
+    };
+    final incomplete = <DateTime>{};
+    for (final play in await _qualifiedPlays.getAll(
+      qualifiedBefore: snapshot.weekStartUtc,
+    )) {
+      final week = _weekResolver.resolve(play.qualifiedAt.toLocal());
+      final start = week.startUtc.toUtc();
+      if (start.isBefore(snapshot.weekStartUtc.toUtc()) &&
+          !finalized.contains(start)) {
+        incomplete.add(start);
+      }
+    }
+    return ChartHistoryEvidence(
+      currentWeekOriginal: true,
+      historyOriginUtc: await _chartHistoryOriginUtc?.call(),
+      incompleteWeekStartsUtc: incomplete,
+    );
+  }
+
+  Future<bool> _dominanceApplies(ChartSnapshot snapshot) =>
+      _startsBefore(_dominanceFromUtc, snapshot);
+
+  /// Whether a start [from] exists and the songs [snapshot] was still
+  /// running at it, or began after it: nothing is ever backfilled.
+  static Future<bool> _startsBefore(
+    Future<DateTime?> Function()? from,
+    ChartSnapshot snapshot,
+  ) async {
+    final start = await from?.call();
+    return start != null &&
+        snapshot.chartType == ChartType.songs &&
+        snapshot.weekEndUtc.toUtc().isAfter(start.toUtc());
   }
 
   static ChartSnapshot? _immediatePreviousSnapshot({

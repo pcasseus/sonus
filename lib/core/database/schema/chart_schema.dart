@@ -8,6 +8,45 @@ abstract final class ChartSchema {
     await createChartEntries(db);
     await createChartMomentEvents(db);
     await createIndexes(db);
+    await createChartHistoryOrigin(db);
+  }
+
+  /// App Update 1.2 (version 46): how each finalized week came to be
+  /// stored ('original' or 'unverified'); null when unknown, as for every
+  /// week stored before this column existed.
+  static const String provenanceColumn = 'provenance';
+  static const String provenanceDefinition =
+      "TEXT CHECK ($provenanceColumn IS NULL OR "
+      "$provenanceColumn IN ('original', 'unverified'))";
+
+  /// App Update 1.2 (version 46): when this database's chart history
+  /// began — its creation, its upgrade to version 46, or its latest
+  /// restore, whichever is latest. Only weeks that begin at or after it can
+  /// be finalized as original: the plays of earlier weeks were not all
+  /// recorded here. Device-local; a restore sets it to the restore time.
+  static Future<void> createChartHistoryOrigin(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${DatabaseTables.chartHistoryOrigin} (
+        id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+        origin_utc TEXT NOT NULL
+      )
+    ''');
+    await db.rawInsert(
+      'INSERT OR IGNORE INTO ${DatabaseTables.chartHistoryOrigin} '
+      '(id, origin_utc) VALUES (1, ?)',
+      [DateTime.now().toUtc().toIso8601String()],
+    );
+  }
+
+  /// Moves the chart history origin to [originUtc] (after a restore).
+  static Future<void> resetChartHistoryOrigin(
+    DatabaseExecutor db,
+    DateTime originUtc,
+  ) async {
+    await createChartHistoryOrigin(db);
+    await db.update(DatabaseTables.chartHistoryOrigin, {
+      'origin_utc': originUtc.toUtc().toIso8601String(),
+    }, where: 'id = 1');
   }
 
   static Future<void> createChartSnapshots(DatabaseExecutor db) async {
@@ -28,6 +67,8 @@ abstract final class ChartSchema {
 
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+
+        $provenanceColumn $provenanceDefinition,
 
         UNIQUE(chart_type, week_start_utc),
 

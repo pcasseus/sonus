@@ -175,6 +175,63 @@ void main() {
 
   Finder key(String value) => find.byKey(ValueKey<String>(value));
 
+  testWidgets('REF-16: a song marked as a single on an album joins the '
+      'Singles section once, as itself; a Single release is not repeated', (
+    tester,
+  ) async {
+    final releases = [
+      _release('album', 'Long Player', released: DateTime(2024, 6, 21)),
+      _release(
+        'single',
+        'Lead Single',
+        released: DateTime(2024, 5, 1),
+        trackCount: 1,
+      ),
+    ];
+    await pump(
+      tester,
+      repository: _Repo(
+        library: releases,
+        artist: base.createArtist(albumCount: 2, songCount: 3),
+        albums: releases,
+        tracks: [
+          base.createTrack(
+            songId: 'hit',
+            title: 'Album Hit',
+            albumId: 'album',
+            isSingle: true,
+          ),
+          base.createTrack(songId: 'deep', title: 'Deep Cut', albumId: 'album'),
+          base.createTrack(
+            songId: 'lead',
+            title: 'Lead Single',
+            albumId: 'single',
+            isSingle: true,
+          ),
+        ],
+      ),
+      libraryAlbums: releases,
+      formats: {'single': ReleaseFormat.single, 'album': ReleaseFormat.album},
+    );
+
+    final singles = key('artist-profile-singles');
+    expect(singles, findsOneWidget);
+    expect(
+      find.descendant(of: singles, matching: find.text('Album Hit')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: singles, matching: find.text('Deep Cut')),
+      findsNothing,
+    );
+    // The Single release shows as its card only; its song is not listed
+    // again.
+    expect(
+      find.descendant(of: singles, matching: find.text('Lead Single')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('releases are newest first, split into Albums, EPs and '
       'Singles, with no catalog-count line', (tester) async {
     final releases = [

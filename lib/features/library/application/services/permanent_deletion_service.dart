@@ -418,15 +418,27 @@ class PermanentDeletionService {
 
     // 7. File links (never the files). Their paths are remembered so a
     // rescan skips them until the user allows them back.
+    // BUG-09: so are their audio identities, but only those read from the
+    // files' own bytes; none is made up for a file that was never read.
     final paths = <String>[];
     for (final songId in impact.songIds) {
       for (final row in await txn.query(
         DatabaseTables.mediaFileBindings,
-        columns: ['normalized_path'],
+        columns: ['normalized_path', 'audio_signature', 'audio_full_hash'],
         where: 'song_id = ?',
         whereArgs: [songId],
       )) {
         paths.add(row['normalized_path']! as String);
+        final signature = row['audio_signature'] as String?;
+        if (signature != null && signature.isNotEmpty) {
+          await txn.insert(DatabaseTables.deletedAudioSignatures, {
+            'audio_signature': signature,
+            'audio_full_hash': row['audio_full_hash'],
+            'song_id': songId,
+            'operation_id': operation,
+            'recorded_at': stamp,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
       }
     }
     await _deleteIn(
