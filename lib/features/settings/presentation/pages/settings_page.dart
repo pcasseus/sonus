@@ -268,14 +268,14 @@ class _MetadataIntelligenceTile extends StatelessWidget {
     final controller = context.watch<MetadataIntelligenceSettingsController?>();
     final String summary;
 
+    // REF-18: Sonus no longer offers Cover Art Archive suggestions, so the
+    // summary names MusicBrainz only, whatever older choice is saved.
     if (controller == null || !controller.isLoaded) {
-      summary = 'Control MusicBrainz lookup and Cover Art Archive suggestions.';
+      summary = 'Control MusicBrainz metadata lookups.';
     } else if (!controller.onlineMetadataLookupEnabled) {
       summary = 'Off. Metadata lookups stay offline.';
-    } else if (controller.effectiveCoverArtSuggestionsEnabled) {
-      summary = 'On, with cover art suggestions.';
     } else {
-      summary = 'On, without cover art suggestions.';
+      summary = 'On. Sonus can search MusicBrainz.';
     }
 
     return SettingsNavTile(
