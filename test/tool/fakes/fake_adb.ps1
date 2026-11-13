@@ -64,6 +64,8 @@ switch -Regex ($line) {
     '^install -r (.+)$' {
         $apk = $Matches[1]
         if ($state.installOutcome -eq 'fail') { 'Failure [INSTALL_FAILED_INTERNAL_ERROR]'; exit 1 }
+        # Wireless debugging dropped mid-install: adb reports the device gone.
+        if ($state.installOutcome -eq 'disconnected') { "error: device '$serial' not found"; exit 1 }
         $app.versionCode = (Get-Sidecar $apk).versionCode
         $app.apk = $apk
         $app.lastUpdateTime = '2026-11-12 10:05:00'

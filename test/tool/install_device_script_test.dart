@@ -457,6 +457,22 @@ void main() {
     await _neverDestructive(rig);
   });
 
+  test('a wireless connection lost mid-install is reported; the app and '
+      'the verified backup are left as they were', () async {
+    final update = await rig.apk('update', versionCode: 454530);
+    await rig.device(installedApk: installed, installOutcome: 'disconnected');
+
+    final result = await rig.run(apk: update);
+
+    expect(result.exitCode, isNot(0));
+    expect(_output(result), contains('not found'));
+    expect((await rig.deviceState())['installed']['versionCode'], 1);
+    final folder = Directory(rig.backups).listSync().single as Directory;
+    expect(File(p.join(folder.path, 'report.json')).existsSync(), isTrue);
+    expect(File(p.join(folder.path, 'before-db-a.db')).existsSync(), isTrue);
+    await _neverDestructive(rig);
+  });
+
   test('reports an install that was not in place', () async {
     final update = await rig.apk('update', versionCode: 454530);
     await rig.device(installedApk: installed, installOutcome: 'reinstalled');
