@@ -1487,10 +1487,10 @@ class _EditionSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedEdition = controller.selectedEdition;
+    final chosenEditionId = controller.chosenEditionId;
     final editions = controller.editions;
 
-    if (selectedEdition == null || editions.length < 2) {
+    if (chosenEditionId == null || editions.length < 2) {
       return const SizedBox.shrink();
     }
     final quiet = SonusTheme.of(context).decoration.allowGradients;
@@ -1528,7 +1528,7 @@ class _EditionSelector extends StatelessWidget {
                           label: labels[index],
                         ),
                     ],
-                    selected: selectedEdition.editionId,
+                    selected: chosenEditionId,
                     // Profile Lab: with effects, a quiet selected segment
                     // (faint accent over the surface, primary text, check)
                     // so it stays subordinate to Play.
@@ -1541,7 +1541,8 @@ class _EditionSelector extends StatelessWidget {
                     selectedForegroundColor: quiet
                         ? SonusTheme.of(context).colors.textPrimary
                         : atmosphere.onAccent,
-                    onChanged: _select,
+                    onChanged: (editionId) =>
+                        unawaited(_select(context, editionId)),
                   ),
                 ),
               ),
@@ -1551,19 +1552,27 @@ class _EditionSelector extends StatelessWidget {
           return _EditionChoices(
             editions: editions,
             labels: labels,
-            selectedId: selectedEdition.editionId,
+            selectedId: chosenEditionId,
             maxWidth: constraints.maxWidth,
             atmosphere: atmosphere,
-            onSelected: _select,
+            onSelected: (editionId) => unawaited(_select(context, editionId)),
           );
         },
       ),
     );
   }
 
-  void _select(String editionId) {
-    if (editionId == controller.selectedEdition?.editionId) return;
-    unawaited(controller.selectEdition(editionId));
+  /// One switch per deliberate tap: a tap on the edition already chosen,
+  /// even one still being read, does nothing (PATCH-01).
+  Future<void> _select(BuildContext context, String editionId) async {
+    if (editionId == controller.chosenEditionId) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (await controller.selectEdition(editionId)) return;
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('That edition could not be opened. Try again.'),
+      ),
+    );
   }
 
   /// Whether a segmented control holding [labels] fits in [maxWidth]. Its

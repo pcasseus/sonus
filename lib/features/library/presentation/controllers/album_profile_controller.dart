@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -778,61 +779,110 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
     return List<String>.unmodifiable(titles);
   }
 
-  Future<void> load() async {
-    final preferredEditionId = _selectedEdition?.editionId ?? _initialEditionId;
+  /// Each load and each edition switch takes the next number. A result is
+  /// applied only while its number is still the latest, so an older, slower
+  /// read can never undo a newer choice (App Update 1.2, PATCH-01: a
+  /// refresh started before a tap used to finish after it and switch the
+  /// edition back).
+  int _viewRequest = 0;
 
+  /// The edition most recently chosen, while its songs are still being
+  /// read. Null once the view shows it.
+  String? _pendingEditionId;
+
+  bool _disposed = false;
+
+  /// The edition the selector shows: the one most recently chosen, even
+  /// before its songs have been read. Everything else on the page follows
+  /// [selectedEdition], which changes together with its songs.
+  String? get chosenEditionId =>
+      _pendingEditionId ?? _selectedEdition?.editionId;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> load() async {
+    final request = ++_viewRequest;
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notify();
 
     try {
-      final album = await _repository.getAlbumById(_albumId);
-
-      if (album == null) {
-        _album = null;
-        _editions = const [];
-        _selectedEdition = null;
-        _tracks = const [];
-        return;
-      }
-
-      final Object repository = _repository;
-
-      if (repository is AlbumEditionQueryRepository) {
-        final editions = await repository.getAlbumEditions(_albumId);
-
-        if (editions.isNotEmpty) {
-          final selectedEdition = _chooseEdition(
-            editions,
-            preferredEditionId: preferredEditionId,
-            primaryEditionId: album.primaryEditionId,
-          );
-
-          final tracks = await repository.getTracksByAlbumEditionId(
-            selectedEdition.editionId,
-          );
-
-          _album = album;
-          _editions = editions;
-          _selectedEdition = selectedEdition;
-          _tracks = tracks;
-          _discLabels = await _labelsOf(selectedEdition.editionId);
-          return;
-        }
-      }
-
-      final tracks = await _repository.getTracksByAlbumId(_albumId);
-
-      _album = album;
-      _editions = const [];
-      _selectedEdition = null;
-      _tracks = tracks;
-    } catch (error) {
+      final view = await _readView(
+        _pendingEditionId ?? _selectedEdition?.editionId ?? _initialEditionId,
+      );
+      if (request != _viewRequest) return;
+      _apply(view);
+    } catch (error, stackTrace) {
+      if (request != _viewRequest) return;
+      developer.log(
+        'Album $_albumId could not be loaded (${error.runtimeType})',
+        name: 'sonus.library.album_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _pendingEditionId = null;
       _error = error;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (request == _viewRequest) {
+        _isLoading = false;
+        _notify();
+      }
     }
+  }
+
+  /// Reads the album, its editions and the songs, disc names of the
+  /// edition to show: [preferredEditionId] when it is still one of them.
+  Future<_AlbumView> _readView(String? preferredEditionId) async {
+    final album = await _repository.getAlbumById(_albumId);
+    if (album == null) return const _AlbumView.missing();
+
+    final Object repository = _repository;
+    if (repository is AlbumEditionQueryRepository) {
+      final editions = await repository.getAlbumEditions(_albumId);
+      if (editions.isNotEmpty) {
+        final edition = _chooseEdition(
+          editions,
+          preferredEditionId: preferredEditionId,
+          primaryEditionId: album.primaryEditionId,
+        );
+        final tracks = await repository.getTracksByAlbumEditionId(
+          edition.editionId,
+        );
+        return _AlbumView(
+          album: album,
+          editions: editions,
+          edition: edition,
+          tracks: tracks,
+          discLabels: await _labelsOf(edition.editionId),
+        );
+      }
+    }
+    return _AlbumView(
+      album: album,
+      editions: const [],
+      edition: null,
+      tracks: await _repository.getTracksByAlbumId(_albumId),
+      discLabels: const {},
+    );
+  }
+
+  /// Shows [view] all at once: the edition never changes without its songs.
+  void _apply(_AlbumView view) {
+    _album = view.album;
+    _editions = view.editions;
+    _selectedEdition = view.edition;
+    _tracks = view.tracks;
+    _discLabels = view.discLabels;
+    _pendingEditionId = null;
   }
 
   Future<void> refresh() {
@@ -895,53 +945,55 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
       label: label,
       userId: userId,
     );
-    _discLabels = await _labelsOf(selectedEdition.editionId);
-    notifyListeners();
+    final labels = await _labelsOf(selectedEdition.editionId);
+    // Another edition may have been chosen meanwhile: never show these
+    // names on it.
+    if (_selectedEdition?.editionId == selectedEdition.editionId) {
+      _discLabels = labels;
+      _notify();
+    }
     return true;
   }
 
+  /// Shows [editionId]. The selector moves at once ([chosenEditionId]); the
+  /// edition's songs, disc names, date and cover follow together when read.
+  /// The latest choice always wins, whatever order the reads finish in.
+  /// Only reads: no edition is changed.
+  ///
+  /// False when [editionId] is not one of this album's editions or could
+  /// not be read; the edition on screen then stays. True otherwise, also
+  /// when a later choice has since replaced this one.
   Future<bool> selectEdition(String editionId) async {
-    final Object repository = _repository;
+    if (_repository is! AlbumEditionQueryRepository) return false;
 
-    if (repository is! AlbumEditionQueryRepository) {
-      return false;
-    }
+    final id = editionId.trim();
+    if (!_editions.any((edition) => edition.editionId == id)) return false;
+    if (id == chosenEditionId) return true;
 
-    final normalizedEditionId = editionId.trim();
-
-    if (normalizedEditionId.isEmpty) {
-      return false;
-    }
-
-    LibraryAlbumEdition? edition;
-
-    for (final candidate in _editions) {
-      if (candidate.editionId == normalizedEditionId) {
-        edition = candidate;
-        break;
-      }
-    }
-
-    if (edition == null) {
-      return false;
-    }
-
-    if (_selectedEdition?.editionId == edition.editionId) {
-      return true;
-    }
+    final request = ++_viewRequest;
+    _pendingEditionId = id;
+    _notify();
 
     try {
-      final tracks = await repository.getTracksByAlbumEditionId(
-        edition.editionId,
-      );
-
-      _selectedEdition = edition;
-      _tracks = tracks;
-      _discLabels = await _labelsOf(edition.editionId);
-      notifyListeners();
-
+      final view = await _readView(id);
+      if (request != _viewRequest) return true;
+      _apply(view);
+      _isLoading = false;
+      _notify();
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      if (request != _viewRequest) return true;
+      developer.log(
+        'Edition $id of album $_albumId could not be read '
+        '(${error.runtimeType}); the edition on screen stays',
+        name: 'sonus.library.album_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _pendingEditionId = null;
+      _isLoading = false;
+      _notify();
       return false;
     }
   }
@@ -1060,4 +1112,29 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
   bool _isPlayable(LibraryTrack track) {
     return !track.isBlocked && _isAvailable(track);
   }
+}
+
+/// One consistent read of the album page: an edition with its own songs
+/// and disc names.
+class _AlbumView {
+  const _AlbumView({
+    required this.album,
+    required this.editions,
+    required this.edition,
+    required this.tracks,
+    required this.discLabels,
+  });
+
+  const _AlbumView.missing()
+    : album = null,
+      editions = const [],
+      edition = null,
+      tracks = const [],
+      discLabels = const {};
+
+  final LibraryAlbum? album;
+  final List<LibraryAlbumEdition> editions;
+  final LibraryAlbumEdition? edition;
+  final List<LibraryTrack> tracks;
+  final Map<int, String> discLabels;
 }
