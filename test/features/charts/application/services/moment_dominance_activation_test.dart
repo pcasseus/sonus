@@ -142,4 +142,56 @@ void main() {
       );
     });
   });
+
+  group('recorded when the rules first load, not at the next finalized '
+      'week', () {
+    test(
+      'loading the rules records both starts, with no week finalized',
+      () async {
+        final stores = _Stores();
+        await MomentRulesActivation(
+          store: stores,
+          dominance: stores,
+          jointControl: stores,
+          now: () => DateTime.utc(2026, 11, 13, 0, 31),
+        ).rules();
+
+        expect(stores.dominance, '2026-11-13T00:31:00.000Z');
+        expect(stores.joint, '2026-11-13T00:31:00.000Z');
+      },
+    );
+
+    test('the rules and a finalization pass asking together record one '
+        'start', () async {
+      final stores = _Stores();
+      var now = DateTime.utc(2026, 11, 13);
+      final activation = MomentRulesActivation(
+        store: stores,
+        dominance: stores,
+        now: () => now = now.add(const Duration(seconds: 1)),
+      );
+
+      final starts = await Future.wait([
+        activation.rules().then((_) => activation.dominanceFrom()),
+        activation.dominanceFrom(),
+        activation.dominanceFrom(),
+      ]);
+
+      expect(stores.writes, 1);
+      expect(starts.toSet(), hasLength(1));
+    });
+
+    test('a failed attempt is tried again later', () async {
+      final stores = _Stores()..failReads = true;
+      final activation = MomentRulesActivation(
+        store: stores,
+        dominance: stores,
+        now: () => DateTime.utc(2026, 11, 13),
+      );
+
+      expect(await activation.dominanceFrom(), isNull);
+      stores.failReads = false;
+      expect(await activation.dominanceFrom(), DateTime.utc(2026, 11, 13));
+    });
+  });
 }

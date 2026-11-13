@@ -107,12 +107,15 @@ class MomentRulesActivation {
 
   /// Where artist-dominance Moments start; without it, none are recorded.
   final MomentDominanceStore? _dominance;
-  DateTime? _dominanceStart;
+
+  /// The start being read or recorded, kept once known; cleared after a
+  /// failure so a later call tries again.
+  Future<DateTime?>? _dominanceStart;
 
   /// Where joint chart control Moments start; without it, none are
   /// recorded.
   final MomentJointControlStore? _jointControl;
-  DateTime? _jointControlStart;
+  Future<DateTime?>? _jointControlStart;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -124,6 +127,11 @@ class MomentRulesActivation {
   /// The rules for this run. Shared by every caller; retried after a
   /// storage failure, which falls back to the earlier rules meanwhile.
   Future<ChartMomentRules> rules() async {
+    // REF-19: the dominance and joint control starts are recorded when the
+    // rules first load on a run, not when a week is next finalized: that
+    // could be days later, after the week running at installation ended,
+    // and so leave that week out.
+    await Future.wait([dominanceFrom(), jointControlFrom()]);
     final chronicleFrom = await _chronicleFrom();
     return (await _rulesWithoutChronicle()).withChronicle(chronicleFrom);
   }
@@ -165,31 +173,37 @@ class MomentRulesActivation {
   /// never moved. Weekly charts that ended before it never get them, so
   /// nothing is backfilled. Unreadable or unsaved: none this run, and a
   /// later run tries again.
-  Future<DateTime?> dominanceFrom() async {
-    final known = _dominanceStart;
-    if (known != null) return known;
+  Future<DateTime?> dominanceFrom() {
     final store = _dominance;
-    if (store == null) return null;
-    return _dominanceStart = await _startOnce(
-      read: store.readDominanceStart,
-      write: store.writeDominanceStart,
-      what: 'artist-dominance',
-    );
+    if (store == null) return Future.value();
+    // One read-or-write at a time: the rules and a finalization pass may ask
+    // together, and must never record two different starts.
+    return _dominanceStart ??=
+        _startOnce(
+          read: store.readDominanceStart,
+          write: store.writeDominanceStart,
+          what: 'artist-dominance',
+        ).then((start) {
+          if (start == null) _dominanceStart = null;
+          return start;
+        });
   }
 
   /// Where joint chart control Moments start on this install (REF-19),
   /// recorded once like [dominanceFrom], on the first run of a build whose
   /// joint control lines are approved.
-  Future<DateTime?> jointControlFrom() async {
-    final known = _jointControlStart;
-    if (known != null) return known;
+  Future<DateTime?> jointControlFrom() {
     final store = _jointControl;
-    if (store == null) return null;
-    return _jointControlStart = await _startOnce(
-      read: store.readJointControlStart,
-      write: store.writeJointControlStart,
-      what: 'joint chart control',
-    );
+    if (store == null) return Future.value();
+    return _jointControlStart ??=
+        _startOnce(
+          read: store.readJointControlStart,
+          write: store.writeJointControlStart,
+          what: 'joint chart control',
+        ).then((start) {
+          if (start == null) _jointControlStart = null;
+          return start;
+        });
   }
 
   /// A start read back, or written now and read back; null (logged) when
