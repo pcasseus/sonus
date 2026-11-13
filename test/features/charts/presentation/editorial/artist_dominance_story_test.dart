@@ -271,16 +271,18 @@ void main() {
       expect(story([_joint(4, 2, lead: false)]), isNull);
     });
 
-    test('this build passes joint control over: its lines are drafts', () {
+    test('this build tells joint control (approved 2026-11-13); a build '
+        'without its lines passes it over', () {
       expect(
-        story([_joint(5, 3)], approved: MomentHeadlines.approvedFamilies),
-        isNull,
+        story([_joint(5, 3)], approved: MomentHeadlines.approvedFamilies)?.$1,
+        MomentFamily.artistJointControl,
       );
+      final without = MomentHeadlines.approvedFamilies.difference({
+        MomentFamily.artistJointControl,
+      });
+      expect(story([_joint(5, 3)], approved: without), isNull);
       expect(
-        story([
-          _dominance(_sweep, 2, 2),
-          _joint(5, 3),
-        ], approved: MomentHeadlines.approvedFamilies)?.$1,
+        story([_dominance(_sweep, 2, 2), _joint(5, 3)], approved: without)?.$1,
         MomentFamily.artistChartSweep,
       );
     });
@@ -297,8 +299,8 @@ void main() {
   });
 
   group('approved lines', () {
-    test('36 lines: 6 Sonus Daily and 6 Pulse Pop per family, approved; the '
-        '12 joint control lines are drafts', () {
+    test('48 lines: 6 Sonus Daily and 6 Pulse Pop for each of the four '
+        'families, all approved', () {
       for (final family in _dominanceFamilies) {
         final lines = [
           for (final a in ArtistDominanceHeadlines.additions)
@@ -318,13 +320,18 @@ void main() {
           if (a.family == MomentFamily.artistJointControl) a,
       ];
       expect(joint, hasLength(12));
-      expect(joint.every((a) => !a.approved), isTrue);
+      expect(joint.every((a) => a.approved), isTrue);
+      final facts = _factsOf(_joint(5, 3));
       expect(
-        RefinedHeadlineCatalog.standard.of(
-          MomentFamily.artistJointControl,
-          _factsOf(_joint(5, 3)),
-        ),
-        isEmpty,
+        [
+          for (final v in RefinedHeadlineCatalog.standard.of(
+            MomentFamily.artistJointControl,
+            facts,
+          ))
+            if (v.fits(facts)) v.id,
+        ],
+        hasLength(11),
+        reason: 'all but the Top 6+ line fit a Top 5',
       );
     });
 
@@ -712,7 +719,7 @@ void main() {
     });
   });
 
-  group('verified-window claims (draft wording, not approved)', () {
+  group('verified-window claims (approved 2026-11-13)', () {
     final windowed = _dominance(
       _top10,
       5,
@@ -725,17 +732,41 @@ void main() {
       ),
     );
 
-    test('not approved: the plain headline, no claim', () {
-      expect(MomentHeadlines.verifiedHistoryWindowApproved, isFalse);
+    test('told with the date the verified window began', () {
+      expect(MomentHeadlines.verifiedHistoryWindowApproved, isTrue);
       final lines = _render(MomentFamily.artistTop10Presence, windowed);
       expect(
         lines['artist-top10-count-d2'],
-        "Mira Vale places 6 songs in the Hot 100's Top 10.",
+        "Mira Vale places 6 songs in the Hot 100's Top 10, the most Top 10 "
+        'songs any artist has held since verified Sonus Hot 100 tracking '
+        'began on 15 November 2026.',
       );
-      expect(lines.values.join(), isNot(contains('since')));
+      for (final text in lines.values) {
+        expect(text, contains('since verified Sonus Hot 100 tracking began'));
+        for (final word in [
+          'ever',
+          'all-time',
+          'career',
+          'in Sonus Hot 100 history',
+        ]) {
+          expect(text.toLowerCase(), isNot(contains(word)), reason: text);
+        }
+      }
     });
 
-    test('the draft for review, as it would read once approved', () {
+    test('a build without the approval tells the plain headline', () {
+      expect(
+        ArtistDominanceHeadlines.withHistory(
+          _factsOf(windowed),
+          MomentPublisher.sonusDaily,
+          "Mira Vale places 6 songs in the Hot 100's Top 10.",
+          windowApproved: false,
+        ),
+        "Mira Vale places 6 songs in the Hot 100's Top 10.",
+      );
+    });
+
+    test('the approved wording, word for word', () {
       final facts = _factsOf(windowed);
       expect(
         ArtistDominanceHeadlines.withHistory(

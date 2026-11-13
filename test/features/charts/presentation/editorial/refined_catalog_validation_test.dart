@@ -21,6 +21,7 @@ const _weeklyOnly = {
   MomentFamily.artistChartSweep,
   MomentFamily.artistTop10Presence,
   MomentFamily.artistHot100Presence,
+  MomentFamily.artistJointControl,
 };
 
 /// REF-19 facts large enough for every line, Pulse Pop minimums included:
@@ -44,6 +45,9 @@ const _weeklyOnly = {
       ),
       _ => null,
     };
+
+/// Joint control facts large enough for every line: a Top 6 held 4–2.
+bool _isJoint(MomentFamily family) => family == MomentFamily.artistJointControl;
 
 MomentFacts _facts(MomentFamily family, {required bool weekly}) {
   final releaseFamily = family.isRelease;
@@ -73,13 +77,14 @@ MomentFacts _facts(MomentFamily family, {required bool weekly}) {
     streams: 57,
     milestone: 100,
     ordinal: 3,
-    threshold: dominance?.$2 ?? 10,
+    threshold: _isJoint(family) ? 6 : dominance?.$2 ?? 10,
     weeks: 5,
     rivalTitle: 'Glass Harbor',
     rivalArtist: 'Ilse Moor',
     consecutive: true,
-    count: dominance?.$3 ?? 3,
+    count: _isJoint(family) ? 4 : dominance?.$3 ?? 3,
     dominance: dominance?.$1,
+    jointPartner: _isJoint(family) ? 'Juno Hart' : null,
     thresholds: const [75, 50, 40],
     jump: rank == 7
         ? const ChartJumpFacts(

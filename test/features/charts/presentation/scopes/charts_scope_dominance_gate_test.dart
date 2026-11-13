@@ -83,14 +83,20 @@ void main() {
   });
 
   group('joint chart control waits for its own lines', () {
-    test('not approved: never recorded, no start set', () async {
+    test('a build without its lines: never recorded, no start set', () async {
       final preferences = _Preferences();
       final activation = deviceMomentRulesActivation(
         SharedPreferencesMomentRulesActivationStore(preferences),
-        approved: {...MomentHeadlines.approvedFamilies, ..._dominance},
+        approved: MomentHeadlines.approvedFamilies.difference({
+          MomentFamily.artistJointControl,
+        }),
       );
 
-      expect(MomentHeadlines.artistJointControlApproved(), isFalse);
+      expect(
+        MomentHeadlines.artistJointControlApproved(),
+        isTrue,
+        reason: 'approved 2026-11-13',
+      );
       expect(await activation.jointControlFrom(), isNull);
       expect(
         preferences.values,

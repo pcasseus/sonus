@@ -90,9 +90,10 @@ abstract final class MomentHeadlines {
 
   /// Whether artist-dominance claims may be made within the verified
   /// history window ("since verified Sonus Hot 100 tracking began on ...")
-  /// when the whole history cannot support them (REF-19). The wording is a
-  /// draft: until it is approved no such claim is recorded or told.
-  static const bool verifiedHistoryWindowApproved = false;
+  /// when the whole history cannot support them (REF-19). Wording approved
+  /// 2026-11-13; claims are recorded from the first week finalized after a
+  /// build carrying this is installed, never for earlier weeks.
+  static const bool verifiedHistoryWindowApproved = true;
 
   /// Whether joint chart control Moments (REF-19) may start: only once
   /// their own lines are approved. Until then none are recorded and their
@@ -104,9 +105,8 @@ abstract final class MomentHeadlines {
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
   /// listed here, so a new family stays held until its lines are approved.
-  /// Not listed (a draft awaiting approval): artistJointControl (App
-  /// Update 1.2). The SN-50 drafts once named here were approved in
-  /// Batches 6 to 9.
+  /// Every family is listed: the SN-50 drafts were approved in Batches 6
+  /// to 9, and the App Update 1.2 families on 2026-11-12 and 2026-11-13.
   static const Set<MomentFamily> approvedFamilies = {
     MomentFamily.songDebutNumberOne,
     MomentFamily.songDebutTop10,
@@ -161,11 +161,13 @@ abstract final class MomentHeadlines {
     MomentFamily.songFirstThreshold,
     MomentFamily.releaseFirstThreshold,
     // App Update 1.2 (REF-19 final editorial approval, 2026-11-12): artist
-    // sweeps of the Top 2 to 10, Top 10 and Hot 100 presence. Joint chart
-    // control (artistJointControl) stays a draft.
+    // sweeps of the Top 2 to 10, Top 10 and Hot 100 presence.
     MomentFamily.artistChartSweep,
     MomentFamily.artistTop10Presence,
     MomentFamily.artistHot100Presence,
+    // App Update 1.2 (2026-11-13): joint chart control. Its own start is
+    // recorded on the first run of a build carrying it: no backfill.
+    MomentFamily.artistJointControl,
   };
 
   static Iterable<MomentFamily> get families => _library.keys;

@@ -730,7 +730,6 @@ class MomentEditorialDesk {
     MomentFamily.artistChartSweep => 'CHART SWEEP',
     MomentFamily.artistTop10Presence ||
     MomentFamily.artistHot100Presence => 'RECORD',
-    // Draft (REF-19): shown only once joint control lines are approved.
     MomentFamily.artistJointControl => 'JOINT CONTROL',
     MomentFamily.songBubblingUnderFall => 'FALL',
     MomentFamily.songHot100Exit => 'HOT 100 EXIT',

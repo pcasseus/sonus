@@ -174,8 +174,8 @@ const sn50Families = {
 /// The SN-50 draft families still held by the approved-family guard; each
 /// editorial batch that approves a family removes it here.
 /// App Update 1.2 (REF-19): artist sweeps and presence were approved on
-/// 2026-11-12; joint chart control is a draft awaiting approval.
-const stillDraftFamilies = <MomentFamily>{MomentFamily.artistJointControl};
+/// 2026-11-12 and joint chart control on 2026-11-13; none is held now.
+const stillDraftFamilies = <MomentFamily>{};
 
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
 const chartJumpFamilies = {

@@ -37,7 +37,7 @@ class _Line {
 
 /// Headlines for artist sweeps, Top 10 and Hot 100 presence (approved
 /// 2026-11-12, REF-19 final editorial approval) and joint chart control
-/// (drafts awaiting approval).
+/// (approved 2026-11-13).
 ///
 /// - The card's kicker already reads "Weekly Sonus Hot 100", so lines say
 ///   "the Hot 100"; only a historical claim names the "Sonus Hot 100",
@@ -65,7 +65,7 @@ abstract final class ArtistDominanceHeadlines {
           },
         ),
         when: (f) => _fits(line, f),
-        approved: line.family != MomentFamily.artistJointControl,
+        approved: true,
       ),
   ];
 
@@ -109,8 +109,7 @@ abstract final class ArtistDominanceHeadlines {
   ) => withHistory(f, publisher, line);
 
   /// [line] with its recorded claim. A claim limited to the verified
-  /// history window is told only when [windowApproved]; its wording is a
-  /// draft until then.
+  /// history window is told only when [windowApproved].
   @visibleForTesting
   static String withHistory(
     MomentFacts f,
@@ -161,8 +160,8 @@ abstract final class ArtistDominanceHeadlines {
     return '${line.substring(0, line.length - 1)}$clause$end';
   }
 
-  /// Draft wording (awaiting approval) for a claim within the verified
-  /// history window that began on [startLocal].
+  /// Wording (approved 2026-11-13) for a claim within the verified history
+  /// window that began on [startLocal].
   static String _windowClause(
     MomentFacts f,
     DominanceContext context,
@@ -508,8 +507,8 @@ abstract final class ArtistDominanceHeadlines {
       minimum: 15,
     ),
 
-    // Joint chart control: drafts, unapproved. [MomentFacts.count] is the
-    // first artist's songs in the Top N; the partner holds the rest.
+    // Joint chart control (approved 2026-11-13). [MomentFacts.count] is
+    // the first artist's songs in the Top N; the partner holds the rest.
     _Line(
       _joint,
       'artist-joint-d1',
