@@ -88,6 +88,12 @@ abstract final class MomentHeadlines {
       .where((family) => family.isArtistDominance)
       .every(approved.contains);
 
+  /// Whether artist-dominance claims may be made within the verified
+  /// history window ("since verified Sonus Hot 100 tracking began on ...")
+  /// when the whole history cannot support them (REF-19). The wording is a
+  /// draft: until it is approved no such claim is recorded or told.
+  static const bool verifiedHistoryWindowApproved = false;
+
   /// Whether joint chart control Moments (REF-19) may start: only once
   /// their own lines are approved. Until then none are recorded and their
   /// start is not set.

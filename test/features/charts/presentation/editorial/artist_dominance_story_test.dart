@@ -712,6 +712,45 @@ void main() {
     });
   });
 
+  group('verified-window claims (draft wording, not approved)', () {
+    final windowed = _dominance(
+      _top10,
+      5,
+      6,
+      leadRank: 2,
+      context: DominanceContext(
+        DominanceContextKind.chartRecord,
+        null,
+        DateTime(2026, 11, 15).toUtc(),
+      ),
+    );
+
+    test('not approved: the plain headline, no claim', () {
+      expect(MomentHeadlines.verifiedHistoryWindowApproved, isFalse);
+      final lines = _render(MomentFamily.artistTop10Presence, windowed);
+      expect(
+        lines['artist-top10-count-d2'],
+        "Mira Vale places 6 songs in the Hot 100's Top 10.",
+      );
+      expect(lines.values.join(), isNot(contains('since')));
+    });
+
+    test('the draft for review, as it would read once approved', () {
+      final facts = _factsOf(windowed);
+      expect(
+        ArtistDominanceHeadlines.withHistory(
+          facts,
+          MomentPublisher.sonusDaily,
+          "Mira Vale places 6 songs in the Hot 100's Top 10.",
+          windowApproved: true,
+        ),
+        "Mira Vale places 6 songs in the Hot 100's Top 10, the most Top 10 "
+        'songs any artist has held since verified Sonus Hot 100 tracking '
+        'began on 15 November 2026.',
+      );
+    });
+  });
+
   group('every size, count, name and title renders cleanly', () {
     final names = {
       'mira': 'Mira Vale',

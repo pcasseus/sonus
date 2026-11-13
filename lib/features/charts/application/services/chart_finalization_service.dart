@@ -67,6 +67,7 @@ class ChartFinalizationService {
     Future<bool> Function(String chartType, DateTime weekStartUtc)?
     isRecalculatedWeek,
     Future<DateTime?> Function()? chartHistoryOriginUtc,
+    bool verifiedWindowClaims = false,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -91,7 +92,13 @@ class ChartFinalizationService {
        _artistAttribution = artistAttribution,
        _weekFinalizer = weekFinalizer,
        _isRecalculatedWeek = isRecalculatedWeek,
-       _chartHistoryOriginUtc = chartHistoryOriginUtc;
+       _chartHistoryOriginUtc = chartHistoryOriginUtc,
+       _verifiedWindowClaims = verifiedWindowClaims;
+
+  /// Whether dominance claims may be made within the verified history
+  /// window when the full history cannot support them (REF-19). Off until
+  /// their wording is approved.
+  final bool _verifiedWindowClaims;
 
   /// When this database's chart history began (local version 46): its
   /// creation, upgrade or latest restore. Each week is finalized as
@@ -418,6 +425,7 @@ class ChartFinalizationService {
           history: attributedHistory,
           createdAt: createdAt,
           evidence: await _historyEvidence(snapshot, history),
+          verifiedWindowClaims: _verifiedWindowClaims,
         ),
       );
     }

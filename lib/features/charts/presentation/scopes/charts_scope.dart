@@ -217,6 +217,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       weekFinalizer: charts,
       isRecalculatedWeek: deletionJournal.isRecalculatedWeek,
       chartHistoryOriginUtc: charts.chartHistoryOriginUtc,
+      verifiedWindowClaims: MomentHeadlines.verifiedHistoryWindowApproved,
       dominanceFromUtc: (widget.momentRulesActivation ?? _deviceRulesActivation)
           .dominanceFrom,
       jointControlFromUtc:

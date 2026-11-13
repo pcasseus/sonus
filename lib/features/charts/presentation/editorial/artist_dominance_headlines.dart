@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../domain/moments/chart_moment_artist_dominance.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
@@ -104,10 +106,28 @@ abstract final class ArtistDominanceHeadlines {
     MomentFacts f,
     MomentPublisher publisher,
     String line,
-  ) {
+  ) => withHistory(f, publisher, line);
+
+  /// [line] with its recorded claim. A claim limited to the verified
+  /// history window is told only when [windowApproved]; its wording is a
+  /// draft until then.
+  @visibleForTesting
+  static String withHistory(
+    MomentFacts f,
+    MomentPublisher publisher,
+    String line, {
+    bool windowApproved = MomentHeadlines.verifiedHistoryWindowApproved,
+  }) {
     final context = f.dominance?.context;
     if (context == null || context.kind == DominanceContextKind.none) {
       return line;
+    }
+    final window = context.windowStartUtc;
+    if (window != null) {
+      if (!windowApproved) return line;
+      final end = line.substring(line.length - 1);
+      return '${line.substring(0, line.length - 1)}'
+          '${_windowClause(f, context, window.toLocal())}$end';
     }
     final n = f.threshold ?? 0;
     final pulse = publisher == MomentPublisher.pulsePop;
@@ -140,6 +160,53 @@ abstract final class ArtistDominanceHeadlines {
     final end = line.substring(line.length - 1);
     return '${line.substring(0, line.length - 1)}$clause$end';
   }
+
+  /// Draft wording (awaiting approval) for a claim within the verified
+  /// history window that began on [startLocal].
+  static String _windowClause(
+    MomentFacts f,
+    DominanceContext context,
+    DateTime startLocal,
+  ) {
+    final n = f.threshold ?? 0;
+    final since =
+        'since verified Sonus Hot 100 tracking began on '
+        '${startLocal.day} ${_monthNames[startLocal.month - 1]} '
+        '${startLocal.year}';
+    return switch (context.kind) {
+      DominanceContextKind.chartFirst => ', the first Top $n sweep $since',
+      DominanceContextKind.chartRecord =>
+        n == 10
+            ? ', the most Top 10 songs any artist has held $since'
+            : ', the most songs any artist has had on the Hot 100 at once '
+                  '$since',
+      DominanceContextKind.chartRecordTie => ', matching the most $since',
+      DominanceContextKind.artistFirst =>
+        ', ${MomentFacts.possessive(_artist(f))} first Top $n sweep $since',
+      DominanceContextKind.personalBest =>
+        ', the most for ${_artist(f)} $since',
+      DominanceContextKind.repeat =>
+        ', ${MomentFacts.possessive(_artist(f))} '
+            '${MomentFacts.ordinalWord(context.count ?? 2)} Top $n sweep '
+            '$since',
+      DominanceContextKind.none || DominanceContextKind.streak => '',
+    };
+  }
+
+  static const _monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
 
   /// Text from the library, tidied for a headline: control characters
   /// and runs of whitespace become one space.

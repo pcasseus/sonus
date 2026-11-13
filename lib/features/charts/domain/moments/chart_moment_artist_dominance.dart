@@ -62,7 +62,7 @@ enum DominanceContextKind {
 }
 
 class DominanceContext {
-  const DominanceContext(this.kind, [this.count]);
+  const DominanceContext(this.kind, [this.count, this.windowStartUtc]);
 
   static const none = DominanceContext(DominanceContextKind.none);
 
@@ -72,8 +72,21 @@ class DominanceContext {
   /// [DominanceContextKind.repeat].
   final int? count;
 
-  /// Its form in `source_id`: never contains ':'.
-  String get token => switch (kind) {
+  /// Set when the claim holds only within the verified history window that
+  /// began with the week starting then ("since verified chart tracking
+  /// began on ..."), not the whole chart history. Never on a streak.
+  final DateTime? windowStartUtc;
+
+  /// Its form in `source_id`: never contains ':'. A window claim adds
+  /// `@<window start, milliseconds since epoch>`.
+  String get token {
+    final window = windowStartUtc;
+    return window == null
+        ? _baseToken
+        : '$_baseToken@${window.toUtc().millisecondsSinceEpoch}';
+  }
+
+  String get _baseToken => switch (kind) {
     DominanceContextKind.none => '-',
     DominanceContextKind.chartFirst => 'chart-first',
     DominanceContextKind.chartRecord => 'chart-record',
@@ -85,6 +98,22 @@ class DominanceContext {
   };
 
   static DominanceContext? parse(String token) {
+    final at = token.indexOf('@');
+    if (at >= 0) {
+      final base = parse(token.substring(0, at));
+      final millis = int.tryParse(token.substring(at + 1));
+      if (base == null ||
+          millis == null ||
+          base.kind == DominanceContextKind.none ||
+          base.kind == DominanceContextKind.streak) {
+        return null;
+      }
+      return DominanceContext(
+        base.kind,
+        base.count,
+        DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true),
+      );
+    }
     for (final kind in DominanceContextKind.values) {
       final fixed = DominanceContext(kind).token;
       if (kind != DominanceContextKind.streak &&
@@ -108,10 +137,13 @@ class DominanceContext {
 
   @override
   bool operator ==(Object other) =>
-      other is DominanceContext && other.kind == kind && other.count == count;
+      other is DominanceContext &&
+      other.kind == kind &&
+      other.count == count &&
+      other.windowStartUtc == windowStartUtc;
 
   @override
-  int get hashCode => Object.hash(kind, count);
+  int get hashCode => Object.hash(kind, count, windowStartUtc);
 
   @override
   String toString() => 'DominanceContext($token)';
@@ -299,6 +331,7 @@ class ChartMomentArtistDominanceDetector {
     required Iterable<ChartSnapshot> history,
     required DateTime createdAt,
     ChartHistoryEvidence evidence = ChartHistoryEvidence.unverified,
+    bool verifiedWindowClaims = false,
     String? userId,
   }) {
     if (!snapshot.isFinalized) {
@@ -333,6 +366,20 @@ class ChartMomentArtistDominanceDetector {
       currentStartUtc: current.startUtc,
       earlierWeeks: [for (final week in earlier) week.snapshot],
     );
+    // Without complete history, a claim may still hold within the verified
+    // window (only when such claims are approved).
+    final window = verified || !verifiedWindowClaims
+        ? null
+        : evidence.verifiedWindow(
+            currentStartUtc: current.startUtc,
+            earlierWeeks: [for (final week in earlier) week.snapshot],
+          );
+    final windowWeeks = window == null
+        ? null
+        : [
+            for (final week in earlier)
+              if (window.any((w) => identical(w, week.snapshot))) week,
+          ];
 
     final events = <ChartMomentEvent>[];
     final artists = current.byArtist.keys.toList()..sort();
@@ -368,17 +415,36 @@ class ChartMomentArtistDominanceDetector {
           if (streak == null || !_isStreakMilestone(streak)) continue;
           context = DominanceContext(DominanceContextKind.streak, streak);
         } else {
-          context = verified
-              ? _historicalContext(
-                  kind: kind,
-                  tier: tier,
-                  zone: zone,
-                  count: inZone.length,
-                  artistId: artistId,
-                  current: current,
-                  earlier: earlier,
-                )
-              : DominanceContext.none;
+          if (verified) {
+            context = _historicalContext(
+              kind: kind,
+              tier: tier,
+              zone: zone,
+              count: inZone.length,
+              artistId: artistId,
+              current: current,
+              earlier: earlier,
+            );
+          } else if (windowWeeks != null) {
+            final claim = _historicalContext(
+              kind: kind,
+              tier: tier,
+              zone: zone,
+              count: inZone.length,
+              artistId: artistId,
+              current: current,
+              earlier: windowWeeks,
+            );
+            context = claim.kind == DominanceContextKind.none
+                ? claim
+                : DominanceContext(
+                    claim.kind,
+                    claim.count,
+                    windowWeeks.first.startUtc,
+                  );
+          } else {
+            context = DominanceContext.none;
+          }
         }
 
         events.add(

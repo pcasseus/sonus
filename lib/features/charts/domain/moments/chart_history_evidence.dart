@@ -47,6 +47,40 @@ class ChartHistoryEvidence {
     );
   }
 
+  /// The verified history window before the week starting at
+  /// [currentStartUtc]: the longest run of original [earlierWeeks] reaching
+  /// up to it, with no week of plays missing its chart inside it, oldest
+  /// first. Null unless the current week is original and the window holds
+  /// at least [minimumEarlierWeeks]. Unknown weeks (stored before version
+  /// 46), unverified weeks and weeks with plays but no chart end it: it
+  /// never reaches back across them.
+  List<ChartSnapshot>? verifiedWindow({
+    required DateTime currentStartUtc,
+    required List<ChartSnapshot> earlierWeeks,
+  }) {
+    if (!currentWeekOriginal) return null;
+    final current = currentStartUtc.toUtc();
+    final weeks = [
+      for (final week in earlierWeeks)
+        if (week.weekStartUtc.toUtc().isBefore(current)) week,
+    ]..sort((a, b) => a.weekStartUtc.compareTo(b.weekStartUtc));
+    DateTime? lastGap;
+    for (final start in incompleteWeekStartsUtc) {
+      final utc = start.toUtc();
+      if (!utc.isBefore(current)) continue;
+      if (lastGap == null || utc.isAfter(lastGap)) lastGap = utc;
+    }
+    final window = <ChartSnapshot>[];
+    for (final week in weeks.reversed) {
+      final start = week.weekStartUtc.toUtc();
+      if (lastGap != null && !start.isAfter(lastGap)) break;
+      if (week.provenance != ChartSnapshotProvenance.original) break;
+      window.add(week);
+    }
+    if (window.length < minimumEarlierWeeks) return null;
+    return List.unmodifiable(window.reversed);
+  }
+
   /// Whether the week ending at [weekEndUtc] provably had no chart: this
   /// database was recording then (it began at or before the week did) and
   /// the week had no plays.

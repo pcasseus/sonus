@@ -568,6 +568,117 @@ void main() {
     });
   });
 
+  group('verified history window (gated; wording awaits approval)', () {
+    /// [unknown] weeks stored before version 46, then [original] quiet
+    /// original weeks up to the current one.
+    List<ChartSnapshot> mixed({
+      int unknown = 3,
+      int original = 8,
+      List<ChartSnapshot> extra = const [],
+    }) => [
+      ...quietWeeks(original),
+      for (var back = original + 1; back <= original + unknown; back++)
+        week(const [], weeksBefore: back, provenance: null),
+      ...extra,
+    ];
+
+    List<(ArtistDominanceKind, int, int, int, String)> windowFacts(
+      List<ChartSnapshot> history, {
+      bool approved = true,
+      ChartHistoryEvidence? evidence,
+    }) => [
+      for (final event in detector.detect(
+        snapshot: week(range(1, 4)),
+        history: history,
+        createdAt: createdAt,
+        evidence: evidence ?? complete,
+        verifiedWindowClaims: approved,
+      ))
+        if (ArtistDominance.of(event) case final fact?)
+          (
+            fact.kind,
+            fact.tier,
+            event.threshold!,
+            event.milestoneValue!,
+            fact.context.token,
+          ),
+    ];
+
+    final windowStart = startOf(8).millisecondsSinceEpoch;
+
+    test('off: unknown earlier weeks mean no claim at all', () {
+      expect(windowFacts(mixed(), approved: false), [(_sweep, 4, 4, 4, '-')]);
+    });
+
+    test('on: a claim within the eight-week verified window names when it '
+        'began', () {
+      expect(windowFacts(mixed()), [
+        (_sweep, 4, 4, 4, 'chart-first@$windowStart'),
+      ]);
+    });
+
+    test('earlier unknown weeks are never treated as verified, even when '
+        'they hold a bigger sweep', () {
+      final history = mixed(
+        extra: [
+          week(
+            const [],
+            rivalRanks: range(1, 6),
+            weeksBefore: 12,
+            provenance: null,
+          ),
+        ],
+      );
+      expect(windowFacts(history), [
+        (_sweep, 4, 4, 4, 'chart-first@$windowStart'),
+      ]);
+    });
+
+    test('fewer than eight verified weeks: no claim', () {
+      expect(windowFacts(mixed(original: 7)), [(_sweep, 4, 4, 4, '-')]);
+    });
+
+    test('an unverified week or a week of plays without its chart ends the '
+        'window', () {
+      final unverified = [
+        ...quietWeeks(5),
+        week(
+          const [],
+          weeksBefore: 6,
+          provenance: ChartSnapshotProvenance.unverified,
+        ),
+        ...quietWeeks(6, from: 7),
+      ];
+      expect(windowFacts(unverified), [(_sweep, 4, 4, 4, '-')]);
+
+      final gap = ChartHistoryEvidence(
+        currentWeekOriginal: true,
+        historyOriginUtc: DateTime.utc(2026, 1, 1),
+        incompleteWeekStartsUtc: {startOf(4)},
+      );
+      expect(windowFacts(mixed(original: 10), evidence: gap), [
+        (_sweep, 4, 4, 4, '-'),
+      ], reason: 'only three verified weeks follow the gap');
+    });
+
+    test('complete history still makes the full claim, never a window one', () {
+      expect(windowFacts(quietWeeks(8)), [(_sweep, 4, 4, 4, 'chart-first')]);
+    });
+
+    test('window tokens round-trip; a streak never carries a window', () {
+      final context = DominanceContext(
+        DominanceContextKind.chartRecord,
+        null,
+        DateTime.utc(2026, 11, 15, 5),
+      );
+      expect(DominanceContext.parse(context.token), context);
+      expect(context.token, isNot(contains(':')));
+      expect(DominanceContext.parse('streak2@1790000000000'), isNull);
+      expect(DominanceContext.parse('-@1790000000000'), isNull);
+      expect(DominanceContext.parse('chart-first@soon'), isNull);
+    });
+  });
+
   test('the album chart and unfinalized weeks are never read', () {
     expect(facts(week(range(1, 10), chartType: ChartType.albums)), isEmpty);
     final live = ChartSnapshot(
