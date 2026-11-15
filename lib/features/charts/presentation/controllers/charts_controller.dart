@@ -11,6 +11,7 @@ import '../../../library/application/models/library_release_edition.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/models/song_edition_membership.dart';
+import '../../../library/application/models/song_display_title.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
@@ -707,6 +708,22 @@ class ChartsController extends ChangeNotifier {
   /// never stored. Null on finalized weeks, whose rows keep their stored
   /// titles, and for songs no longer in the library. Display only: chart
   /// identity is the song id, never the title.
+  /// The version badge beside a finalized week's recorded title (App
+  /// Update 1.3, REF-1.3-01): the song's current version, unless the
+  /// recorded title already says it. Null on current views (their title
+  /// carries the version, [songPresentationFor]), for releases and for
+  /// songs no longer in the library. Presentation only.
+  String? versionBadgeFor(ChartEntry entry) {
+    if (!isViewingHistory || chartType != ChartType.songs) return null;
+    final track = trackForEntry(entry);
+    if (track == null) return null;
+    return songVersionQualifier(
+      title: entry.entity.title,
+      versionLabel: track.versionLabel,
+      characteristics: track.versionCharacteristics,
+    );
+  }
+
   ({String title, String subtitle})? songPresentationFor(ChartEntry entry) {
     if (!isViewingAllTime && !isViewingThisWeek) return null;
 

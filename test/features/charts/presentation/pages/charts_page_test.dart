@@ -829,6 +829,55 @@ void main() {
       expect(find.textContaining('Artist A'), findsNothing);
     });
 
+    // App Update 1.3 (REF-1.3-01): a finalized week keeps its recorded
+    // title and shows the song's version as a badge beside it.
+    testWidgets('final weeks show the version as a badge beside the '
+        'recorded title', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _controller(
+        tracks: [remix],
+        history: [
+          _snapshot(
+            id: 'historical-songs',
+            start: DateTime.utc(2026, 9, 20),
+            finalized: true,
+          ),
+        ],
+      );
+
+      await _pumpPage(tester, controller);
+      // The career standings carry the version in the title: no badge.
+      expect(
+        find.byKey(const ValueKey<String>('charts-version-songs_1')),
+        findsNothing,
+      );
+      expect(controller.versionBadgeFor(controller.entries.first), isNull);
+
+      controller.showOlderWeek();
+      await tester.pumpAndSettle();
+      final badge = find.byKey(
+        const ValueKey<String>('charts-version-songs_1'),
+      );
+      expect(badge, findsOneWidget);
+      expect(
+        find.descendant(of: badge, matching: find.text('REMIX')),
+        findsOneWidget,
+      );
+      expect(find.text('Song 1'), findsWidgets, reason: 'title as recorded');
+      expect(controller.entries.single.entity.title, 'Song 1');
+      expect(
+        find.bySemanticsLabel(RegExp(r'Number \d+, Song 1, version Remix,')),
+        findsOneWidget,
+      );
+
+      await _showDetails(tester, 'songs_1');
+      expect(
+        find.byKey(const ValueKey<String>('charts-card-version-songs_1')),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
     // App Update 1.3 (REF-1.3-01): This Week is built from the library now
     // and never stored, so it reads like the career standings; finalized
     // weeks keep their stored titles (above).
@@ -1854,6 +1903,34 @@ void main() {
           .widget<AlbumProfilePage>(find.byType(AlbumProfilePage))
           .initialEditionId,
       'edition_1',
+    );
+  });
+
+  testWidgets('a story opens with its song\'s version as a badge '
+      '(REF-1.3-01)', (tester) async {
+    final controller = await _controller(
+      tracks: [_track(versionLabel: 'Live')],
+      albums: [_album(id: 'album_1')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
+
+    final badge = find.byKey(const ValueKey<String>('moment-story-version'));
+    expect(
+      find.descendant(of: badge, matching: find.text('LIVE')),
+      findsOneWidget,
     );
   });
 

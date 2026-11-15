@@ -179,4 +179,48 @@ void main() {
       expect(shown.substring(title.length), ' (Live Extended Remaster Remix)');
     });
   });
+
+  // App Update 1.3 (REF-1.3-01): the qualifier alone, for a badge beside a
+  // title that stays as recorded.
+  group('songVersionQualifier', () {
+    test('the label, or the characteristics, or nothing', () {
+      expect(songVersionQualifier(title: 'Song'), isNull);
+      expect(
+        songVersionQualifier(title: 'Song', versionLabel: ' 2024 Remaster '),
+        '2024 Remaster',
+      );
+      expect(
+        songVersionQualifier(
+          title: 'Song',
+          characteristics: const [
+            SongVersionCharacteristic.remix,
+            SongVersionCharacteristic.acoustic,
+          ],
+        ),
+        'Acoustic Remix',
+      );
+    });
+
+    test('nothing when the recorded title already says it', () {
+      expect(
+        songVersionQualifier(title: 'Song (Remix)', versionLabel: 'Remix'),
+        isNull,
+      );
+      expect(
+        songVersionQualifier(
+          title: 'Song - Live',
+          characteristics: const [SongVersionCharacteristic.live],
+        ),
+        isNull,
+      );
+    });
+
+    test('songDisplayTitle is the title plus the qualifier', () {
+      const characteristics = [SongVersionCharacteristic.radioEdit];
+      expect(
+        songDisplayTitle(title: 'Song', characteristics: characteristics),
+        'Song (${songVersionQualifier(title: 'Song', characteristics: characteristics)})',
+      );
+    });
+  });
 }

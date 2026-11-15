@@ -233,6 +233,70 @@ void main() {
     );
   });
 
+  // App Update 1.3 (REF-1.3-01): the song's version beside the recorded
+  // headline, which never changes.
+  testWidgets('a version badge sits beside the unchanged headline', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final story = _story([
+      _event(
+        ChartMomentScope.allTime,
+        ChartMomentEventType.rankRise,
+        previousRank: 9,
+        currentRank: 3,
+      ),
+    ]);
+    await tester.binding.setSurfaceSize(const Size(400, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+        home: MomentStoryPage(
+          story: story,
+          now: _at,
+          journey: loader,
+          changes: LibraryChangeSignal(),
+          versionBadge: 'Acoustic',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final badge = find.byKey(const ValueKey<String>('moment-story-version'));
+    expect(
+      find.descendant(of: badge, matching: find.text('ACOUSTIC')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('Version: Acoustic'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(ValueKey<String>('moment-story-headline-${story.id}')),
+          )
+          .data,
+      story.headline,
+    );
+    expect(story.headline, isNot(contains('Acoustic')));
+    semantics.dispose();
+  });
+
+  testWidgets('no version: no badge', (tester) async {
+    final story = _story([
+      _event(
+        ChartMomentScope.allTime,
+        ChartMomentEventType.rankRise,
+        previousRank: 9,
+        currentRank: 3,
+      ),
+    ]);
+    await pump(tester, story);
+    expect(
+      find.byKey(const ValueKey<String>('moment-story-version')),
+      findsNothing,
+    );
+  });
+
   testWidgets('an artist story has no chart journey to show', (tester) async {
     final story = _story([
       _event(

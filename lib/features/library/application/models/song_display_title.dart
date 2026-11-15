@@ -49,15 +49,30 @@ String songDisplayTitle({
   List<SongVersionCharacteristic> characteristics = const [],
 }) {
   final baseTitle = title.trim();
-  final titleQualifiers = _qualifierSegments(baseTitle);
+  final qualifier = songVersionQualifier(
+    title: baseTitle,
+    versionLabel: versionLabel,
+    characteristics: characteristics,
+  );
+  return qualifier == null ? baseTitle : '$baseTitle ($qualifier)';
+}
+
+/// The version qualifier [songDisplayTitle] adds to [title], or null when
+/// there is none or the title already says it: "Live", "Acoustic Remix".
+///
+/// App Update 1.3 (REF-1.3-01): also the presentation-only version badge
+/// beside a title that must stay as recorded (a finalized chart week, a
+/// Moment's headline).
+String? songVersionQualifier({
+  required String title,
+  String? versionLabel,
+  List<SongVersionCharacteristic> characteristics = const [],
+}) {
+  final titleQualifiers = _qualifierSegments(title.trim());
   final label = versionLabel?.trim() ?? '';
 
   if (label.isNotEmpty) {
-    if (_containsPhrase(titleQualifiers, label)) {
-      return baseTitle;
-    }
-
-    return '$baseTitle ($label)';
+    return _containsPhrase(titleQualifiers, label) ? null : label;
   }
 
   final words = <String>[];
@@ -77,11 +92,7 @@ String songDisplayTitle({
     words.add(characteristicLabel);
   }
 
-  if (words.isEmpty) {
-    return baseTitle;
-  }
-
-  return '$baseTitle (${words.join(' ')})';
+  return words.isEmpty ? null : words.join(' ');
 }
 
 final RegExp _bracketed = RegExp(r'[\(\[]([^\)\]]*)[\)\]]');

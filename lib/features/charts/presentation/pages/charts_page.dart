@@ -11,6 +11,7 @@ import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../song_stats/presentation/song_stats_navigation.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
+import '../../../library/application/models/song_display_title.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -1075,6 +1076,15 @@ class _MomentPost extends StatelessWidget {
           now: now,
           journey: journey,
           related: related,
+          // App Update 1.3 (REF-1.3-01): the song's version as a badge;
+          // the recorded headline is unchanged.
+          versionBadge: track == null
+              ? null
+              : songVersionQualifier(
+                  title: item.entity.title,
+                  versionLabel: track.versionLabel,
+                  characteristics: track.versionCharacteristics,
+                ),
         ),
       ),
     );
@@ -1512,6 +1522,7 @@ class _ChartEntryItem extends StatelessWidget {
 
     final presentation = controller.albumPresentationFor(entry);
     final song = controller.songPresentationFor(entry);
+    final version = controller.versionBadgeFor(entry);
     final artworkPath = switch (chartType) {
       ChartType.songs => track?.artworkPath,
       ChartType.albums =>
@@ -1634,11 +1645,13 @@ class _ChartEntryItem extends StatelessWidget {
       movement: controller.movementFor(entry),
       title: song?.title,
       subtitle: song?.subtitle,
+      versionBadge: version,
       onTap: onTap,
       onLongPress: onLongPress,
     );
 
     return _tiered(
+      versionBadge: version,
       card: card,
       artworkPath: artworkPath,
       title: presentation?.title ?? song?.title ?? entry.entity.title,
@@ -1653,6 +1666,7 @@ class _ChartEntryItem extends StatelessWidget {
   /// position is one compact row with the full card on expand; #1 keeps a
   /// slim gradient frame and trophy, #2–10 a slim artwork-tinted frame.
   Widget _tiered({
+    String? versionBadge,
     required Widget card,
     required String? artworkPath,
     required String title,
@@ -1678,6 +1692,7 @@ class _ChartEntryItem extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       tier: tier,
+      versionBadge: versionBadge,
     );
     return switch (tier) {
       ChartRowTier.compact => row,

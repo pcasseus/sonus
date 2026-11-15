@@ -10,6 +10,7 @@ import '../../domain/entities/chart_entry.dart';
 import '../models/chart_entry_movement.dart';
 import 'chart_entry_card.dart';
 import 'chart_movement_indicator.dart';
+import 'chart_version_badge.dart';
 
 /// How a row is presented on a chart board (Charts 2.0 C3).
 enum ChartRowTier {
@@ -180,6 +181,7 @@ class ChartCompactRow extends StatefulWidget {
     this.onTap,
     this.onLongPress,
     this.tier = ChartRowTier.compact,
+    this.versionBadge,
   });
 
   final ChartEntry entry;
@@ -201,6 +203,10 @@ class ChartCompactRow extends StatefulWidget {
 
   /// Charts 2.0 C4: the song's playback actions.
   final VoidCallback? onLongPress;
+
+  /// The song's version beside a recorded title (a finalized week), App
+  /// Update 1.3 (REF-1.3-01); null for none.
+  final String? versionBadge;
 
   @override
   State<ChartCompactRow> createState() => _ChartCompactRowState();
@@ -228,6 +234,7 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
       label: [
         'Number ${entry.rank}',
         widget.title,
+        if (widget.versionBadge case final version?) 'version $version',
         widget.subtitle,
         widget.movement.spokenLabel(entry.rank),
         ?status?.toLowerCase(),
@@ -304,7 +311,7 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
                   movement: widget.movement,
                   part: ChartIndicatorPart.movement,
                 );
-                final title = Text(
+                final titleText = Text(
                   widget.title,
                   maxLines: stacked ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
@@ -313,6 +320,22 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
                     fontWeight: FontWeight.w700,
                   ),
                 );
+                final version = widget.versionBadge;
+                final Widget title = version == null
+                    ? titleText
+                    : Row(
+                        children: [
+                          Flexible(child: titleText),
+                          const SizedBox(width: 6),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 120),
+                            child: ChartVersionBadge(
+                              key: ValueKey<String>('charts-version-$id'),
+                              label: version,
+                            ),
+                          ),
+                        ],
+                      );
                 final subtitle = Text(
                   status == null
                       ? widget.subtitle

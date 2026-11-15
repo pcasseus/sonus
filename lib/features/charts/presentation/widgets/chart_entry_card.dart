@@ -10,6 +10,7 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/chart_movement.dart';
 import '../../domain/models/chart_type.dart';
 import '../models/chart_longevity.dart';
+import 'chart_version_badge.dart';
 import 'chart_extended_divider.dart';
 import 'chart_longevity_facts.dart';
 import '../models/chart_entry_movement.dart';
@@ -51,6 +52,7 @@ class ChartEntryCard extends StatefulWidget {
     this.movement,
     this.title,
     this.subtitle,
+    this.versionBadge,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -212,6 +214,10 @@ class ChartEntryCard extends StatefulWidget {
   final String? title;
   final String? subtitle;
 
+  /// The song's version beside a recorded title (a finalized week), App
+  /// Update 1.3 (REF-1.3-01); null for none. Presentation only.
+  final String? versionBadge;
+
   @override
   State<ChartEntryCard> createState() => _ChartEntryCardState();
 }
@@ -240,6 +246,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
       chartType: widget.chartType,
       entry: entry,
       title: title,
+      versionBadge: widget.versionBadge,
       subtitle: subtitle,
       status: widget.status,
       isAllTime: widget.isAllTime,
@@ -297,7 +304,9 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
             child: Semantics(
               label: ChartEntryCard.semanticLabelFor(
                 entry,
-                title: title,
+                title: widget.versionBadge == null
+                    ? title
+                    : '$title, version ${widget.versionBadge}',
                 subtitle: subtitle,
                 status: widget.status,
                 isAllTime: widget.isAllTime,
@@ -460,6 +469,7 @@ class _EntryDetails extends StatelessWidget {
     required this.entry,
     required this.chartType,
     required this.title,
+    required this.versionBadge,
     required this.subtitle,
     required this.status,
     required this.isAllTime,
@@ -472,6 +482,7 @@ class _EntryDetails extends StatelessWidget {
   final ChartEntry entry;
   final ChartType chartType;
   final String title;
+  final String? versionBadge;
   final String subtitle;
   final ChartEntryStatus? status;
   final bool isAllTime;
@@ -504,6 +515,15 @@ class _EntryDetails extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
+        if (versionBadge case final version?) ...[
+          const SizedBox(height: 4),
+          ChartVersionBadge(
+            key: ValueKey<String>(
+              'charts-card-version-${entry.entity.entityId}',
+            ),
+            label: version,
+          ),
+        ],
         const SizedBox(height: 2),
         Text(
           subtitle,

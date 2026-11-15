@@ -15,6 +15,7 @@ import '../editorial/moment_visuals.dart';
 import '../news/moment_feed_cards.dart';
 import '../news/moment_story_format.dart';
 import '../widgets/chart_extended_divider.dart';
+import '../widgets/chart_version_badge.dart';
 
 /// A song, release or artist the story is about, as a working link.
 class MomentRelatedLink {
@@ -52,6 +53,7 @@ class MomentStoryPage extends StatefulWidget {
     this.journey,
     this.related = const [],
     this.changes,
+    this.versionBadge,
   });
 
   final MomentStory story;
@@ -67,6 +69,10 @@ class MomentStoryPage extends StatefulWidget {
   /// Reloads the journey's live position after new listening (App Update
   /// 1.3, REF-1.3-02); the shared signal if null.
   final LibraryChangeSignal? changes;
+
+  /// The story's song's version, shown beside the recorded headline (App
+  /// Update 1.3, REF-1.3-01); null for none. The headline never changes.
+  final String? versionBadge;
 
   @override
   State<MomentStoryPage> createState() => _MomentStoryPageState();
@@ -183,6 +189,20 @@ class _MomentStoryPageState extends State<MomentStoryPage> {
                   ),
                 ),
               ),
+              if (widget.versionBadge case final version?) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Semantics(
+                    label: 'Version: $version',
+                    excludeSemantics: true,
+                    child: ChartVersionBadge(
+                      key: const ValueKey<String>('moment-story-version'),
+                      label: version,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 14),
               _PublisherRow(story: story, now: widget.now, palette: palette),
               if (body != null) ...[
@@ -1339,6 +1359,7 @@ Future<void> openMomentStory(
   required DateTime now,
   MomentJourneyLoader? journey,
   List<MomentRelatedLink> related = const [],
+  String? versionBadge,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
@@ -1347,6 +1368,7 @@ Future<void> openMomentStory(
         now: now,
         journey: journey,
         related: related,
+        versionBadge: versionBadge,
       ),
     ),
   );
