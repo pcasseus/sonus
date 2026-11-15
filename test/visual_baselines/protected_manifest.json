@@ -267,7 +267,7 @@
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
     "lib/features/shell/domain/models/app_destination.dart": "7577c6f325de8bcc9f42d2bcf6c501b4b3c6d2be46079be7886fb61213d8a5ba",
     "lib/features/shell/presentation/pages/app_shell_page.dart": "a277d792e163063fbcfb3532c80bb18659eb449e02411975d883766e80945558",
-    "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart": "05357b9e0339409243f597dc33da73fb41918f5c9cd5ec5c77f0dbbde6d6a346",
+    "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart": "8cfab0be0d1e02a5b23f07a56e76224eba76f6d6942ee43241b65ddcb10c2477",
     "lib/features/shell/presentation/widgets/playback_host.dart": "58767d4e69fa73c2f248bf6660fa67812bbcd77e85282920396cbb7a77a805ac",
     "lib/features/shell/presentation/widgets/shell_playback_slot.dart": "32a1edeff6d2eabea7f33fd5e2a4f5b3c6de5b18082f57f64dd781fcbde1a517",
     "lib/features/shell/presentation/widgets/sonus_system_bars.dart": "416e6dc40e1404cd60cdee5825f6c5c42b78bc3dc7535d4cf515543b29d0dd6e"
@@ -496,6 +496,26 @@
         ]
       },
       "sharedChanges": {},
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-15",
+      "approval": "NAV-INSET-1.3: user's 2026-11-15 instruction 'Sonus Bottom Navigation Bar' (opaque Sonus area behind Android's navigation buttons, whole mini-player above it, from OS metrics); KeyboardInsetGuard restores the system-bar padding when it drops a stale keyboard inset; no golden or geometry changed",
+      "protectedChanges": {},
+      "sharedChanges": {
+        "roster": [
+          "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart"
+        ],
+        "home": [
+          "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart"
+        ],
+        "navigation": [
+          "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart"
+        ],
+        "now_playing": [
+          "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart"
+        ]
+      },
       "dependencyListChanges": []
     }
   ]
