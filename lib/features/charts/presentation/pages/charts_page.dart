@@ -1524,7 +1524,9 @@ class _ChartEntryItem extends StatelessWidget {
     final song = controller.songPresentationFor(entry);
     final version = controller.versionBadgeFor(entry);
     final artworkPath = switch (chartType) {
-      ChartType.songs => track?.artworkPath,
+      // App Update 1.3: a Single's own cover when chosen for charts.
+      ChartType.songs =>
+        track == null ? null : controller.songChartCover(track),
       ChartType.albums =>
         presentation == null ? album?.artworkPath : presentation.artworkPath,
     };

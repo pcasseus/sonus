@@ -1,3 +1,5 @@
+import '../../data/repositories/sqlite_song_single_presentation_repository.dart';
+import '../../application/services/song_single_presentation_service.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_crop_repository.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -77,6 +79,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
   AlbumEditionDiscLabelRepository? _discLabelRepository;
+  SongSinglePresentationService? _singlePresentationService;
   AlbumEditionManagementService? _albumEditionManagementService;
   LibraryOrganizationService? _libraryOrganizationService;
   ListeningArtistAttribution? _libraryArtistAttribution;
@@ -231,6 +234,15 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _albumProfileEditingService = albumProfileEditingService;
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
       _discLabelRepository = SqliteAlbumEditionDiscLabelRepository(database);
+      // App Update 1.3 (REF-1.3-04): Singles' own dates and covers.
+      _singlePresentationService = SongSinglePresentationService(
+        presentations: SqliteSongSinglePresentationRepository(
+          database,
+          appDatabase: _database,
+        ),
+        songs: SqliteSongRepository(SongDao(database)),
+        artwork: artworkAssignmentService,
+      );
       _albumEditionManagementService = albumEditionManagementService;
       _libraryOrganizationService = libraryOrganizationService;
       _libraryArtistAttribution = OrganizationArtistAttribution(
@@ -280,6 +292,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         Provider<AlbumEditionTrackOrderingService?>.value(
           value: _albumEditionTrackOrderingService,
+        ),
+        Provider<SongSinglePresentationService?>.value(
+          value: _singlePresentationService,
         ),
         Provider<AlbumEditionDiscLabelRepository?>.value(
           value: _discLabelRepository,

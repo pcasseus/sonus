@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../library/data/repositories/sqlite_song_single_presentation_repository.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
@@ -264,6 +265,10 @@ class _ChartsScopeState extends State<ChartsScope> {
           (await qualifiedPlays.getById(playId))?.albumEditionId,
       momentRules:
           (widget.momentRulesActivation ?? _deviceRulesActivation).rules,
+      // App Update 1.3 (REF-1.3-04): Singles' own covers, read-only here.
+      singlePresentations: () async => SqliteSongSinglePresentationRepository(
+        await database.database,
+      ).getAll(),
     );
 
     _controller = controller;

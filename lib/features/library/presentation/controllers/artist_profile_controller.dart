@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 
+import '../../domain/entities/song_single_presentation.dart';
+import '../../application/services/song_single_presentation_service.dart';
 import '../../../analytics/application/models/analytics_period.dart';
 import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
@@ -52,6 +54,7 @@ class ArtistProfileController extends ChangeNotifier with PlaybackShuffleMode {
     String? projectArtistId,
     DateTime Function()? clock,
     Random? random,
+    SongSinglePresentationService? singlePresentations,
   }) : this._(
          repository,
          artistId,
@@ -70,6 +73,7 @@ class ArtistProfileController extends ChangeNotifier with PlaybackShuffleMode {
          projectArtistId,
          clock ?? DateTime.now,
          random ?? Random(),
+         singlePresentations,
        );
 
   ArtistProfileController._(
@@ -90,8 +94,38 @@ class ArtistProfileController extends ChangeNotifier with PlaybackShuffleMode {
     this._projectArtistId,
     this._clock,
     this._random,
+    this._singlePresentationService,
   ) {
     watchPlaybackShuffle();
+  }
+
+  /// App Update 1.3 (REF-1.3-04): Singles' own release dates and covers.
+  final SongSinglePresentationService? _singlePresentationService;
+  Map<String, SongSinglePresentation> _singlePresentations = const {};
+
+  /// Each Single presentation of this artist's songs, by Song ID.
+  Map<String, SongSinglePresentation> get singlePresentations =>
+      _singlePresentations;
+
+  /// Fails open: if they can't be read, Singles show their usual artwork.
+  Future<Map<String, SongSinglePresentation>> _loadSinglePresentations(
+    Iterable<LibraryTrack> tracks,
+  ) async {
+    final service = _singlePresentationService;
+    if (service == null) return const {};
+    try {
+      final all = await service.loadAll();
+      return {for (final track in tracks) track.songId: ?all[track.songId]};
+    } catch (error, stackTrace) {
+      developer.log(
+        'Single presentations could not be read (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return const {};
+    }
   }
 
   final LibraryQueryRepository _repository;
@@ -639,6 +673,7 @@ class ArtistProfileController extends ChangeNotifier with PlaybackShuffleMode {
               artistsById: artistsById,
               albumsById: collaborationAlbums,
             );
+      _singlePresentations = await _loadSinglePresentations(_allTracks);
       await _loadRankings();
     } catch (error) {
       _error = error;

@@ -1,4 +1,7 @@
 import 'dart:ui' show ImageFilter;
+import '../../domain/entities/song_single_presentation.dart';
+import '../../application/services/song_single_presentation_service.dart';
+import '../../application/models/single_cover_policy.dart';
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
@@ -187,6 +190,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artworkCropService: context.read<ArtworkCropService?>(),
       organization: context.read<LibraryOrganizationService?>(),
       projectArtistId: widget.projectArtistId,
+      singlePresentations: _optional<SongSinglePresentationService>(context),
     );
 
     // The artwork can change without this State rebuilding: when the
@@ -784,6 +788,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                         atmosphere,
                                         tracks: singleSongs,
                                         keyPrefix: 'artist-single-song',
+                                        singles: controller.singlePresentations,
                                       ),
                                     ],
                                   ],
@@ -1232,9 +1237,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     TrackSelectionController? selection,
     bool onGlass = false,
     bool groupByAlbum = false,
+    Map<String, SongSinglePresentation> singles = const {},
   }) {
     return ArtistProfileTracksList(
       tracks: tracks,
+      // App Update 1.3 (REF-1.3-04): Singles' own covers and dates.
+      artworkOverrides: {
+        for (final track in tracks)
+          track.songId: ?SingleCoverPolicy.profileCover(
+            single: singles[track.songId],
+            existing: track.artworkPath,
+          ),
+      },
+      releaseLabels: {
+        for (final track in tracks)
+          if (singles[track.songId]?.releaseDate case final date?)
+            track.songId: date.label,
+      },
       groupByAlbum: groupByAlbum,
       selection: selection,
       profileArtistId: profileArtistId,

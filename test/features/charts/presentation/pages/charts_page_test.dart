@@ -36,6 +36,7 @@ import 'package:sonus_next/features/charts/domain/repositories/chart_repository.
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
+import 'package:sonus_next/features/library/domain/entities/song_single_presentation.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_feed_cards.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_category.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
@@ -1906,6 +1907,70 @@ void main() {
     );
   });
 
+  // App Update 1.3 (REF-1.3-04): a Single's own cover on chart rows and in
+  // Moments only when the listener chose it; the release card keeps the
+  // release's cover.
+  group('Single covers', () {
+    SongSinglePresentation single({required bool inCharts}) =>
+        SongSinglePresentation(
+          songId: 'songs_1',
+          artworkId: 'art-single',
+          artworkPath: '/art/single.png',
+          useArtworkInCharts: inCharts,
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+        );
+
+    Future<ChartsController> controllerWith({
+      required bool isSingle,
+      required bool inCharts,
+    }) => _controller(
+      tracks: [_track(isSingle: isSingle, artworkPath: '/art/usual.png')],
+      albums: [_album(id: 'album_1')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+      singlePresentations: () async => {'songs_1': single(inCharts: inCharts)},
+    );
+
+    test('chosen for charts: rows and Moments show it', () async {
+      final controller = await controllerWith(isSingle: true, inCharts: true);
+      final track = controller.trackForEntry(controller.entries.single)!;
+      expect(controller.songChartCover(track), '/art/single.png');
+      expect(
+        controller.momentLookups.currentSongCover('songs_1'),
+        '/art/single.png',
+      );
+      final item = controller.momentFeedItems.single;
+      expect(
+        controller.relatedReleaseForMoment(item)!.cover,
+        isNot('/art/single.png'),
+        reason: "the release card shows the release's cover",
+      );
+    });
+
+    test('not chosen, or no longer a Single: the usual artwork', () async {
+      for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
+        final controller = await controllerWith(
+          isSingle: isSingle,
+          inCharts: inCharts,
+        );
+        final track = controller.trackForEntry(controller.entries.single)!;
+        expect(controller.songChartCover(track), '/art/usual.png');
+        expect(
+          controller.momentLookups.currentSongCover('songs_1'),
+          isNot('/art/single.png'),
+        );
+      }
+    });
+  });
+
   testWidgets('a story opens with its song\'s version as a badge '
       '(REF-1.3-01)', (tester) async {
     final controller = await _controller(
@@ -2912,6 +2977,7 @@ Future<ChartsController> _controller({
   MomentsLastSeenStore? momentsLastSeen,
   int momentPageSize = ChartMomentFeedPager.defaultPageSize,
   DateTime? devicePolishFromUtc,
+  SinglePresentationsLoader? singlePresentations,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -2939,6 +3005,7 @@ Future<ChartsController> _controller({
     thisWeekCharts: thisWeek,
     momentsLastSeen: momentsLastSeen,
     momentPageSize: momentPageSize,
+    singlePresentations: singlePresentations,
     momentRules: () async => ChartMomentRules(
       activatedAtUtc: DateTime.utc(2026, 11, 1),
       devicePolishFromUtc: devicePolishFromUtc,
@@ -3024,6 +3091,8 @@ LibraryTrack _track({
   String songId = 'songs_1',
   String title = 'Song 1',
   int trackNumber = 1,
+  bool isSingle = false,
+  String? artworkPath,
   bool isAvailable = true,
   bool isBlocked = false,
   String? filePath = 'C:/Music/song_1.mp3',
@@ -3042,13 +3111,14 @@ LibraryTrack _track({
     albumEditionType: AlbumEditionType.standard,
     trackNumber: trackNumber,
     durationSeconds: 180,
-    isSingle: false,
+    isSingle: isSingle,
     featuredArtists: featured,
     versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 1),
     isAvailable: isAvailable,
     isSongBlocked: isBlocked,
     filePath: filePath,
+    artworkPath: artworkPath,
   );
 }
 

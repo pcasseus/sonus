@@ -12,6 +12,8 @@ import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/models/song_edition_membership.dart';
 import '../../../library/application/models/song_display_title.dart';
+import '../../../library/application/models/single_cover_policy.dart';
+import '../../../library/domain/entities/song_single_presentation.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
@@ -93,6 +95,10 @@ class MomentReleaseTarget {
   final bool editionRemoved;
 }
 
+/// Every Single presentation by Song ID (App Update 1.3).
+typedef SinglePresentationsLoader =
+    Future<Map<String, SongSinglePresentation>> Function();
+
 class ChartsController extends ChangeNotifier {
   ChartsController({
     required AllTimeChartService allTimeCharts,
@@ -113,7 +119,9 @@ class ChartsController extends ChangeNotifier {
     MomentRulesLoader? momentRules,
     int momentPageSize = ChartMomentFeedPager.defaultPageSize,
     Future<Set<String>> Function()? recalculatedWeeks,
+    SinglePresentationsLoader? singlePresentations,
   }) : _allTimeCharts = allTimeCharts,
+       _loadSinglePresentations = singlePresentations,
        _loadRecalculatedWeeks = recalculatedWeeks,
        _finalization = finalization,
        _charts = charts,
@@ -162,6 +170,11 @@ class ChartsController extends ChangeNotifier {
   /// show the song's own artwork, then its album's cover, as before.
   final SongEditionMembershipsLoader? _loadSongEditionMemberships;
   MomentEditionResolver _momentEditions = MomentEditionResolver.empty();
+
+  /// Singles' own covers (App Update 1.3, REF-1.3-04), shown on chart rows
+  /// and in Moments only where the listener chose to ([SingleCoverPolicy]).
+  final SinglePresentationsLoader? _loadSinglePresentations;
+  Map<String, SongSinglePresentation> _singles = const {};
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -1107,7 +1120,11 @@ class ChartsController extends ChangeNotifier {
         final songId = item.entity.entityId;
         return (
           title: momentSongEditionTitle(songId) ?? album.displayTitle,
-          cover: momentLookups.currentSongCover(songId),
+          // The release's own cover, never a Single cover (App Update 1.3).
+          cover: switch (_tracksById[songId]) {
+            final track? => _momentEditions.songCover(track, album: album),
+            null => null,
+          },
         );
     }
   }
@@ -1208,6 +1225,32 @@ class ChartsController extends ChangeNotifier {
 
   /// Null when there is no loader or the read failed: song Moments then
   /// keep their pre-1.1 pictures.
+  Future<Map<String, SongSinglePresentation>> _readSinglePresentations() async {
+    final load = _loadSinglePresentations;
+    if (load == null) return const {};
+    try {
+      return await load();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Single presentations could not be read (${error.runtimeType}); '
+        'songs show their usual artwork',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return const {};
+    }
+  }
+
+  /// A song's picture on chart rows: its Single cover when chosen for
+  /// charts (App Update 1.3), otherwise its usual artwork.
+  String? songChartCover(LibraryTrack track) => SingleCoverPolicy.chartCover(
+    isSingle: track.isSingle,
+    single: _singles[track.songId],
+    existing: track.artworkPath,
+  );
+
   Future<List<SongEditionMembership>?> _readSongEditionMemberships() async {
     final load = _loadSongEditionMemberships;
     if (load == null) return null;
@@ -1469,6 +1512,10 @@ class ChartsController extends ChangeNotifier {
       final formats = await _readReleaseFormats();
       final editions = await _readReleaseEditions();
       final memberships = await _readSongEditionMemberships();
+      // Read only when a song is a Single (a cover can show only then).
+      final singles = tracks.any((track) => track.isSingle)
+          ? await _readSinglePresentations()
+          : const <String, SongSinglePresentation>{};
 
       var momentFeedItems = _momentFeedItems;
       var momentPager = _momentPager;
@@ -1509,6 +1556,7 @@ class ChartsController extends ChangeNotifier {
       _longevity = ChartLongevityIndex.fromHistory(history);
 
       _tracksById = {for (final track in tracks) track.songId: track};
+      _singles = singles;
 
       _albumsById = {for (final album in albums) album.albumId: album};
       _albumPresentations = _albumPresentationsOf(albums, editions);
@@ -1700,13 +1748,20 @@ class _ControllerMomentLookups implements MomentLookups {
   /// The cover of the edition the song first appeared on, then the song's
   /// own artwork, then its album's cover (App Update 1.1; see
   /// [MomentEditionResolver.songCover]).
+  ///
+  /// App Update 1.3 (REF-1.3-04): a Single's own cover comes first when the
+  /// listener chose to show it in charts and Moments ([SingleCoverPolicy]).
   @override
   String? currentSongCover(String songId) {
     final track = _controller._tracksById[songId];
     if (track == null) return null;
-    return _controller._momentEditions.songCover(
-      track,
-      album: _controller._albumsById[track.albumId],
+    return SingleCoverPolicy.chartCover(
+      isSingle: track.isSingle,
+      single: _controller._singles[songId],
+      existing: _controller._momentEditions.songCover(
+        track,
+        album: _controller._albumsById[track.albumId],
+      ),
     );
   }
 

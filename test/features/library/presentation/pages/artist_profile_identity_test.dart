@@ -4,6 +4,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_single_presentation_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/song_single_presentation.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
+import 'package:sonus_next/features/library/application/services/song_single_presentation_service.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/project_collaborator.dart';
@@ -138,6 +143,7 @@ void main() {
     Size size = const Size(411, 2400),
     QualifiedPlayRepository? qualifiedPlays,
     PlaybackCoordinator? playbackCoordinator,
+    Map<String, SongSinglePresentation> singles = const {},
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -157,8 +163,16 @@ void main() {
         }),
     );
     await tester.pumpWidget(
-      Provider<LibraryOrganizationService?>.value(
-        value: organization,
+      MultiProvider(
+        providers: [
+          Provider<LibraryOrganizationService?>.value(value: organization),
+          Provider<SongSinglePresentationService?>.value(
+            value: SongSinglePresentationService(
+              presentations: _Singles(singles),
+              songs: _NoSongs(),
+            ),
+          ),
+        ],
         child: base.buildSubject(
           repository: repository,
           qualifiedPlays: qualifiedPlays,
@@ -228,6 +242,60 @@ void main() {
     // again.
     expect(
       find.descendant(of: singles, matching: find.text('Lead Single')),
+      findsOneWidget,
+    );
+  });
+
+  // App Update 1.3 (REF-1.3-04): a Single's own cover and date, and only
+  // in the Singles section.
+  testWidgets('a Single shows its own cover and release date', (tester) async {
+    final releases = [
+      _release('album', 'Long Player', released: DateTime(2024, 6, 21)),
+    ];
+    await pump(
+      tester,
+      repository: _Repo(
+        library: releases,
+        artist: base.createArtist(albumCount: 1, songCount: 2),
+        albums: releases,
+        tracks: [
+          base.createTrack(
+            songId: 'hit',
+            title: 'Album Hit',
+            albumId: 'album',
+            isSingle: true,
+          ),
+          base.createTrack(songId: 'deep', title: 'Deep Cut', albumId: 'album'),
+        ],
+      ),
+      libraryAlbums: releases,
+      formats: {'album': ReleaseFormat.album},
+      singles: {
+        'hit': SongSinglePresentation(
+          songId: 'hit',
+          releaseDate: ReleaseDate.of(2024, 4),
+          artworkId: 'art-hit',
+          artworkPath: '/art/hit-single.png',
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      },
+    );
+
+    final singles = key('artist-profile-singles');
+    final artwork = find.descendant(
+      of: key('artist-single-song-artwork-hit'),
+      matching: find.byType(Image),
+    );
+    expect(
+      ((tester.widget<Image>(artwork).image as ResizeImage).imageProvider
+              as FileImage)
+          .file
+          .path,
+      '/art/hit-single.png',
+    );
+    expect(
+      find.descendant(of: singles, matching: find.textContaining('April 2024')),
       findsOneWidget,
     );
   });
@@ -661,4 +729,30 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+class _Singles implements SongSinglePresentationRepository {
+  _Singles(this.rows);
+
+  final Map<String, SongSinglePresentation> rows;
+
+  @override
+  Future<SongSinglePresentation?> getBySongId(String songId) async =>
+      rows[songId];
+
+  @override
+  Future<Map<String, SongSinglePresentation>> getAll() async => rows;
+
+  @override
+  Future<void> save(SongSinglePresentation presentation) async =>
+      throw StateError('read only');
+
+  @override
+  Future<void> clear(String songId) async => throw StateError('read only');
+}
+
+class _NoSongs implements SongRepository {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('not used: $invocation');
 }
