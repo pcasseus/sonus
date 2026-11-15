@@ -379,4 +379,186 @@ void main() {
       expect(bar, findsOneWidget);
     });
   });
+
+  // App Update 1.3 preview report: the mini-player looked partly hidden by
+  // the navigation area. These pin that the whole bar stays above the
+  // system's bottom inset, on gesture and three-button navigation, without
+  // counting the inset twice or adding space below it.
+  group('the whole bar stays above the system navigation area', () {
+    const screenHeight = 800.0;
+    // The test view's density: physical pixels per logical pixel.
+    const ratio = 3.0;
+
+    void setNavigation(WidgetTester tester, double insetDp) {
+      final inset = FakeViewPadding(bottom: insetDp * ratio);
+      tester.view.padding = inset;
+      tester.view.viewPadding = inset;
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+    }
+
+    Future<void> playTitled(WidgetTester tester, String title) async {
+      await tester.runAsync(() async {
+        await engine.loadQueue([
+          PlaybackTrack(
+            songId: 'song-long',
+            title: title,
+            artistId: 'artist',
+            artistName: 'An Artist With A Long Name Too',
+            albumId: 'album',
+            albumTitle: 'Album',
+            filePath: '/music/long.mp3',
+            duration: const Duration(minutes: 3),
+          ),
+        ], autoPlay: false);
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
+    }
+
+    Rect card(WidgetTester tester) => tester.getRect(miniPlayer);
+
+    /// Every part of the bar is above the inset; the inset is applied once
+    /// (no gap of a second inset) and no more than the 8 dp margin is
+    /// added below.
+    void expectAboveInset(WidgetTester tester, double insetDp) {
+      final limit = screenHeight - insetDp;
+      final rect = card(tester);
+      expect(rect.bottom, lessThanOrEqualTo(limit + 0.5));
+      expect(rect.bottom, lessThanOrEqualTo(screenHeight - 8 + 0.5));
+      expect(rect.bottom, greaterThanOrEqualTo(limit - 8 - 0.5));
+      for (final part in [
+        'mini-player-artwork',
+        'mini-player-title',
+        'mini-player-artist',
+        'mini-player-play-pause',
+        'mini-player-next',
+        'mini-player-progress',
+      ]) {
+        final finder = find.byKey(ValueKey<String>(part));
+        if (finder.evaluate().isEmpty) continue;
+        final partRect = tester.getRect(finder);
+        expect(partRect.bottom, lessThanOrEqualTo(limit + 0.5), reason: part);
+        expect(
+          partRect.top,
+          greaterThanOrEqualTo(rect.top - 0.5),
+          reason: part,
+        );
+      }
+    }
+
+    for (final (name, insetDp) in [
+      ('three-button navigation (48 dp)', 48.0),
+      ('gesture navigation (16 dp)', 16.0),
+      ('no navigation inset', 0.0),
+    ]) {
+      testWidgets(name, (tester) async {
+        setNavigation(tester, insetDp);
+        await pumpApp(tester);
+        await startPlaying(tester);
+
+        expectAboveInset(tester, insetDp);
+        expect(tester.getRect(bar).bottom, closeTo(screenHeight, 0.5));
+      });
+    }
+
+    testWidgets('a long title at 2x text on three-button navigation', (
+      tester,
+    ) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      setNavigation(tester, 48);
+      await pumpApp(tester);
+      await playTitled(
+        tester,
+        'A very long song title that cannot possibly fit on the bar',
+      );
+
+      expect(tester.takeException(), isNull);
+      expectAboveInset(tester, 48);
+    });
+
+    testWidgets('keyboard open hides the bar; closed, it returns to the '
+        'same place', (tester) async {
+      setNavigation(tester, 48);
+      await pumpApp(tester);
+      await startPlaying(tester);
+      final before = card(tester);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300 * ratio);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pump();
+      expect(bar, findsNothing);
+
+      tester.view.resetViewInsets();
+      await tester.pump();
+      expect(card(tester), before);
+    });
+
+    testWidgets('pushing a page, returning, and opening and closing Now '
+        'Playing leave the bar where it was', (tester) async {
+      setNavigation(tester, 16);
+      await pumpApp(tester);
+      await startPlaying(tester);
+      final before = card(tester);
+
+      await pushPage(tester, 'Artist Profile');
+      expect(card(tester), before);
+      navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(card(tester), before);
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+      navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(card(tester), before);
+      expectAboveInset(tester, 16);
+    });
+
+    testWidgets('the end of a long page scrolls into view above the bar', (
+      tester,
+    ) async {
+      setNavigation(tester, 48);
+      await pumpApp(tester);
+      await startPlaying(tester);
+      navigatorKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            body: ListView(
+              children: [
+                for (var i = 0; i < 60; i++)
+                  SizedBox(
+                    height: 56,
+                    child: Text('Row $i', key: ValueKey<String>('row-$i')),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView), const Offset(0, -5000));
+      await tester.pumpAndSettle();
+      final last = tester.getRect(find.byKey(const ValueKey('row-59')));
+      expect(last.bottom, lessThanOrEqualTo(tester.getRect(bar).top + 0.5));
+    });
+
+    testWidgets('without a player, pages end at the gesture inset', (
+      tester,
+    ) async {
+      setNavigation(tester, 16);
+      await pumpApp(tester);
+      final inset = find.byKey(
+        const ValueKey<String>('playback-host-system-inset'),
+      );
+      expect(tester.getSize(inset).height, closeTo(16, 0.5));
+      await pushPage(tester, 'Moments');
+      expect(
+        tester.getBottomLeft(find.byKey(const ValueKey('Moments'))).dy,
+        lessThanOrEqualTo(tester.getTopLeft(inset).dy + 0.5),
+      );
+    });
+  });
 }
