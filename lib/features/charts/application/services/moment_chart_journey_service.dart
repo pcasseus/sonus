@@ -3,11 +3,16 @@
 import '../../../analytics/domain/entities/qualified_play.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/services/all_time_chart_ranking_engine.dart';
 import '../../domain/services/all_time_history_replay.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import '../../domain/services/release_chart_eligibility.dart';
 
 typedef MomentJourneyNow = DateTime Function();
+
+/// The songs the listener blocked, which the all-time chart leaves out of
+/// its current ranks.
+typedef BlockedSongIds = Future<Set<String>> Function();
 
 /// A song's or release's verified journey on the all-time Sonus chart
 /// (App Update 1.1), for a Moment's expanded story.
@@ -39,7 +44,10 @@ class MomentChartJourney {
   final int? peakRank;
   final DateTime? firstChartedAt;
 
-  /// Its rank now, after the latest play (null: outside the Top 200).
+  /// Its rank now, after the latest play (null: outside the Top 200), as
+  /// the all-time chart ranks it now: songs the listener blocked take no
+  /// place (App Update 1.3, REF-1.3-02), so it matches the chart's row.
+  /// Provisional and never stored.
   final int? currentRank;
 
   /// The last [count] completed days.
@@ -56,15 +64,21 @@ class MomentChartJourneyService {
     required QualifiedPlayRepository qualifiedPlays,
     ReleaseChartEligibility? releaseEligibility,
     AllTimeHistoryReplay replay = const AllTimeHistoryReplay(),
+    AllTimeChartRankingEngine rankingEngine = const AllTimeChartRankingEngine(),
+    BlockedSongIds? blockedSongIds,
     MomentJourneyNow? now,
   }) : _qualifiedPlays = qualifiedPlays,
        _releaseEligibility = releaseEligibility,
        _replay = replay,
+       _rankingEngine = rankingEngine,
+       _blockedSongIds = blockedSongIds,
        _now = now ?? DateTime.now;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final ReleaseChartEligibility? _releaseEligibility;
   final AllTimeHistoryReplay _replay;
+  final AllTimeChartRankingEngine _rankingEngine;
+  final BlockedSongIds? _blockedSongIds;
   final MomentJourneyNow _now;
 
   Future<MomentChartJourney?> load({
@@ -75,19 +89,19 @@ class MomentChartJourneyService {
     final singles = chartType == ChartType.albums
         ? await excludedReleaseIds(_releaseEligibility)
         : const <String>{};
+    final events = [
+      for (final QualifiedPlay play in plays)
+        if (chartType == ChartType.songs || !singles.contains(play.albumId))
+          ChartRankingEvent(
+            entityId: chartType == ChartType.songs ? play.songId : play.albumId,
+            qualifiedAt: play.qualifiedAt,
+            sourceEventId: play.id,
+          ),
+    ];
+    final now = _now();
     final result = _replay.run(
-      events: [
-        for (final QualifiedPlay play in plays)
-          if (chartType == ChartType.songs || !singles.contains(play.albumId))
-            ChartRankingEvent(
-              entityId: chartType == ChartType.songs
-                  ? play.songId
-                  : play.albumId,
-              qualifiedAt: play.qualifiedAt,
-              sourceEventId: play.id,
-            ),
-      ],
-      referenceLocal: _now(),
+      events: events,
+      referenceLocal: now,
       collectAchievements: false,
       collectDayStandings: {entityId},
     );
@@ -99,8 +113,49 @@ class MomentChartJourneyService {
       totals: result.daysOf(entityId),
       peakRank: result.trackedPeaks[entityId],
       firstChartedAt: result.trackedFirstCharted[entityId],
-      currentRank: result.trackedRanks[entityId],
+      currentRank: await _rankNow(
+        chartType: chartType,
+        entityId: entityId,
+        events: events,
+        now: now,
+        replayed: result.trackedRanks[entityId],
+      ),
     );
+  }
+
+  /// The rank now under the all-time chart's eligibility: on the song
+  /// chart, blocked songs take no place and a blocked song has none (as
+  /// AllTimeChartService ranks it). The completed days keep the replay's
+  /// closes, as recorded.
+  Future<int?> _rankNow({
+    required ChartType chartType,
+    required String entityId,
+    required List<ChartRankingEvent> events,
+    required DateTime now,
+    required int? replayed,
+  }) async {
+    final blockedSongIds = _blockedSongIds;
+    if (chartType != ChartType.songs || blockedSongIds == null) {
+      return replayed;
+    }
+    final blocked = await blockedSongIds();
+    if (blocked.isEmpty) return replayed;
+    if (blocked.contains(entityId)) return null;
+    final ranked = _rankingEngine.rank(
+      events: events,
+      comparisonStartUtc: now.toUtc(),
+      eligibleEntityIds: {
+        for (final event in events)
+          if (!blocked.contains(event.entityId)) event.entityId,
+      },
+    );
+    for (final entity in ranked) {
+      if (entity.entityId != entityId) continue;
+      return entity.rank <= ChartRankingEngine.extendedStandingsLimit
+          ? entity.rank
+          : null;
+    }
+    return null;
   }
 }
 

@@ -273,6 +273,12 @@ class _ChartsScopeState extends State<ChartsScope> {
     final journeys = MomentChartJourneyService(
       qualifiedPlays: qualifiedPlays,
       releaseEligibility: releaseEligibility,
+      // App Update 1.3 (REF-1.3-02): the live rank follows the all-time
+      // chart's eligibility (blocked songs take no place).
+      blockedSongIds: () async => {
+        for (final track in await library.getTracks())
+          if (track.isBlocked) track.songId,
+      },
       now: widget.now,
     );
     _journeys = (chartType, entityId) =>

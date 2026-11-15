@@ -104,6 +104,46 @@ void main() {
     expect(second.days.single.rank, first.days.single.rank);
   });
 
+  group('the all-time chart\'s eligibility (blocked songs)', () {
+    MomentChartJourneyService blocking(Set<String> blocked) =>
+        MomentChartJourneyService(
+          qualifiedPlays: _ReadOnlyPlays(plays),
+          blockedSongIds: () async => blocked,
+          now: () => DateTime(2026, 11, 4, 15),
+        );
+
+    test('a blocked song ahead takes no place now; the closed days keep '
+        'their recorded ranks', () async {
+      final journey = await blocking({
+        'B',
+      }).load(chartType: ChartType.songs, entityId: 'A');
+      expect(journey!.currentRank, 1, reason: 'B is blocked');
+      expect(journey.days.single.rank, 1);
+    });
+
+    test('a blocked song has no live rank', () async {
+      final journey = await blocking({
+        'A',
+      }).load(chartType: ChartType.songs, entityId: 'A');
+      expect(journey!.currentRank, isNull);
+      expect(journey.days.single.rank, 1, reason: 'history is kept');
+    });
+
+    test('nothing blocked: the replay\'s rank', () async {
+      final journey = await blocking(
+        const {},
+      ).load(chartType: ChartType.songs, entityId: 'A');
+      expect(journey!.currentRank, 2);
+    });
+
+    test('the release chart has no blocked songs to leave out', () async {
+      final journey = await blocking({
+        'B',
+      }).load(chartType: ChartType.albums, entityId: 'album-A');
+      expect(journey!.currentRank, 2);
+    });
+  });
+
   test('a song never played has no journey and no live rank', () async {
     final journey = await service(
       _ReadOnlyPlays(plays),
