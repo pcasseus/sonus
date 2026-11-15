@@ -29,6 +29,9 @@ class _Stats implements ArtistLibraryStatisticsService {
   /// (the Roster then updates).
   final Duration delay;
 
+  /// Listening that turns the ranking upside down: the last artist leads.
+  bool reversed = false;
+
   /// Artist a<i> has 100 - i streams: "Most played" runs a0, a1, …
   /// whatever order the library lists them in.
   @override
@@ -38,8 +41,12 @@ class _Stats implements ArtistLibraryStatisticsService {
       for (final artist in artists)
         ArtistLibraryStatistics(
           artist: artist,
-          rank: _number(artist) + 1,
-          qualifiedStreams: 100 - _number(artist),
+          rank: reversed
+              ? artists.length - _number(artist)
+              : _number(artist) + 1,
+          qualifiedStreams: reversed
+              ? 100 - artists.length + 1 + _number(artist)
+              : 100 - _number(artist),
           listened: Duration(minutes: 100 - _number(artist)),
         ),
     ]);
@@ -542,6 +549,78 @@ void main() {
 
     expect(byKey('artist-profile-page'), findsOneWidget);
     expect(find.text(_name(10, upper: false)), findsWidgets);
+  });
+
+  // App Update 1.3 (REF-1.3-05, ROSTER approval 2026-11-15): opening the
+  // default featured artist chooses them, so listening on their profile
+  // that reorders the ranks never features someone else on Back.
+  group('the default artist and a reload', () {
+    Future<_Stats> enterWithSignal(
+      WidgetTester tester,
+      LibraryChangeSignal changes,
+    ) async {
+      final list = _roster();
+      final stats = _Stats(list);
+      await tester.binding.setSurfaceSize(const Size(393, 852));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<LibraryQueryRepository?>.value(
+              value: base.FakeLibraryQueryRepository(artists: list),
+            ),
+            Provider<ArtistLibraryStatisticsService?>.value(value: stats),
+          ],
+          child: MaterialApp(
+            theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+            home: Scaffold(
+              body: LibraryPage(navigationMemory: memory, changes: changes),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return stats;
+    }
+
+    Future<void> reorder(
+      WidgetTester tester,
+      _Stats stats,
+      LibraryChangeSignal changes,
+    ) async {
+      stats.reversed = true;
+      changes.notify(LibraryChangeKind.listeningRecorded);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Back from the default artist\'s profile keeps them after '
+        'the ranks change', (tester) async {
+      final changes = LibraryChangeSignal();
+      final stats = await enterWithSignal(tester, changes);
+      expectFeatured(tester, 0, 'Page 1 of 3');
+
+      await tester.tap(byKey('roster-select'));
+      await tester.pumpAndSettle();
+      expect(byKey('artist-profile-page'), findsOneWidget);
+
+      await reorder(tester, stats, changes);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(featured(tester), _name(0));
+      expect(visible('a0'), isTrue, reason: 'on the visible page');
+    });
+
+    testWidgets('without opening a profile the default still follows the '
+        'first place (unchanged)', (tester) async {
+      final changes = LibraryChangeSignal();
+      final stats = await enterWithSignal(tester, changes);
+      expectFeatured(tester, 0, 'Page 1 of 3');
+
+      await reorder(tester, stats, changes);
+      expectFeatured(tester, 29, 'Page 1 of 3');
+    });
   });
 }
 

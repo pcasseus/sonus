@@ -261,7 +261,7 @@
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
     "lib/features/library/presentation/pages/library_page.dart": "e2046cc758fe1e72382548cc949dbae8f4aed19210d68686f8befdbc48cdcf35",
-    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "c60482269290cdf5268dddc49095ffc63eb571aef25aa61256b97995686559b5",
+    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "b6805622975d89c52a258c5b521873ed074cb7e16a820f87c20bcd2a36a9a796",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
     "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
@@ -485,6 +485,17 @@
           "lib/features/library/presentation/pages/library_page.dart"
         ]
       },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-15",
+      "approval": "ROSTER, App Update 1.3 REF-1.3-05 follow-up (protected-file correction approved by the user 2026-11-15, Batch 2 Decisions item 5): artist_roster.dart _openPreview - opening the default featured artist (SELECT ARTIST or the portrait) chooses them, so a reload that reorders the ranks while their profile is open no longer features another artist on Back. Behaviour only; navigation contracts unchanged (fresh entry Page 1 first artist, Back keeps page and artist, 15-minute memory); no golden, geometry or invariant re-recorded; all protected tests pass unchanged.",
+      "protectedChanges": {
+        "roster": [
+          "lib/features/library/presentation/widgets/roster/artist_roster.dart"
+        ]
+      },
+      "sharedChanges": {},
       "dependencyListChanges": []
     }
   ]
