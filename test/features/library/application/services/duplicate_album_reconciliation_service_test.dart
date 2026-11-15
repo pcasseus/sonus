@@ -481,6 +481,43 @@ void main() {
     );
   });
 
+  // App Update 1.3 (REF-1.3-04): like lyrics, the kept song's own Single
+  // presentation wins; otherwise the duplicate's moves to it.
+  test('Single presentations follow the kept songs', () async {
+    await seedAlbum(
+      'album_a',
+      createdAt: '2026-10-01T00:00:00Z',
+      folder: '/a',
+      playable: true,
+    );
+    await seedAlbum(
+      'album_b',
+      createdAt: '2026-10-02T00:00:00Z',
+      folder: '/b',
+      playable: true,
+    );
+    Future<void> single(String song, String year) =>
+        db.insert(DatabaseTables.songSinglePresentations, {
+          'song_id': song,
+          'release_date': year,
+          'release_date_precision': 'year',
+          'use_artwork_in_charts': 0,
+          'created_at': '2026-10-03T00:00:00Z',
+          'updated_at': '2026-10-03T00:00:00Z',
+        });
+    await single('song_album_b_1', '2026');
+    await single('song_album_a_2', '2025');
+    await single('song_album_b_2', '2024');
+
+    await service.reconcile();
+
+    final rows = {
+      for (final row in await db.query(DatabaseTables.songSinglePresentations))
+        row['song_id']: row['release_date'],
+    };
+    expect(rows, {'song_album_a_1': '2026', 'song_album_a_2': '2025'});
+  });
+
   test('the album with the listening history stays, even if newer', () async {
     await seedAlbum(
       'album_old',

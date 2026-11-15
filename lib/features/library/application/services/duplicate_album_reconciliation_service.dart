@@ -360,6 +360,22 @@ class DuplicateAlbumReconciliationService {
           whereArgs: [drop],
         );
       }
+
+      // App Update 1.3: a Single presentation follows the same rule.
+      final keptSingle = await txn.query(
+        DatabaseTables.songSinglePresentations,
+        columns: ['song_id'],
+        where: 'song_id = ?',
+        whereArgs: [keep],
+      );
+      if (keptSingle.isEmpty) {
+        await txn.update(
+          DatabaseTables.songSinglePresentations,
+          {'song_id': keep},
+          where: 'song_id = ?',
+          whereArgs: [drop],
+        );
+      }
     }
 
     for (final playlistId in touchedPlaylists) {

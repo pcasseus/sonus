@@ -161,6 +161,13 @@ abstract final class BackupCoverageContract {
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
     ),
+    // Singles' own release dates and covers (database version 47). Backups
+    // made before restore without them.
+    BackupTableCoverage(
+      table: DatabaseTables.songSinglePresentations,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(

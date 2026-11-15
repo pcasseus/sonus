@@ -757,6 +757,53 @@ void main() {
     expect(echo['artwork_id'], 'art_shared');
   });
 
+  // App Update 1.3 (REF-1.3-04): a Single's own cover counts as a use.
+  test("a deleted song's own Single cover goes; one another Single uses "
+      'stays', () async {
+    await seedWorld();
+    for (final id in ['art_single_own', 'art_single_shared']) {
+      await db.insert(DatabaseTables.artworkAssets, {
+        'id': id,
+        'file_path': '/art/$id.jpg',
+        'normalized_path': '/art/$id.jpg',
+        'created_at': stamp,
+        'updated_at': stamp,
+      });
+    }
+    Future<void> single(String song, String artwork) =>
+        db.insert(DatabaseTables.songSinglePresentations, {
+          'song_id': song,
+          'artwork_id': artwork,
+          'use_artwork_in_charts': 1,
+          'created_at': stamp,
+          'updated_at': stamp,
+        });
+
+    await single('opening', 'art_single_own');
+    final own = await service.preview(
+      const PermanentDeletionTarget.song('opening'),
+    );
+    expect(own.artworkAssetIds, contains('art_single_own'));
+
+    await db.update(DatabaseTables.songSinglePresentations, {
+      'artwork_id': 'art_single_shared',
+    }, where: "song_id = 'opening'");
+    await single('echo', 'art_single_shared');
+    final shared = await service.preview(
+      const PermanentDeletionTarget.song('opening'),
+    );
+    expect(shared.artworkAssetIds, isNot(contains('art_single_shared')));
+    await service.delete(shared);
+
+    expect(
+      await count(DatabaseTables.artworkAssets, "id = 'art_single_shared'"),
+      1,
+    );
+    final left = await db.query(DatabaseTables.songSinglePresentations);
+    expect([for (final r in left) r['song_id']], ['echo']);
+    expect(left.single['artwork_id'], 'art_single_shared');
+  });
+
   test('deleting the same thing twice changes nothing more', () async {
     await seedWorld();
     final preview = await service.preview(

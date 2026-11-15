@@ -315,6 +315,8 @@ void main() {
       ('deluxe-cropped', 3),
       ('banner', 4),
       ('portrait-cropped', 5),
+      // App Update 1.3: a Single's own cover.
+      ('single', 6),
     ]) {
       final file = File(path.join(art.path, '$name.png'));
       await file.writeAsBytes(List.filled(64, byte));
@@ -376,6 +378,27 @@ void main() {
       'album_edition_id': deluxe,
       'disc_number': 2,
       'label': 'Bonus Tracks',
+      'created_at': _now.toIso8601String(),
+      'updated_at': _now.toIso8601String(),
+    });
+
+    // App Update 1.3 (REF-1.3-04): a Single presentation with every field
+    // and its own cover. The song's Single designation is off: the
+    // presentation is kept regardless.
+    final singleSongId =
+        (await db.query(
+              DatabaseTables.songs,
+              columns: ['id'],
+              orderBy: 'id',
+              limit: 1,
+            )).single['id']!
+            as String;
+    await db.insert(DatabaseTables.songSinglePresentations, {
+      'song_id': singleSongId,
+      'release_date': '2026-04',
+      'release_date_precision': 'month',
+      'artwork_id': 'art-single',
+      'use_artwork_in_charts': 1,
       'created_at': _now.toIso8601String(),
       'updated_at': _now.toIso8601String(),
     });
@@ -522,7 +545,12 @@ void main() {
       now: () => _now,
     ).record(referenceLocal: _now.toLocal());
 
-    return {'deluxe': deluxe, 'madison': madison, 'soundtrack': soundtrack};
+    return {
+      'deluxe': deluxe,
+      'madison': madison,
+      'soundtrack': soundtrack,
+      'single': singleSongId,
+    };
   }
 
   Future<Map<String, List<Map<String, Object?>>>> portableRows(
@@ -637,6 +665,25 @@ void main() {
         expect(path.isWithin(phoneB.support.path, restored.path), isTrue);
         expect(await restored.readAsBytes(), await original.readAsBytes());
       }
+
+      // The Single presentation comes back whole, with its own cover.
+      final single = (await dbB.query(
+        DatabaseTables.songSinglePresentations,
+      )).single;
+      expect(single['song_id'], ids['single']);
+      expect(single['release_date'], '2026-04');
+      expect(single['release_date_precision'], 'month');
+      expect(single['artwork_id'], 'art-single');
+      expect(single['use_artwork_in_charts'], 1);
+      final singleCover = File(
+        (await dbB.query(
+              DatabaseTables.artworkAssets,
+              where: 'id = ?',
+              whereArgs: ['art-single'],
+            )).single['file_path']!
+            as String,
+      );
+      expect(await singleCover.readAsBytes(), List.filled(64, 6));
 
       // The named disc comes back on its edition and disc.
       final discLabels = await dbB.query(DatabaseTables.albumEditionDiscLabels);

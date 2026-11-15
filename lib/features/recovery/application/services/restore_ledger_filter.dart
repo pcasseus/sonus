@@ -172,6 +172,11 @@ class RestoreLedgerFilter {
       DatabaseTables.trackLyrics,
       (row) => droppedSongs.contains(row['song_id']) ? null : row,
     );
+    // App Update 1.3: a deleted song's Single presentation stays gone.
+    keep(
+      DatabaseTables.songSinglePresentations,
+      (row) => droppedSongs.contains(row['song_id']) ? null : row,
+    );
     keep(DatabaseTables.metadataFieldStates, (row) {
       final id = row['entity_id'];
       final dropped = switch (row['entity_type']) {

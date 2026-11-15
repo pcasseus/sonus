@@ -6,6 +6,7 @@ import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/album_edition_disc_label_schema.dart';
+import 'schema/song_single_presentation_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -555,6 +556,13 @@ abstract final class DatabaseMigrations {
           );
         }
         await ChartSchema.createChartHistoryOrigin(db);
+        return;
+
+      case 47:
+        // App Update 1.3, REF-1.3-04: a song's own Single presentation
+        // (release date and dedicated cover). One new table; every existing
+        // row is untouched and no song has a presentation yet.
+        await SongSinglePresentationSchema.create(db);
         return;
 
       default:

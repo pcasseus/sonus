@@ -81,6 +81,7 @@ abstract final class SettingsDataCoverage {
         'Soundtrack and collaborator organization',
     DatabaseTables.artworkCrops: 'How covers and artist photos are cropped',
     DatabaseTables.albumEditionDiscLabels: 'Disc names',
+    DatabaseTables.songSinglePresentations: 'Single dates and covers',
   };
 
   static List<String> _labelsFor(BackupTablePolicy policy) {
