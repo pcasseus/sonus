@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
+import 'package:sonus_next/features/import/application/lyrics/id3_lyrics_reader.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
@@ -362,6 +363,31 @@ void main() {
       expect(lyricsRepository.savedSyncedText, '[00:01.00]First line');
     },
   );
+  // App Update 1.3 (REF-1.3-07): a song's own tag can carry its lyrics.
+  test('a new song with lyrics in its tag and no sidecar gets them', () async {
+    final lyricsRepository = RecordingTrackLyricsRepository();
+    final service = await buildService(
+      primaryReader: CallbackAudioMetadataReader((_) async => metadata()),
+      fallbackReader: CallbackAudioMetadataReader(
+        (_) async => throw StateError('Fallback should not run'),
+      ),
+      lyricsIngestionService: LyricsIngestionService(
+        sourceReader: CallbackLyricsSourceReader((_) async => null),
+        trackLyricsRepository: lyricsRepository,
+        embeddedReader: (_) async =>
+            const EmbeddedLyrics(syncedLrc: '[00:01.00]From the tag'),
+      ),
+    );
+
+    final result = await service.importCandidate(candidate(), now: now);
+
+    expect(result.status, ImportResultStatus.imported);
+    expect(candidate().lyricsPath, isNull);
+    expect(lyricsRepository.saveCalls, 1);
+    expect(lyricsRepository.savedSongId, result.songId);
+    expect(lyricsRepository.savedSyncedText, '[00:01.00]From the tag');
+  });
+
   test(
     'known file rescan preserves edited metadata and import review state',
     () async {

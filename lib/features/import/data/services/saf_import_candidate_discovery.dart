@@ -30,6 +30,13 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
   static const String supportedExtension = '.mp3';
   static const String lyricsExtension = '.lrc';
 
+  /// App Update 1.3 (REF-1.3-07): plain-text lyrics, used when there is no
+  /// `.lrc` with the same name.
+  static const String plainLyricsExtension = '.txt';
+
+  static bool _isLyricsExtension(String extension) =>
+      extension == lyricsExtension || extension == plainLyricsExtension;
+
   final SafWalk _walk;
   final FileSystemImportCandidateDiscovery _fileSystemDiscovery;
 
@@ -69,6 +76,7 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
     final entries = await _walk(trimmedRoot).toList();
 
     final lyricsBySidecarKey = <String, String>{};
+    final lrcKeys = <String>{};
 
     for (final entry in entries) {
       if (entry.file.isDir) {
@@ -76,16 +84,20 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
       }
 
       final relativePath = _normalizeRelativePath(entry.relativePath);
+      final extension = path.posix.extension(relativePath).toLowerCase();
 
-      if (relativePath.isEmpty ||
-          path.posix.extension(relativePath).toLowerCase() != lyricsExtension) {
+      if (relativePath.isEmpty || !_isLyricsExtension(extension)) {
         continue;
       }
 
-      lyricsBySidecarKey.putIfAbsent(
-        _sidecarKey(relativePath),
-        () => entry.file.uri,
-      );
+      final key = _sidecarKey(relativePath);
+      // An .lrc wins over a .txt of the same name.
+      if (extension == lyricsExtension) {
+        lyricsBySidecarKey[key] = entry.file.uri;
+        lrcKeys.add(key);
+      } else if (!lrcKeys.contains(key)) {
+        lyricsBySidecarKey.putIfAbsent(key, () => entry.file.uri);
+      }
     }
 
     final topLevelFiles = <String>{};
@@ -134,14 +146,14 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
           type: ImportSourceDiscoveryFailureType.invalidStructure,
           message:
               'Album folders may contain only MP3 files with optional '
-              'LRC sidecars.',
+              'LRC or TXT lyrics files.',
           path: relativePath,
         );
       }
 
       final extension = path.posix.extension(entry.file.name).toLowerCase();
 
-      if (extension == lyricsExtension) {
+      if (_isLyricsExtension(extension)) {
         continue;
       }
 
@@ -150,7 +162,7 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
           type: ImportSourceDiscoveryFailureType.unsupportedFormat,
           message:
               'Album folders may contain only MP3 files with optional '
-              'LRC sidecars.',
+              'LRC or TXT lyrics files.',
           path: relativePath,
         );
       }
@@ -194,7 +206,7 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
         message:
             'A top-level folder must be either an artist folder '
             'containing album folders or an album folder containing MP3 '
-            'files with optional LRC sidecars.',
+            'files with optional LRC or TXT lyrics files.',
         path: folder.first,
       );
     }

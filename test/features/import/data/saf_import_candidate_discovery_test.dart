@@ -259,6 +259,54 @@ void main() {
       );
     },
   );
+  // App Update 1.3 (REF-1.3-07): plain-text lyrics files.
+  group('TXT lyrics', () {
+    Future<List<ImportCandidate>> discover(List<String> names) {
+      final discovery = SafImportCandidateDiscovery.forTesting(
+        walk: (_) => walkEntries([
+          SafWalkEntry(
+            file: directory('content://artist', 'Artist'),
+            relativePath: 'Artist',
+          ),
+          SafWalkEntry(
+            file: directory('content://album', 'Album'),
+            relativePath: 'Artist/Album',
+          ),
+          for (final name in names)
+            SafWalkEntry(
+              file: file('content://$name', name),
+              relativePath: 'Artist/Album/$name',
+            ),
+        ]),
+      );
+      return discovery.discoverFolder(
+        'content://music-root',
+        discoveredAt: discoveredAt,
+      );
+    }
+
+    test('a .txt of the same name is the lyrics file', () async {
+      final candidates = await discover(['01 Song.mp3', '01 Song.txt']);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.lyricsPath, 'content://01 Song.txt');
+    });
+
+    test('an .lrc wins over a .txt, in either order', () async {
+      for (final names in [
+        ['01 Song.txt', '01 Song.lrc', '01 Song.mp3'],
+        ['01 Song.lrc', '01 Song.txt', '01 Song.mp3'],
+      ]) {
+        final candidates = await discover(names);
+        expect(candidates.single.lyricsPath, 'content://01 Song.lrc');
+      }
+    });
+
+    test('an unrelated .txt is allowed and attaches to nothing', () async {
+      final candidates = await discover(['01 Song.mp3', 'credits.txt']);
+      expect(candidates.single.lyricsPath, isNull);
+    });
+  });
+
   test('rejects unsupported file inside SAF album folder', () async {
     final discovery = SafImportCandidateDiscovery.forTesting(
       walk: (_) => walkEntries([

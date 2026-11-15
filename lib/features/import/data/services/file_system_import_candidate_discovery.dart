@@ -13,6 +13,10 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
   static const String supportedExtension = '.mp3';
   static const String lyricsExtension = '.lrc';
 
+  /// App Update 1.3 (REF-1.3-07): plain-text lyrics, used when there is no
+  /// `.lrc` with the same name.
+  static const String plainLyricsExtension = '.txt';
+
   @override
   Future<ImportCandidate> discoverFile(
     String filePath, {
@@ -108,7 +112,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
           message:
               'A top-level folder must be either an artist folder '
               'containing album folders or an album folder containing MP3 '
-              'files with optional LRC sidecars.',
+              'files with optional LRC or TXT lyrics files.',
           path: entry.path,
         );
       }
@@ -158,7 +162,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
               type: ImportSourceDiscoveryFailureType.invalidStructure,
               message:
                   'Album folders may contain only MP3 files with optional '
-                  'LRC sidecars.',
+                  'LRC or TXT lyrics files.',
               path: albumEntry.path,
             );
           }
@@ -215,7 +219,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
         type: ImportSourceDiscoveryFailureType.unsupportedFormat,
         message:
             'Album folders may contain only MP3 files with optional '
-            'LRC sidecars.',
+            'LRC or TXT lyrics files.',
         path: file.path,
       );
     }
@@ -239,20 +243,27 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
     final audioStem = path
         .basenameWithoutExtension(audioFile.path)
         .toLowerCase();
+    String? plainText;
 
     for (final file in files) {
-      if (!_isLyricsFile(file.path)) {
+      final extension = path.extension(file.path).toLowerCase();
+      if (extension != lyricsExtension && extension != plainLyricsExtension) {
         continue;
       }
 
       final lyricsStem = path.basenameWithoutExtension(file.path).toLowerCase();
+      if (lyricsStem != audioStem) {
+        continue;
+      }
 
-      if (lyricsStem == audioStem) {
+      // An .lrc wins over a .txt of the same name.
+      if (extension == lyricsExtension) {
         return file.path;
       }
+      plainText ??= file.path;
     }
 
-    return null;
+    return plainText;
   }
 
   String _relativePath({required Directory root, required File file}) {
@@ -264,7 +275,8 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
   }
 
   bool _isLyricsFile(String filePath) {
-    return path.extension(filePath).toLowerCase() == lyricsExtension;
+    final extension = path.extension(filePath).toLowerCase();
+    return extension == lyricsExtension || extension == plainLyricsExtension;
   }
 
   int _compareEntitiesByPath(FileSystemEntity left, FileSystemEntity right) {

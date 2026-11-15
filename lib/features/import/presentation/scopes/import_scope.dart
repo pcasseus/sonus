@@ -35,6 +35,7 @@ import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
 import '../../application/services/possible_recording_review_service.dart';
+import '../../application/lyrics/id3_lyrics_reader.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
@@ -292,11 +293,25 @@ class _ImportScopeState extends State<ImportScope> {
       userId: userId,
     );
 
+    final openAudio = audioByteSourceOpener(
+      saf: Platform.isAndroid ? _saf : null,
+    );
     final lyricsIngestionService = LyricsIngestionService(
       sourceReader: LocalLyricsSourceReader(
         saf: Platform.isAndroid ? _saf : null,
       ),
       trackLyricsRepository: trackLyricsRepository,
+      // App Update 1.3 (REF-1.3-07): lyrics in the song's own ID3 tag,
+      // read locally (bounded reads, never the audio itself).
+      embeddedReader: (candidate) async {
+        final source = await openAudio(candidate.filePath);
+        if (source == null) return null;
+        try {
+          return await Id3LyricsReader.read(source);
+        } finally {
+          await source.close();
+        }
+      },
     );
 
     final possibleRecordingStore = PossibleRecordingStore();
@@ -305,7 +320,7 @@ class _ImportScopeState extends State<ImportScope> {
     // by their audio, read-only.
     final fileIdentityService = FileIdentityService(
       appDatabase: database,
-      openSource: audioByteSourceOpener(saf: Platform.isAndroid ? _saf : null),
+      openSource: openAudio,
       metadataResolver: metadataResolver,
       tagUpdater: ExistingSongTagUpdater(userId: userId),
       reviewStore: possibleRecordingStore,
