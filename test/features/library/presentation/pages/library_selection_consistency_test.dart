@@ -140,6 +140,7 @@ Future<void> _pump(
   required ArtistLibraryStatisticsService stats,
   LibraryQueryRepository? repository,
   LibraryChangeSignal? signal,
+  bool settle = true,
 }) async {
   await tester.binding.setSurfaceSize(const Size(393, 852));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -165,7 +166,15 @@ Future<void> _pump(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    // Statistics still loading: the Library shows its (animated) loading
+    // view, which never settles.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
 }
 
 String _textIn(WidgetTester tester, Finder area) => tester
@@ -417,10 +426,13 @@ void main() {
       'artist, and a stale load never replaces a newer one', (tester) async {
     final stats = _GatedStats();
     final signal = LibraryChangeSignal();
-    await _pump(tester, stats: stats, signal: signal);
+    await _pump(tester, stats: stats, signal: signal, settle: false);
     expect(stats.loads, hasLength(1));
-    // Not loaded yet: dashes, never another artist's values.
-    expect(_textIn(tester, byKey('roster-stat-streams')), contains('–'));
+    // Not loaded yet: App Update 1.3 (REF-1.3-05) waits for the first
+    // statistics, so no artist and no values are shown, never another
+    // artist's.
+    expect(byKey('roster-stat-streams'), findsNothing);
+    expect(byKey('roster-featured-name'), findsNothing);
 
     // A library change asks for another load while the first runs.
     signal.notify(LibraryChangeKind.libraryEdited);
@@ -476,7 +488,7 @@ void main() {
   testWidgets('a load from a replaced library answering late is never '
       'shown', (tester) async {
     final stale = _GatedStats();
-    await _pump(tester, stats: stale);
+    await _pump(tester, stats: stale, settle: false);
     expect(stale.loads, hasLength(1));
 
     // The library is replaced (new repository): a new controller loads.
@@ -485,6 +497,7 @@ void main() {
       tester,
       stats: fresh,
       repository: base.FakeLibraryQueryRepository(artists: _artists),
+      settle: false,
     );
     expect(fresh.loads, hasLength(1));
     fresh.loads[0].complete(_snapshot(generation: 9));

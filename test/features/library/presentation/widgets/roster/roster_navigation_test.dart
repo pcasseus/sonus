@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_library_statistics.dart';
@@ -431,6 +432,105 @@ void main() {
     });
   });
 
+  // App Update 1.3 (REF-1.3-05): the artists load before their statistics,
+  // and until then "Most played" is really A-Z. The Roster must never show
+  // the alphabetical first artist (a25, "A0 Artist 25") as a temporary
+  // featured artist before settling on the real first (a0).
+  group('the first frames of a fresh entry', () {
+    final changes = LibraryChangeSignal();
+
+    Future<_HeldStats> enterHeld(WidgetTester tester) async {
+      final list = _roster();
+      final stats = _HeldStats(_Stats(list));
+      await tester.binding.setSurfaceSize(const Size(393, 852));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<LibraryQueryRepository?>.value(
+              value: base.FakeLibraryQueryRepository(artists: list),
+            ),
+            Provider<ArtistLibraryStatisticsService?>.value(value: stats),
+          ],
+          child: MaterialApp(
+            theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+            home: Scaffold(
+              body: LibraryPage(navigationMemory: memory, changes: changes),
+            ),
+          ),
+        ),
+      );
+      return stats;
+    }
+
+    String? shown() {
+      final names = byKey('roster-featured-name').evaluate();
+      return names.isEmpty ? null : (names.first.widget as Text).data;
+    }
+
+    /// Every featured name rendered, frame by frame, for [frames] frames.
+    Future<List<String>> record(WidgetTester tester, {int frames = 30}) async {
+      final seen = <String>[];
+      for (var i = 0; i < frames; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final name = shown();
+        if (name != null && (seen.isEmpty || seen.last != name)) {
+          seen.add(name);
+        }
+      }
+      return seen;
+    }
+
+    testWidgets('while the statistics load, no artist is featured', (
+      tester,
+    ) async {
+      final stats = await enterHeld(tester);
+      final before = await record(tester);
+      // The artists are listed by now; their statistics are still loading.
+      expect(before, isEmpty, reason: 'no temporary featured artist');
+      expect(byKey('artist-roster'), findsNothing);
+
+      stats.release();
+      final after = await record(tester);
+      expect(after, [_name(0)], reason: 'the real first, and only it');
+      await tester.pumpAndSettle();
+      expectFeatured(tester, 0, 'Page 1 of 3');
+    });
+
+    testWidgets('statistics that fail to load still show the Roster, '
+        'A-Z and unranked', (tester) async {
+      final stats = await enterHeld(tester);
+      await record(tester, frames: 5);
+      expect(shown(), isNull);
+
+      stats.fail();
+      await tester.pumpAndSettle();
+      // Unranked, "Most played" lists by name: a25 is "A0 Artist 25".
+      expect(shown(), _name(25));
+      expect(page(tester), 'Page 1 of 3');
+    });
+
+    testWidgets('a later refresh keeps the Roster and its artist on screen', (
+      tester,
+    ) async {
+      final stats = await enterHeld(tester);
+      stats.release();
+      await tester.pumpAndSettle();
+      await tapTile(tester, 3);
+
+      stats.hold();
+      changes.notify(LibraryChangeKind.listeningRecorded);
+      // Past the refresher's 300 ms settle, while the new statistics load.
+      final during = await record(tester, frames: 40);
+      expect(stats.loads, 2, reason: 'the refresh is loading');
+      expect(during, isNotEmpty, reason: 'the Roster is not hidden again');
+      expect(during.toSet(), {_name(3)});
+      stats.release();
+      await tester.pumpAndSettle();
+      expectFeatured(tester, 3, 'Page 1 of 3');
+    });
+  });
+
   testWidgets('SELECT ARTIST opens the featured artist of the visible page', (
     tester,
   ) async {
@@ -448,4 +548,36 @@ void main() {
 String _name(int i, {bool upper = true}) {
   final name = '${String.fromCharCode(90 - i % 26)}${i ~/ 26} Artist $i';
   return upper ? name.toUpperCase() : name;
+}
+
+/// Statistics whose loads wait until [release] (or [fail]), so a test can
+/// look at the frames before they arrive. Starts held.
+class _HeldStats implements ArtistLibraryStatisticsService {
+  _HeldStats(this._inner);
+
+  final _Stats _inner;
+  Completer<void>? _gate = Completer<void>();
+  bool _fails = false;
+  int loads = 0;
+
+  void hold() => _gate ??= Completer<void>();
+
+  void release() {
+    _gate?.complete();
+    _gate = null;
+  }
+
+  void fail() {
+    _fails = true;
+    release();
+  }
+
+  @override
+  Future<ArtistLibraryStatisticsSnapshot> load() async {
+    loads++;
+    final gate = _gate;
+    if (gate != null) await gate.future;
+    if (_fails) throw StateError('statistics unavailable');
+    return _inner.load();
+  }
 }

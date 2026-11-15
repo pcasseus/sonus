@@ -260,7 +260,7 @@
     "lib/features/home/presentation/controllers/home_controller.dart": "7d4726023dbe09ed74eded52f2f735635d4a24d275cde652db91f385f3385803",
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
-    "lib/features/library/presentation/pages/library_page.dart": "e2d463b6e4d83650101ec1a0f720cd85449009d65edbe3b8b1c423c90d10af1d",
+    "lib/features/library/presentation/pages/library_page.dart": "e2046cc758fe1e72382548cc949dbae8f4aed19210d68686f8befdbc48cdcf35",
     "lib/features/library/presentation/widgets/roster/artist_roster.dart": "c60482269290cdf5268dddc49095ffc63eb571aef25aa61256b97995686559b5",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
     "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
@@ -472,6 +472,17 @@
         ],
         "home": [
           "lib/features/shell/presentation/pages/app_shell_page.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-15",
+      "approval": "App Update 1.3 REF-1.3-05 (assigned by the user 2026-11-15): shared file lib/features/library/presentation/pages/library_page.dart waits for the first artist statistics (loaded or failed) before showing the Roster under a statistics sort, so no temporary A-Z featured artist is shown on a fresh entry. Behaviour only; Roster goldens, geometry and invariants unchanged (roster_baseline_test and artist_roster_test pass). No protected owned file changed.",
+      "protectedChanges": {},
+      "sharedChanges": {
+        "roster": [
+          "lib/features/library/presentation/pages/library_page.dart"
         ]
       },
       "dependencyListChanges": []
