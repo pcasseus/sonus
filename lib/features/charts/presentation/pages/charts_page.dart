@@ -1000,29 +1000,33 @@ class _MomentPost extends StatelessWidget {
     final track = controller.trackForMoment(item);
     final album = controller.albumForMoment(item);
     final artist = controller.artistForMoment(item);
-    final playable =
-        track != null &&
-        !track.isBlocked &&
-        track.isAvailable &&
-        (track.filePath?.trim().isNotEmpty ?? false);
 
     // App Update 1.1: the card opens the expanded story, where the song,
     // release and artist links live (the approved hybrid design).
     final release = controller.relatedReleaseForMoment(item);
     final portrait = controller.artistPortraitPathForMoment(item);
+    // App Update 1.3 (REF-1.3-03): the Related row never suggests the
+    // story's own recording, only other songs of its album, else of its
+    // primary artist, else none (MomentRelatedSongs).
+    // A song the listener blocked suggests nothing; one whose file is
+    // missing still suggests its album's other songs.
+    final suggestions = track != null && !track.isBlocked
+        ? controller.relatedSongsForMoment(item)
+        : const <LibraryTrack>[];
     final related = <MomentRelatedLink>[
-      if (playable && track.songId == item.entity.entityId)
+      for (final song in suggestions)
         MomentRelatedLink(
           kind: 'Song',
-          title: track.title,
-          subtitle: 'Song • ${track.artistName}',
+          id: song.songId,
+          title: song.displayTitle,
+          subtitle: 'Song • ${song.artistName}',
           image: MomentImage(
             kind: MomentImageKind.cover,
-            entityId: track.songId,
-            path: controller.momentLookups.currentSongCover(track.songId),
+            entityId: song.songId,
+            path: controller.momentLookups.currentSongCover(song.songId),
           ),
           onOpen: () =>
-              unawaited(_showChartTrackContext(context, track, [track])),
+              unawaited(_showChartTrackContext(context, song, [song])),
         ),
       if (album != null && release != null)
         MomentRelatedLink(

@@ -22,10 +22,15 @@ class MomentRelatedLink {
     required this.subtitle,
     required this.image,
     required this.onOpen,
+    this.id,
   });
 
   /// "Song", "Album", "EP" or "Artist".
   final String kind;
+
+  /// The linked entity, when the row can hold several of one [kind] (the
+  /// suggested songs, App Update 1.3); it keeps each card's key unique.
+  final String? id;
   final String title;
   final String subtitle;
   final MomentImage image;
@@ -994,7 +999,11 @@ class _RelatedRow extends StatelessWidget {
               lift: artist ? 0.22 : 0.08,
             ),
             child: InkWell(
-              key: ValueKey<String>('moment-story-related-${link.kind}'),
+              key: ValueKey<String>(
+                link.id == null
+                    ? 'moment-story-related-${link.kind}'
+                    : 'moment-story-related-${link.kind}-${link.id}',
+              ),
               borderRadius: BorderRadius.circular(18),
               onTap: link.onOpen,
               child: Padding(

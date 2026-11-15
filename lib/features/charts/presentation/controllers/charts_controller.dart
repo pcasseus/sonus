@@ -39,6 +39,7 @@ import '../editorial/moment_publisher.dart';
 import '../models/chart_album_presentation.dart';
 import '../models/chart_longevity.dart';
 import '../models/moment_edition_resolver.dart';
+import '../models/moment_related_songs.dart';
 import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
@@ -1011,6 +1012,25 @@ class ChartsController extends ChangeNotifier {
       item.chartType == ChartType.songs
       ? _tracksById[item.entity.entityId]
       : null;
+
+  /// The other songs a song story's Related row suggests (App Update 1.3,
+  /// REF-1.3-03): never the story's own recording. See
+  /// [MomentRelatedSongs]. Empty for release stories and for songs no
+  /// longer in the library. Presentation only.
+  List<LibraryTrack> relatedSongsForMoment(ChartMomentFeedItem item) {
+    final track = trackForMoment(item);
+    if (track == null) return const [];
+    final chart = _allTimeChart;
+    final ranks = chart != null && chart.chartType == ChartType.songs
+        ? {for (final entry in chart.entries) entry.entity.entityId: entry.rank}
+        : const <String, int>{};
+    return MomentRelatedSongs.select(
+      current: track,
+      library: _tracksById.values,
+      editionsOf: _momentEditions.editionIdsOf,
+      allTimeRankOf: (songId) => ranks[songId],
+    );
+  }
 
   /// The album a Moment is about, or the album of its song.
   /// The release title an album-chart story's release button names: the

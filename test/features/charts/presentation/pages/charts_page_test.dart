@@ -1741,15 +1741,18 @@ void main() {
     await tester.pump();
 
     // App Update 1.1: the card opens the expanded story, whose Related
-    // section links to the song, the release and the artist.
+    // section links to the release and the artist. App Update 1.3
+    // (REF-1.3-03): it never suggests the story's own song, and the album
+    // has no other song to suggest.
     await tester.tap(_postPart('open'));
     await tester.pumpAndSettle();
-    for (final link in ['Song', 'Album', 'Artist']) {
+    for (final link in ['Album', 'Artist']) {
       expect(
         find.byKey(ValueKey<String>('moment-story-related-$link')),
         findsOneWidget,
       );
     }
+    expect(_relatedSongs(), findsNothing);
     // Sonus never invents engagement.
     expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
     expect(find.byIcon(Icons.repeat_rounded), findsNothing);
@@ -1771,6 +1774,59 @@ void main() {
           .initialEditionId,
       'edition_1',
     );
+  });
+
+  testWidgets("Related suggests the album's other songs, never the "
+      "story's own (REF-1.3-03)", (tester) async {
+    final controller = await _controller(
+      tracks: [
+        _track(),
+        _track(
+          songId: 'songs_3',
+          title: 'Song 3',
+          trackNumber: 3,
+          filePath: 'C:/Music/song_3.mp3',
+        ),
+        _track(
+          songId: 'songs_2',
+          title: 'Song 2',
+          trackNumber: 2,
+          filePath: 'C:/Music/song_2.mp3',
+          versionLabel: 'Live',
+        ),
+      ],
+      albums: [_album(id: 'album_1')],
+      artists: [_artist()],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+          artistId: 'artist_1',
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
+
+    expect(
+      [
+        for (final element in _relatedSongs().evaluate())
+          (element.widget.key! as ValueKey<String>).value,
+      ],
+      [
+        'moment-story-related-Song-songs_2',
+        'moment-story-related-Song-songs_3',
+      ],
+    );
+    // Current surfaces show the version (REF-1.3-01).
+    expect(find.text('Song 2 (Live)'), findsOneWidget);
   });
 
   testWidgets('a post only links to what exists in the library', (
@@ -2807,6 +2863,9 @@ ChartSnapshot _rankedSnapshot(int count, {int from = 1}) {
 }
 
 LibraryTrack _track({
+  String songId = 'songs_1',
+  String title = 'Song 1',
+  int trackNumber = 1,
   bool isAvailable = true,
   bool isBlocked = false,
   String? filePath = 'C:/Music/song_1.mp3',
@@ -2814,8 +2873,8 @@ LibraryTrack _track({
   List<String> featured = const [],
 }) {
   return LibraryTrack(
-    songId: 'songs_1',
-    title: 'Song 1',
+    songId: songId,
+    title: title,
     artistId: 'artist_1',
     artistName: 'Artist 1',
     albumId: 'album_1',
@@ -2823,7 +2882,7 @@ LibraryTrack _track({
     albumEditionId: 'edition_1',
     albumEditionTitle: 'Standard',
     albumEditionType: AlbumEditionType.standard,
-    trackNumber: 1,
+    trackNumber: trackNumber,
     durationSeconds: 180,
     isSingle: false,
     featuredArtists: featured,
@@ -2834,6 +2893,15 @@ LibraryTrack _track({
     filePath: filePath,
   );
 }
+
+/// The Related row's suggested song cards.
+Finder _relatedSongs() => find.byWidgetPredicate(
+  (widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith(
+        'moment-story-related-Song',
+      ),
+);
 
 /// A part of the Moment post on screen, whatever its feed item id.
 Finder _postPart(String part) => find.byWidgetPredicate(
