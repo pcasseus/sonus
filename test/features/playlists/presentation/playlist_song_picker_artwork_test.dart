@@ -158,6 +158,15 @@ void main() {
           'created_at': stamp,
           'updated_at': stamp,
         });
+        await db.insert(DatabaseTables.mediaFileBindings, {
+          'id': 'binding_$id',
+          'song_id': 'song_$id',
+          'file_path': '/music/$id.mp3',
+          'normalized_path': '/music/$id.mp3',
+          'is_available': 1,
+          'created_at': stamp,
+          'updated_at': stamp,
+        });
         await db.insert(DatabaseTables.albumEditionTracks, {
           'album_edition_id': 'edition_$album',
           'song_id': 'song_$id',
