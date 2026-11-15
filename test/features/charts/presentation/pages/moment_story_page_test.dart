@@ -157,7 +157,8 @@ void main() {
     expect(calls, [(ChartType.songs, 'song-angel')]);
     expect(chart(story), findsOneWidget);
     expect(unavailable(story), findsNothing);
-    expect(find.textContaining('all-time Sonus Hot 100'), findsOneWidget);
+    // App Update 1.3 (REF-1.3-06): the chart the journey is on.
+    expect(find.textContaining('on the Career Top 200'), findsOneWidget);
   });
 
   testWidgets('a weekly story never borrows the all-time journey', (
@@ -180,11 +181,56 @@ void main() {
     expect(
       find.descendant(
         of: unavailable(story),
-        matching: find.textContaining('weekly Sonus Hot 100'),
+        matching: find.textContaining(
+          'from the Weekly Hot 100. Day-by-day ranks are kept only for the '
+          'Career Top 200',
+        ),
       ),
       findsOneWidget,
     );
     expect(find.text('Total Days on Chart'), findsNothing);
+  });
+
+  // App Update 1.3 (REF-1.3-06): a weekly #114 is the weekly Bubbling
+  // Under, never the Hot 100; the journey's chart is the career Top 200.
+  testWidgets('a weekly Bubbling Under story names its own chart', (
+    tester,
+  ) async {
+    final story = _story([
+      _event(
+        ChartMomentScope.finalized,
+        ChartMomentEventType.debut,
+        currentRank: 114,
+      ),
+    ]);
+    await pump(tester, story);
+    final reason = find.descendant(
+      of: unavailable(story),
+      matching: find.textContaining('from the Weekly Bubbling Under.'),
+    );
+    expect(reason, findsOneWidget);
+    expect(find.textContaining('Weekly Hot 100'), findsNothing);
+  });
+
+  testWidgets('the facts name the career Top 200 and LIVE says it is '
+      'provisional', (tester) async {
+    final story = _story([
+      _event(
+        ChartMomentScope.allTime,
+        ChartMomentEventType.rankRise,
+        previousRank: 9,
+        currentRank: 3,
+      ),
+    ]);
+    await pump(tester, story);
+    expect(find.text('Career Top 200'), findsOneWidget);
+    expect(
+      find.textContaining(
+        "LIVE is today's position so far: provisional, and never added to "
+        'the finalized history.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('an artist story has no chart journey to show', (tester) async {

@@ -14,6 +14,7 @@ import '../../../core/design/widgets/sonus_surface_card.dart';
 import '../../analytics/presentation/pulse/pulse_format.dart';
 import '../../charts/presentation/models/chart_entry_movement.dart';
 import '../../charts/presentation/models/chart_week_label.dart';
+import '../../charts/domain/models/chart_type.dart';
 import '../../charts/presentation/widgets/chart_extended_divider.dart';
 import '../../charts/presentation/widgets/chart_movement_indicator.dart';
 import '../../library/application/models/library_track.dart';
@@ -501,9 +502,12 @@ class _CareerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
     final theme = Theme.of(context);
-    final zone = career.isHot100
-        ? ChartZoneNames.hot100
-        : ChartZoneNames.bubblingUnder;
+    // App Update 1.3 (REF-1.3-06): named with its chart.
+    final zone = ChartZoneNames.zoneOf(
+      ChartType.songs,
+      career.rank,
+      allTime: true,
+    );
 
     return SonusSurfaceCard(
       key: const ValueKey<String>('song-stats-career'),
@@ -572,9 +576,11 @@ class _LiveCard extends StatelessWidget {
       weekStartUtc: live.weekStartUtc,
       weekEndUtc: live.weekEndUtc,
     );
-    final zone = live.isHot100
-        ? ChartZoneNames.hot100
-        : ChartZoneNames.bubblingUnder;
+    final zone = ChartZoneNames.zoneOf(
+      ChartType.songs,
+      live.rank,
+      allTime: false,
+    );
     final best = live.bestSoFarRank;
 
     return SonusSurfaceCard(
@@ -664,7 +670,8 @@ class _FinalizedTiles extends StatelessWidget {
 
   final SongChartHistory history;
 
-  static String _zone(int rank) => rank <= 100 ? 'Hot 100' : 'Bubbling Under';
+  static String _zone(int rank) =>
+      ChartZoneNames.zoneOf(ChartType.songs, rank, allTime: false);
 
   static String _weeks(int n) => n == 1 ? '1 week' : '$n weeks';
 
@@ -763,7 +770,7 @@ class _WeekRow extends StatelessWidget {
       SongChartWeekEvent.reentry => colors.chartReentry,
       SongChartWeekEvent.same => colors.textSecondary,
     };
-    final zone = week.isHot100 ? 'Hot 100' : 'Bubbling Under';
+    final zone = week.isHot100 ? 'Weekly Hot 100' : 'Weekly Bubbling Under';
     final label = chartWeekLabel(week.weekStartUtc, week.weekEndUtc);
     final badges = [
       if (week.newPeak) 'NEW PEAK',

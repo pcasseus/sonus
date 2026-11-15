@@ -1429,7 +1429,11 @@ class _ChartSummary extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
 
-    final name = _boardName(chartType, board);
+    final name = _boardName(
+      chartType,
+      board,
+      allTime: !isWeeklyHistory && !isThisWeek,
+    );
 
     // The name and count wrap under each other with large text instead of
     // overflowing; the information button stays at the end of the row.
@@ -1472,7 +1476,8 @@ class _ChartSummary extends StatelessWidget {
           ),
         IconButton(
           key: const ValueKey<String>('charts-info-button'),
-          tooltip: 'About the $name',
+          // The sheet it opens is about the whole chart.
+          tooltip: 'About the ${ChartZoneNames.chart(chartType)}',
           icon: Icon(Icons.info_outline_rounded, color: colors.textSecondary),
           onPressed: () => showChartInfoSheet(
             context,
@@ -1982,12 +1987,14 @@ ChartRowTier _rowTier(ChartsController controller, ChartEntry entry) =>
     ? ChartRowTier.compact
     : ChartRowTier.of(entry);
 
-String _boardName(ChartType type, ChartBoard board) => switch ((type, board)) {
-  (_, ChartBoard.top100) => ChartZoneNames.chart(type),
-  (ChartType.songs, ChartBoard.extended) => ChartZoneNames.bubblingUnder,
-  (ChartType.albums, ChartBoard.extended) =>
-    '${ChartZoneNames.releases} #101–200',
-};
+/// App Update 1.3 (REF-1.3-06): the board's zone, named with its chart:
+/// "Career Hot 100", "Weekly Bubbling Under".
+String _boardName(ChartType type, ChartBoard board, {required bool allTime}) =>
+    ChartZoneNames.zoneOf(
+      type,
+      board == ChartBoard.top100 ? 1 : 101,
+      allTime: allTime,
+    );
 
 /// Hot 100 | Bubbling Under (Albums & EPs: Top 100 | #101–200).
 class _ChartBoardSelector extends StatelessWidget {

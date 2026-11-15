@@ -335,7 +335,8 @@ void main() {
         listening: _empty().listening,
       ),
     );
-    expect(find.text('Sonus Bubbling Under'), findsOneWidget);
+    // App Update 1.3 (REF-1.3-06): named with its chart.
+    expect(find.text('Weekly Bubbling Under'), findsOneWidget);
     // Never a percentage for a song outside the Hot 100's own movement.
     expect(find.textContaining('%'), findsNothing);
     expect(
@@ -377,7 +378,15 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey<String>('song-stats-career')),
-        matching: find.text('Sonus Bubbling Under'),
+        matching: find.text('Career Bubbling Under'),
+      ),
+      findsOneWidget,
+    );
+    // App Update 1.3 (REF-1.3-06): #2 this week is on the weekly Hot 100.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('song-stats-live')),
+        matching: find.text('Weekly Hot 100'),
       ),
       findsOneWidget,
     );

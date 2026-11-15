@@ -14,6 +14,7 @@ import '../editorial/moment_family.dart';
 import '../editorial/moment_visuals.dart';
 import '../news/moment_feed_cards.dart';
 import '../news/moment_story_format.dart';
+import '../widgets/chart_extended_divider.dart';
 
 /// A song, release or artist the story is about, as a working link.
 class MomentRelatedLink {
@@ -82,17 +83,20 @@ class _MomentStoryPageState extends State<MomentStoryPage> {
   String? get _unavailableReason {
     final story = widget.story;
     final item = story.item;
-    final chart = item.chartType == ChartType.albums
-        ? 'Sonus Albums & EPs'
-        : 'Sonus Hot 100';
+    // App Update 1.3 (REF-1.3-06): each chart named for what it is.
+    final rank = story.facts.rank;
+    final weekly = rank == null
+        ? ChartZoneNames.chartOf(item.chartType, allTime: false)
+        : ChartZoneNames.zoneOf(item.chartType, rank, allTime: false);
+    final allTime = ChartZoneNames.chartOf(item.chartType, allTime: true);
     if (story.family.name.startsWith('artist') ||
         item.subjectType == ChartMomentFeedSubjectType.artist) {
       return 'Chart journeys follow songs and releases; this story is about '
           'an artist.';
     }
     if (item.scope != ChartMomentScope.allTime) {
-      return 'This story is from the weekly $chart. Day-by-day ranks are '
-          'kept only for the all-time $chart, so no journey is shown here.';
+      return 'This story is from the $weekly. Day-by-day ranks are kept '
+          'only for the $allTime, so no journey is shown here.';
     }
     return null;
   }
@@ -630,9 +634,10 @@ class _JourneyCard extends StatelessWidget {
     final theme = Theme.of(context);
     final journey = this.journey;
     final days = journey?.recent(MomentStoryPage.journeyDays) ?? const [];
-    final chartName = story.item.chartType == ChartType.albums
-        ? 'Sonus Albums & EPs'
-        : 'Sonus Hot 100';
+    final chartName = ChartZoneNames.chartOf(
+      story.item.chartType,
+      allTime: true,
+    );
 
     Widget content;
     final reason = unavailableReason;
@@ -711,8 +716,9 @@ class _JourneyCard extends StatelessWidget {
           if (reason == null) ...[
             const SizedBox(height: 4),
             Text(
-              'Rank at the close of each completed day, all-time $chartName. '
-              'LIVE is the position now, provisional until the day closes.',
+              'Rank at the close of each completed day on the $chartName. '
+              "LIVE is today's position so far: provisional, and never "
+              'added to the finalized history.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colors.textSecondary,
               ),
@@ -1061,7 +1067,7 @@ class _FactsCard extends StatelessWidget {
       (
         Icons.leaderboard_rounded,
         'Chart',
-        songs ? 'Sonus Hot 100' : 'Sonus Albums & EPs',
+        ChartZoneNames.chartOf(story.item.chartType, allTime: true),
       ),
       if (journey.peakRank != null)
         (Icons.north_rounded, 'Peak', '#${journey.peakRank}'),

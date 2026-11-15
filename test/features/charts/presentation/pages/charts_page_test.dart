@@ -1037,7 +1037,9 @@ void main() {
 
       expect(row(100), findsNothing);
       expect(row(101), findsOneWidget);
-      expect(find.text('Sonus Bubbling Under'), findsOneWidget);
+      // App Update 1.3 (REF-1.3-06): the default view's zone is named with
+      // its chart.
+      expect(find.text('Career Bubbling Under'), findsOneWidget);
       // Bubbling Under keeps the real Top 200 position: #101, never #1.
       expect(
         find.descendant(of: row(101), matching: find.text('101')),
@@ -1471,6 +1473,36 @@ void main() {
       expect(find.text('CURRENT'), findsOneWidget);
       expect(find.text('IN PROGRESS'), findsNothing);
       expect(find.textContaining('Best so far'), findsNothing);
+    });
+
+    // App Update 1.3 (REF-1.3-06): the board names its chart.
+    testWidgets('the boards say which chart they are', (tester) async {
+      final controller = await withThisWeek();
+      await _pumpPage(tester, controller);
+      final summary = find.byKey(
+        const ValueKey<String>('charts-snapshot-summary'),
+      );
+      expect(
+        find.descendant(of: summary, matching: find.text('Career Hot 100')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingThisWeek, isTrue);
+      expect(
+        find.descendant(of: summary, matching: find.text('Weekly Hot 100')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingHistory, isTrue);
+      expect(
+        find.descendant(of: summary, matching: find.text('Weekly Hot 100')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('About the Sonus Hot 100'), findsOneWidget);
     });
 
     testWidgets('is clearly provisional, with its best so far apart from the '
