@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../application/models/playlist_add_result.dart';
@@ -56,6 +57,9 @@ class PlaylistSongPickerPage extends StatefulWidget {
   @override
   State<PlaylistSongPickerPage> createState() => _PlaylistSongPickerPageState();
 }
+
+/// Cover thumbnails in the list: the size Sonus song rows use.
+const double _artworkSize = 48;
 
 class _PlaylistSongPickerPageState extends State<PlaylistSongPickerPage> {
   final TextEditingController _search = TextEditingController();
@@ -183,6 +187,10 @@ class _PlaylistSongPickerPageState extends State<PlaylistSongPickerPage> {
         title: 'No songs match "${controller.query.trim()}"',
       );
     }
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final theme = Theme.of(context);
+    // Lazy: only rows on screen are built, so large libraries scroll
+    // smoothly.
     return ListView.builder(
       key: const PageStorageKey<String>('song-picker-list'),
       itemCount: tracks.length,
@@ -194,6 +202,11 @@ class _PlaylistSongPickerPageState extends State<PlaylistSongPickerPage> {
           track.artistName,
           if (track.albumTitle.isNotEmpty) track.albumTitle,
         ].join(' • ');
+        // Checkbox, then the song's cover, then its title and details
+        // (App Update 1.3). The cover is the library's resolved song
+        // artwork (the song's own, else its release's), decoded at
+        // thumbnail size, with the shared placeholder when there is none.
+        // It is decorative: the row is read by its title and details.
         return CheckboxListTile(
           key: ValueKey<String>('song-picker-row-${track.songId}'),
           value: inPlaylist || selected,
@@ -201,18 +214,43 @@ class _PlaylistSongPickerPageState extends State<PlaylistSongPickerPage> {
               ? null
               : (_) => controller.toggle(track.songId),
           controlAffinity: ListTileControlAffinity.leading,
-          title: Text(
-            track.displayTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            inPlaylist ? 'In playlist • $subtitle' : subtitle,
-            key: inPlaylist
-                ? ValueKey<String>('song-picker-in-playlist-${track.songId}')
-                : null,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          title: Row(
+            children: [
+              SonusArtworkImage(
+                key: ValueKey<String>('song-picker-artwork-${track.songId}'),
+                path: track.artworkPath,
+                size: _artworkSize,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      track.displayTitle,
+                      // Large text: a second line rather than cutting a
+                      // long title short.
+                      maxLines: largeText ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      inPlaylist ? 'In playlist • $subtitle' : subtitle,
+                      key: inPlaylist
+                          ? ValueKey<String>(
+                              'song-picker-in-playlist-${track.songId}',
+                            )
+                          : null,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -242,35 +280,47 @@ class _AddBar extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
+          // One line normally: the count, then the buttons at the end. With
+          // large text on a narrow phone the buttons wrap below the count
+          // instead of running off the screen.
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
             children: [
-              Expanded(
-                child: Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    count == 1 ? '1 selected' : '$count selected',
-                    key: const ValueKey<String>('song-picker-count'),
-                    style: theme.textTheme.titleMedium,
-                  ),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  count == 1 ? '1 selected' : '$count selected',
+                  key: const ValueKey<String>('song-picker-count'),
+                  style: theme.textTheme.titleMedium,
                 ),
               ),
-              if (count > 0)
-                TextButton(
-                  key: const ValueKey<String>('song-picker-clear'),
-                  onPressed: busy ? null : onClear,
-                  child: const Text('Clear'),
-                ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                key: const ValueKey<String>('song-picker-add'),
-                onPressed: count == 0 || busy ? null : onAdd,
-                icon: busy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.playlist_add_rounded),
-                label: const Text('Add selected'),
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (count > 0)
+                    TextButton(
+                      key: const ValueKey<String>('song-picker-clear'),
+                      onPressed: busy ? null : onClear,
+                      child: const Text('Clear'),
+                    ),
+                  FilledButton.icon(
+                    key: const ValueKey<String>('song-picker-add'),
+                    onPressed: count == 0 || busy ? null : onAdd,
+                    icon: busy
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.playlist_add_rounded),
+                    label: const Text('Add selected'),
+                  ),
+                ],
               ),
             ],
           ),
