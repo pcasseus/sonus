@@ -1,10 +1,9 @@
 import 'dart:ui' show ImageFilter;
-import '../../domain/entities/song_single_presentation.dart';
 import '../../application/services/song_single_presentation_service.dart';
-import '../../application/models/single_cover_policy.dart';
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -538,7 +537,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                         !playableAlbumIds.contains(album.albumId),
                   );
                   // REF-16: songs marked as singles that live on an album
-                  // join the Singles section, once each, as themselves.
+                  // join the Singles section, once each, as themselves:
+                  // since App Update 1.3 as cards in the Singles rail.
                   final singleSongs = ArtistProfileSections.singleSongs(
                     tracks: controller.allTracks,
                     artistId: controller.artistId,
@@ -762,35 +762,34 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                               : 0),
                                     ),
                                     const SizedBox(height: 12),
-                                    if (cards.isNotEmpty)
-                                      ArtistProfileAlbumsGrid(
-                                        cards: cards,
-                                        onAlbumTap: (album) {
-                                          unawaited(
-                                            _pushAndRefresh(
-                                              AlbumProfilePage(
-                                                albumId: album.albumId,
-                                                initialAlbumTitle:
-                                                    album.displayTitle,
-                                              ),
+                                    ArtistProfileAlbumsGrid(
+                                      cards: shelf == ArtistReleaseShelf.singles
+                                          ? ArtistProfileSections.singlesRail(
+                                              releases: cards,
+                                              songs: singleSongs,
+                                              presentations: controller
+                                                  .singlePresentations,
+                                            )
+                                          : cards,
+                                      onSingleSongTap: (track) => unawaited(
+                                        openSongStats(
+                                          context,
+                                          songId: track.songId,
+                                          initialTitle: track.displayTitle,
+                                        ),
+                                      ),
+                                      onAlbumTap: (album) {
+                                        unawaited(
+                                          _pushAndRefresh(
+                                            AlbumProfilePage(
+                                              albumId: album.albumId,
+                                              initialAlbumTitle:
+                                                  album.displayTitle,
                                             ),
-                                          );
-                                        },
-                                      ),
-                                    if (shelf == ArtistReleaseShelf.singles &&
-                                        singleSongs.isNotEmpty) ...[
-                                      if (cards.isNotEmpty)
-                                        const SizedBox(height: 12),
-                                      _tracksList(
-                                        context,
-                                        controller,
-                                        userId,
-                                        atmosphere,
-                                        tracks: singleSongs,
-                                        keyPrefix: 'artist-single-song',
-                                        singles: controller.singlePresentations,
-                                      ),
-                                    ],
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ],
                                 ),
                               ),
@@ -1237,23 +1236,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     TrackSelectionController? selection,
     bool onGlass = false,
     bool groupByAlbum = false,
-    Map<String, SongSinglePresentation> singles = const {},
   }) {
     return ArtistProfileTracksList(
       tracks: tracks,
-      // App Update 1.3 (REF-1.3-04): Singles' own covers and dates.
-      artworkOverrides: {
-        for (final track in tracks)
-          track.songId: ?SingleCoverPolicy.profileCover(
-            single: singles[track.songId],
-            existing: track.artworkPath,
-          ),
-      },
-      releaseLabels: {
-        for (final track in tracks)
-          if (singles[track.songId]?.releaseDate case final date?)
-            track.songId: date.label,
-      },
       groupByAlbum: groupByAlbum,
       selection: selection,
       profileArtistId: profileArtistId,

@@ -5,8 +5,11 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/project_song_credit.dart';
+import '../../application/models/single_cover_policy.dart';
 import '../../domain/entities/library_organization.dart';
+import '../../domain/entities/release_date.dart';
 import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/entities/song_single_presentation.dart';
 
 /// A song in an artist's Top Tracks with its all-time qualified streams.
 class ArtistTopTrack {
@@ -37,8 +40,34 @@ enum ArtistReleaseShelf {
   };
 }
 
+/// One card in an Artist Profile release rail: a release, or (in Singles)
+/// a song the listener marked as a Single (App Update 1.3). Both are drawn
+/// by the same card.
+sealed class ArtistRailCard {
+  const ArtistRailCard();
+
+  /// Shown under the cover.
+  String get title;
+
+  /// "Single · 1 track".
+  String get summary;
+
+  /// Short text indicators under the summary.
+  List<String> get notes;
+
+  /// The cover file; null shows the placeholder.
+  String? get artworkPath;
+
+  /// What orders the rail: newest first, undated last.
+  ReleaseDate? get sortDate;
+
+  /// Breaks date ties: the title as stored, then [stableId].
+  String get sortTitle;
+  String get stableId;
+}
+
 /// One release card on the Artist Profile and what it needs to say.
-class ArtistReleaseCard {
+final class ArtistReleaseCard extends ArtistRailCard {
   const ArtistReleaseCard({
     required this.album,
     required this.format,
@@ -67,7 +96,23 @@ class ArtistReleaseCard {
   /// Soundtrack, cast recording or compilation (B-Q23).
   final ReleaseKind? kind;
 
+  @override
+  String get title => album.displayTitle;
+
+  @override
+  String? get artworkPath => album.artworkPath;
+
+  @override
+  ReleaseDate? get sortDate => album.releaseDateValue;
+
+  @override
+  String get sortTitle => album.title;
+
+  @override
+  String get stableId => 'album:${album.albumId}';
+
   /// "EP · 3 tracks": the format and the shown edition's track count.
+  @override
   String get summary {
     final count = album.trackCount == 1
         ? '1 track'
@@ -78,11 +123,49 @@ class ArtistReleaseCard {
   /// Short text indicators, most important first. Never colour alone.
   /// An unconfirmed format is not named on the card: [formatNeedsReview]
   /// stays available to the format editor and review flows.
+  @override
   List<String> get notes => [
     if (isUnavailable) 'Unavailable',
     if (alsoLive) 'Live',
     if (kind case final kind?) kind.label,
   ];
+}
+
+/// A song marked as a Single that lives on another release, shown in the
+/// Singles rail like a Single release (App Update 1.3). Presentation only:
+/// it is the song itself (its own Song ID, album placement and media), with
+/// its Single's own cover and release date when set.
+final class ArtistSingleSongCard extends ArtistRailCard {
+  const ArtistSingleSongCard({required this.track, this.presentation});
+
+  final LibraryTrack track;
+  final SongSinglePresentation? presentation;
+
+  @override
+  String get title => track.displayTitle;
+
+  @override
+  String get summary => 'Single · 1 track';
+
+  @override
+  List<String> get notes => const [];
+
+  /// The Single's own cover, otherwise the song's usual artwork.
+  @override
+  String? get artworkPath => SingleCoverPolicy.profileCover(
+    single: presentation,
+    existing: track.artworkPath,
+  );
+
+  /// Only the Single's own date: the album's date is not the Single's.
+  @override
+  ReleaseDate? get sortDate => presentation?.releaseDate;
+
+  @override
+  String get sortTitle => track.title;
+
+  @override
+  String get stableId => 'song:${track.songId}';
 }
 
 /// Someone credited on a project (an album owned by the profile's artist),
@@ -299,6 +382,55 @@ abstract final class ArtistProfileSections {
             seen.add(track.songId))
           track,
     ];
+  }
+
+  /// The Singles rail: Single releases and songs marked as Singles as one
+  /// collection (App Update 1.3), newest first by each one's own release
+  /// date, undated last, then title, then a stable ID ([compareRailCards]).
+  /// The releases keep the order they are given in; each song is placed
+  /// among them, so adding a song never reorders the releases.
+  static List<ArtistRailCard> singlesRail({
+    required List<ArtistReleaseCard> releases,
+    required List<LibraryTrack> songs,
+    required Map<String, SongSinglePresentation> presentations,
+  }) {
+    final songCards = [
+      for (final track in songs)
+        ArtistSingleSongCard(
+          track: track,
+          presentation: presentations[track.songId],
+        ),
+    ]..sort(compareRailCards);
+
+    final result = <ArtistRailCard>[];
+    var next = 0;
+    for (final release in releases) {
+      while (next < songCards.length &&
+          compareRailCards(songCards[next], release) < 0) {
+        result.add(songCards[next++]);
+      }
+      result.add(release);
+    }
+    result.addAll(songCards.skip(next));
+    return List.unmodifiable(result);
+  }
+
+  /// Rail order, as [compareReleases] orders releases: newest first, a
+  /// partial date by its start with the less exact one after, undated
+  /// last; then title, then stable ID, so ties never shift.
+  static int compareRailCards(ArtistRailCard a, ArtistRailCard b) {
+    final aDate = a.sortDate;
+    final bDate = b.sortDate;
+    if (aDate != null && bDate != null) {
+      final byDate = bDate.compareTo(aDate);
+      if (byDate != 0) return byDate;
+    } else if (aDate != null || bDate != null) {
+      return aDate == null ? 1 : -1;
+    }
+    final byTitle = a.sortTitle.toLowerCase().compareTo(
+      b.sortTitle.toLowerCase(),
+    );
+    return byTitle != 0 ? byTitle : a.stableId.compareTo(b.stableId);
   }
 
   /// Releases newest first by release date; undated releases last. A

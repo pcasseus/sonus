@@ -36,8 +36,6 @@ class ArtistProfileTracksList extends StatelessWidget {
     this.tileColor,
     this.profileArtistId,
     this.groupByAlbum = false,
-    this.artworkOverrides = const {},
-    this.releaseLabels = const {},
   });
 
   final List<LibraryTrack> tracks;
@@ -85,14 +83,6 @@ class ArtistProfileTracksList extends StatelessWidget {
   /// song keeps its plain row. Playing still uses [onPlay] per song, so
   /// queues are unchanged.
   final bool groupByAlbum;
-
-  /// A picture to show instead of the song's artwork, by Song ID: a
-  /// Single's own cover (App Update 1.3, REF-1.3-04).
-  final Map<String, String> artworkOverrides;
-
-  /// A release date to show first in the row's details, by Song ID: a
-  /// Single's own date ("April 17, 2026").
-  final Map<String, String> releaseLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -167,8 +157,6 @@ class ArtistProfileTracksList extends StatelessWidget {
 
     return _TrackTile(
       track: track,
-      artworkPath: artworkOverrides[track.songId] ?? track.artworkPath,
-      releaseLabel: releaseLabels[track.songId],
       keyPrefix: keyPrefix,
       rank: streamCounts == null ? null : firstRank + index,
       streamCount: streamCounts?[track.songId],
@@ -206,8 +194,6 @@ class ArtistProfileTracksList extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
-    required this.artworkPath,
-    this.releaseLabel,
     required this.keyPrefix,
     required this.rank,
     required this.streamCount,
@@ -235,8 +221,6 @@ class _TrackTile extends StatelessWidget {
   });
 
   final LibraryTrack track;
-  final String? artworkPath;
-  final String? releaseLabel;
   final String keyPrefix;
   final int? rank;
   final int? streamCount;
@@ -341,11 +325,7 @@ class _TrackTile extends StatelessWidget {
                   ),
                 ),
               ),
-            _TrackArtwork(
-              key: ValueKey<String>('$keyPrefix-artwork-${track.songId}'),
-              path: artworkPath,
-              size: 44,
-            ),
+            _TrackArtwork(track: track, size: 44),
           ],
         ),
         title: Text(
@@ -516,7 +496,7 @@ class _TrackTile extends StatelessWidget {
     Color color, {
     String? duration,
   }) {
-    final parts = <String>[?releaseLabel];
+    final parts = <String>[];
 
     if (track.isBlocked) {
       parts.add('Blacklisted');
@@ -687,7 +667,7 @@ class _AlbumGroupState extends State<_AlbumGroup> {
           ),
           contentPadding: const EdgeInsets.only(left: 12, right: 4),
           minVerticalPadding: 8,
-          leading: _TrackArtwork(path: artworkTrack.artworkPath, size: 44),
+          leading: _TrackArtwork(track: artworkTrack, size: 44),
           title: Text(
             title,
             maxLines: widget.largeText ? 3 : 1,
@@ -769,15 +749,15 @@ class _EmptySection extends StatelessWidget {
 }
 
 class _TrackArtwork extends StatelessWidget {
-  const _TrackArtwork({super.key, required this.path, required this.size});
+  const _TrackArtwork({required this.track, required this.size});
 
-  final String? path;
+  final LibraryTrack track;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
-    final path = this.path?.trim();
+    final path = track.artworkPath?.trim();
     final fallback = ColoredBox(
       color: tokens.colors.artworkPlaceholder,
       child: Icon(

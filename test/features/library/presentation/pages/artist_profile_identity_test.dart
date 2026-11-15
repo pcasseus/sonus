@@ -19,6 +19,7 @@ import 'package:sonus_next/features/library/domain/entities/song_artist_credit.d
 import 'package:sonus_next/features/library/domain/repositories/library_organization_repository.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 import 'artist_profile_page_test.dart' as base;
 
@@ -248,7 +249,7 @@ void main() {
 
   // App Update 1.3 (REF-1.3-04): a Single's own cover and date, and only
   // in the Singles section.
-  testWidgets('a Single shows its own cover and release date', (tester) async {
+  testWidgets('a Single card shows its own cover', (tester) async {
     final releases = [
       _release('album', 'Long Player', released: DateTime(2024, 6, 21)),
     ];
@@ -282,7 +283,6 @@ void main() {
       },
     );
 
-    final singles = key('artist-profile-singles');
     final artwork = find.descendant(
       of: key('artist-single-song-artwork-hit'),
       matching: find.byType(Image),
@@ -294,10 +294,229 @@ void main() {
           .path,
       '/art/hit-single.png',
     );
-    expect(
-      find.descendant(of: singles, matching: find.textContaining('April 2024')),
-      findsOneWidget,
+  });
+
+  // App Update 1.3 (post-preview correction): a song marked as a Single
+  // is a release-style card in the Singles rail, ordered by its own date.
+  group('Singles rail', () {
+    final releases = [
+      _release('album', 'Long Player', released: DateTime(2024, 6, 21)),
+      _release(
+        'r-2025',
+        '15 Minutes',
+        released: DateTime(2025, 1, 10),
+        trackCount: 1,
+      ),
+      _release(
+        'r-2023',
+        'I Have Never Felt More Alive',
+        released: DateTime(2023, 2, 1),
+        trackCount: 1,
+      ),
+    ];
+    final formats = {
+      'album': ReleaseFormat.album,
+      'r-2025': ReleaseFormat.single,
+      'r-2023': ReleaseFormat.single,
+    };
+
+    SongSinglePresentation single(
+      String songId, {
+      ReleaseDate? date,
+      String? cover,
+    }) => SongSinglePresentation(
+      songId: songId,
+      releaseDate: date,
+      artworkId: cover == null ? null : 'art-$songId',
+      artworkPath: cover,
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
     );
+
+    Future<void> pumpRail(
+      WidgetTester tester, {
+      bool isSingle = true,
+      String title = 'bittersweet',
+      Map<String, SongSinglePresentation>? singles,
+      Size size = const Size(411, 2400),
+    }) => pump(
+      tester,
+      size: size,
+      repository: _Repo(
+        library: releases,
+        artist: base.createArtist(albumCount: 3, songCount: 4),
+        albums: releases,
+        tracks: [
+          base.createTrack(
+            songId: 'hit',
+            title: title,
+            albumId: 'album',
+            isSingle: isSingle,
+          ),
+          base.createTrack(songId: 'deep', title: 'Deep Cut', albumId: 'album'),
+          base.createTrack(
+            songId: 'min',
+            title: '15 Minutes',
+            albumId: 'r-2025',
+          ),
+          base.createTrack(
+            songId: 'alive',
+            title: 'I Have Never Felt More Alive',
+            albumId: 'r-2023',
+          ),
+        ],
+      ),
+      libraryAlbums: releases,
+      formats: formats,
+      singles:
+          singles ??
+          {
+            'hit': single(
+              'hit',
+              date: ReleaseDate.of(2024, 4),
+              cover: '/art/hit-single.png',
+            ),
+          },
+    );
+
+    final cardKey = RegExp(r'^artist-(album|single-song)-(?!artwork-)');
+
+    // The rail's cards, left to right.
+    List<String> railOrder(WidgetTester tester) {
+      final rail = find.descendant(
+        of: key('artist-profile-singles'),
+        matching: key('artist-profile-albums-grid'),
+      );
+      final keys = [
+        for (final element
+            in find
+                .descendant(
+                  of: rail,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget.key is ValueKey<String> &&
+                        cardKey.hasMatch(
+                          (widget.key! as ValueKey<String>).value,
+                        ),
+                  ),
+                )
+                .evaluate())
+          (element.widget.key! as ValueKey<String>).value,
+      ];
+      keys.sort(
+        (a, b) => tester
+            .getTopLeft(key(a))
+            .dx
+            .compareTo(tester.getTopLeft(key(b)).dx),
+      );
+      return keys;
+    }
+
+    testWidgets('the Single is a card in the rail, placed by its own date, '
+        'with "Single · 1 track"; no song row', (tester) async {
+      await pumpRail(tester);
+
+      expect(railOrder(tester), [
+        'artist-album-r-2025',
+        'artist-single-song-hit',
+        'artist-album-r-2023',
+      ]);
+      final card = key('artist-single-song-hit');
+      expect(
+        find.descendant(of: card, matching: find.text('bittersweet')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('Single · 1 track')),
+        findsOneWidget,
+      );
+      // The same card size as the releases beside it.
+      expect(tester.getSize(card), tester.getSize(key('artist-album-r-2025')));
+      // No song rows in Singles; the album keeps its other songs.
+      expect(
+        find.descendant(
+          of: key('artist-profile-singles'),
+          matching: find.byType(ListTile),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: key('artist-profile-singles'),
+          matching: find.text('Deep Cut'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('no cover and no date: the usual artwork, after the dated '
+        'releases', (tester) async {
+      await pumpRail(tester, singles: const {});
+      expect(
+        find.descendant(
+          of: key('artist-single-song-artwork-hit'),
+          matching: find.byIcon(Icons.album_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(railOrder(tester), [
+        'artist-album-r-2025',
+        'artist-album-r-2023',
+        'artist-single-song-hit',
+      ]);
+    });
+
+    testWidgets("tapping the card opens the song's Song Stats", (tester) async {
+      await pumpRail(tester);
+      await tester.ensureVisible(key('artist-single-song-hit'));
+      await tester.tap(key('artist-single-song-hit'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'hit',
+      );
+    });
+
+    testWidgets('Single switched off: the card leaves the rail; switched '
+        'back on, it returns with its kept presentation', (tester) async {
+      final kept = {
+        'hit': single('hit', date: ReleaseDate.of(2024, 4), cover: '/a.png'),
+      };
+      await pumpRail(tester, isSingle: false, singles: kept);
+      expect(key('artist-single-song-hit'), findsNothing);
+      expect(railOrder(tester), ['artist-album-r-2025', 'artist-album-r-2023']);
+
+      await pumpRail(tester, singles: kept);
+      expect(railOrder(tester), [
+        'artist-album-r-2025',
+        'artist-single-song-hit',
+        'artist-album-r-2023',
+      ]);
+    });
+
+    testWidgets('a long title at 320 px and 2x text fits and is read as '
+        'one card', (tester) async {
+      final handle = tester.ensureSemantics();
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pumpRail(
+        tester,
+        size: const Size(320, 2400),
+        title: 'A very long single title that will never fit on one card',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.bySemanticsLabel(
+          RegExp('A very long single title.*Single · 1 track', dotAll: true),
+        ),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
   });
 
   testWidgets('releases are newest first, split into Albums, EPs and '
