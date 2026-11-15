@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/charts/application/services/chart_moment_feed_aggregator.dart';
 import 'package:sonus_next/features/charts/application/services/moment_chart_journey_service.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
@@ -202,5 +203,206 @@ void main() {
     expect(calls, isEmpty);
     expect(chart(story), findsNothing);
     expect(unavailable(story), findsOneWidget);
+  });
+
+  // App Update 1.3 (REF-1.3-02): the provisional live position after the
+  // completed days, never stored.
+  group('the live position', () {
+    final allTime = _story([
+      _event(
+        ChartMomentScope.allTime,
+        ChartMomentEventType.rankRise,
+        previousRank: 9,
+        currentRank: 3,
+      ),
+    ]);
+    final days = [
+      ChartDayStanding(dayStartLocal: DateTime(2026, 11, 4), rank: 4),
+      ChartDayStanding(dayStartLocal: DateTime(2026, 11, 5), rank: 3),
+    ];
+    MomentChartJourney journeyWith(
+      int? live, {
+      List<ChartDayStanding>? history,
+    }) => MomentChartJourney(
+      chartType: ChartType.songs,
+      entityId: 'song-angel',
+      days: history ?? days,
+      totals: const ChartDayTotals(chartDays: 2, hot100Days: 2),
+      peakRank: 3,
+      currentRank: live,
+    );
+
+    Future<void> open(
+      WidgetTester tester,
+      MomentStory story,
+      MomentJourneyLoader load, {
+      bool reduceMotion = false,
+      LibraryChangeSignal? changes,
+      bool settle = true,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(400, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(disableAnimations: reduceMotion),
+            child: child!,
+          ),
+          home: MomentStoryPage(
+            story: story,
+            now: _at,
+            journey: load,
+            changes: changes ?? LibraryChangeSignal(),
+          ),
+        ),
+      );
+      if (settle) await tester.pumpAndSettle();
+    }
+
+    Finder live() => find.byKey(const ValueKey<String>('moment-journey-live'));
+    Finder inLive(String text) =>
+        find.descendant(of: live(), matching: find.text(text));
+
+    testWidgets('a charting song: LIVE and its rank after the finalized '
+        'days, which keep their ranks', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final journey = journeyWith(2);
+      await open(tester, allTime, (_, _) async => journey);
+
+      expect(inLive('LIVE'), findsOneWidget);
+      expect(inLive('#2'), findsOneWidget);
+      expect(find.text('#4'), findsOneWidget);
+      expect(find.text('#3'), findsWidgets);
+      expect(
+        find.byKey(const ValueKey<String>('moment-journey-live-unranked')),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'Nov 5: #3, Live now, provisional: #2')),
+        findsOneWidget,
+      );
+      // The provisional position is never added to the history.
+      expect([for (final day in journey.days) day.rank], [4, 3]);
+      semantics.dispose();
+    });
+
+    testWidgets('not charting now: an explicit unranked live state', (
+      tester,
+    ) async {
+      await open(tester, allTime, (_, _) async => journeyWith(null));
+
+      expect(inLive('LIVE'), findsOneWidget);
+      expect(inLive('—'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('moment-journey-live-unranked')),
+        findsOneWidget,
+      );
+      expect(find.text('Not on the all-time chart right now.'), findsOneWidget);
+    });
+
+    testWidgets('a weekly story has no live position', (tester) async {
+      final weekly = _story([
+        _event(
+          ChartMomentScope.finalized,
+          ChartMomentEventType.newPeak,
+          previousRank: 9,
+          currentRank: 3,
+        ),
+      ]);
+      await open(tester, weekly, (_, _) async => journeyWith(2));
+      expect(live(), findsNothing);
+      expect(find.text('LIVE'), findsNothing);
+    });
+
+    testWidgets('one completed day and charting now still shows the live '
+        'position', (tester) async {
+      await open(
+        tester,
+        allTime,
+        (_, _) async => journeyWith(
+          7,
+          history: [
+            ChartDayStanding(dayStartLocal: DateTime(2026, 11, 5), rank: 9),
+          ],
+        ),
+      );
+      expect(chart(allTime), findsOneWidget);
+      expect(inLive('#7'), findsOneWidget);
+    });
+
+    testWidgets('no ranked day shown and not charting now: the unavailable '
+        'message, never an empty chart', (tester) async {
+      final offChart = [
+        for (var day = 1; day <= 9; day++)
+          ChartDayStanding(
+            dayStartLocal: DateTime(2026, 10, 27 + day),
+            rank: day <= 2 ? 40 : null,
+          ),
+      ];
+      await open(
+        tester,
+        allTime,
+        (_, _) async => journeyWith(null, history: offChart),
+      );
+      expect(chart(allTime), findsNothing);
+      expect(unavailable(allTime), findsOneWidget);
+    });
+
+    testWidgets('the marker pulses a few times, then rests', (tester) async {
+      await open(
+        tester,
+        allTime,
+        (_, _) async => journeyWith(2),
+        settle: false,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.hasRunningAnimations, isTrue, reason: 'pulsing');
+
+      await tester.pump(const Duration(seconds: 5));
+      expect(tester.hasRunningAnimations, isFalse, reason: 'at rest');
+    });
+
+    testWidgets('Reduce Motion: no pulse', (tester) async {
+      await open(
+        tester,
+        allTime,
+        (_, _) async => journeyWith(2),
+        reduceMotion: true,
+        settle: false,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.hasRunningAnimations, isFalse);
+      expect(inLive('#2'), findsOneWidget);
+    });
+
+    testWidgets('new listening refreshes the live position in place', (
+      tester,
+    ) async {
+      final changes = LibraryChangeSignal();
+      var rank = 5;
+      var loads = 0;
+      await open(tester, allTime, (_, _) async {
+        loads++;
+        return journeyWith(rank);
+      }, changes: changes);
+      expect(inLive('#5'), findsOneWidget);
+
+      rank = 1;
+      changes.notify(LibraryChangeKind.listeningRecorded);
+      await tester.pump(const Duration(milliseconds: 300));
+      // While it reloads, the journey stays on screen.
+      expect(chart(allTime), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.pumpAndSettle();
+
+      expect(loads, 2);
+      expect(inLive('#1'), findsOneWidget);
+      expect(find.text('#4'), findsOneWidget, reason: 'history unchanged');
+    });
   });
 }
