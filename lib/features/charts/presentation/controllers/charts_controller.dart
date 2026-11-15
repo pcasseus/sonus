@@ -701,11 +701,14 @@ class ChartsController extends ChangeNotifier {
 
   /// The title and credit line the current song chart shows for a song:
   /// its version qualifier and role-aware credits, so two recordings
-  /// sharing a base title read differently (SN-50 BUG-02). Null on weekly
-  /// views, whose rows keep their stored titles, and for songs no longer
-  /// in the library.
+  /// sharing a base title read differently (SN-50 BUG-02). Shown on the
+  /// career standings and, since App Update 1.3 (REF-1.3-01), on the
+  /// provisional This Week chart, which is built from the library now and
+  /// never stored. Null on finalized weeks, whose rows keep their stored
+  /// titles, and for songs no longer in the library. Display only: chart
+  /// identity is the song id, never the title.
   ({String title, String subtitle})? songPresentationFor(ChartEntry entry) {
-    if (!isViewingAllTime) return null;
+    if (!isViewingAllTime && !isViewingThisWeek) return null;
 
     final track = trackForEntry(entry);
     if (track == null) return null;

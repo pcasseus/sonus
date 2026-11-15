@@ -49,6 +49,8 @@ class ChartEntryCard extends StatefulWidget {
     this.previousExtendedRank,
     this.bestSoFarRank,
     this.movement,
+    this.title,
+    this.subtitle,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -203,6 +205,13 @@ class ChartEntryCard extends StatefulWidget {
   /// Charts 2.0 C2 movement and achievement for this view.
   final ChartEntryMovement? movement;
 
+  /// The title and credit line a current view shows, such as the song's
+  /// version and credits on the provisional This Week chart (App Update
+  /// 1.3, REF-1.3-01). Null shows the stored entry's title and
+  /// [subtitleFor], as finalized weeks always do.
+  final String? title;
+  final String? subtitle;
+
   @override
   State<ChartEntryCard> createState() => _ChartEntryCardState();
 }
@@ -223,11 +232,14 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
     final entry = widget.entry;
     final tier = ChartTierStyle.of(tokens, ChartRankTier.of(entry));
     final radius = BorderRadius.circular(tokens.metrics.cardRadius);
-    final subtitle = ChartEntryCard.subtitleFor(entry, widget.chartType);
+    final title = widget.title ?? entry.entity.title;
+    final subtitle =
+        widget.subtitle ?? ChartEntryCard.subtitleFor(entry, widget.chartType);
 
     final details = _EntryDetails(
       chartType: widget.chartType,
       entry: entry,
+      title: title,
       subtitle: subtitle,
       status: widget.status,
       isAllTime: widget.isAllTime,
@@ -285,6 +297,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
             child: Semantics(
               label: ChartEntryCard.semanticLabelFor(
                 entry,
+                title: title,
                 subtitle: subtitle,
                 status: widget.status,
                 isAllTime: widget.isAllTime,
@@ -446,6 +459,7 @@ class _EntryDetails extends StatelessWidget {
   const _EntryDetails({
     required this.entry,
     required this.chartType,
+    required this.title,
     required this.subtitle,
     required this.status,
     required this.isAllTime,
@@ -457,6 +471,7 @@ class _EntryDetails extends StatelessWidget {
 
   final ChartEntry entry;
   final ChartType chartType;
+  final String title;
   final String subtitle;
   final ChartEntryStatus? status;
   final bool isAllTime;
@@ -481,7 +496,7 @@ class _EntryDetails extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          entry.entity.title,
+          title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleMedium?.copyWith(

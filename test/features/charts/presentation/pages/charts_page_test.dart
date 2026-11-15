@@ -828,6 +828,55 @@ void main() {
       expect(find.textContaining('(Remix)'), findsNothing);
       expect(find.textContaining('Artist A'), findsNothing);
     });
+
+    // App Update 1.3 (REF-1.3-01): This Week is built from the library now
+    // and never stored, so it reads like the career standings; finalized
+    // weeks keep their stored titles (above).
+    testWidgets('the provisional This Week chart shows the version', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _controller(
+        tracks: [remix],
+        history: [_finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 3)],
+        thisWeek: _FakeThisWeekChartService(),
+      );
+
+      await _pumpPage(tester, controller);
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      expect(find.text('Song 1 (Remix)'), findsWidgets);
+      expect(find.text('Artist 1 Ft. Artist A • Album 1'), findsWidgets);
+      // Songs no longer in the library keep their recorded title.
+      expect(find.text('Song 2'), findsWidgets);
+      // The chart's identity is the song id, never the title.
+      expect(controller.entries.first.entity.entityId, 'songs_1');
+      expect(controller.entries.first.entity.title, 'Song 1');
+
+      // The full card reads the same, aloud too.
+      await _showDetails(tester, 'songs_1');
+      final card = find.byKey(
+        const ValueKey<String>('charts-entry-card-songs_1'),
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('Song 1 (Remix)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text('Artist 1 Ft. Artist A • Album 1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'Number 1, .*Song 1 \(Remix\)')),
+        findsWidgets,
+      );
+      semantics.dispose();
+    });
   });
 
   testWidgets('the release chart has its own explanation', (tester) async {

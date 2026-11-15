@@ -1627,6 +1627,8 @@ class _ChartEntryItem extends StatelessWidget {
           ? controller.weeklyPeakFor(entry)
           : null,
       movement: controller.movementFor(entry),
+      title: song?.title,
+      subtitle: song?.subtitle,
       onTap: onTap,
       onLongPress: onLongPress,
     );
