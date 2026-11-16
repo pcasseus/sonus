@@ -292,6 +292,16 @@ class ChartRankingEngine {
       return ChartMovement.reentry;
     }
 
+    // Bubbling Under is its own chart: back in #101–200 after a week away
+    // from the Top 200 is a RE-ENTRY there, never NEW, when an earlier
+    // finalized week had it in the Top 200 (App Update 1.3 movement rules;
+    // history peaks come only from persisted Top 200 rows).
+    if (currentRank > officialChartLimit &&
+        history?.previousExtendedRank == null &&
+        history?.peakRank != null) {
+      return ChartMovement.reentry;
+    }
+
     if (currentRank <= officialChartLimit &&
         state.hasReenteredOfficialChartThisWeek) {
       return ChartMovement.reentry;

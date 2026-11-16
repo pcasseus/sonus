@@ -158,7 +158,12 @@ class ChartEntryMovement {
 
     final newPeak =
         kind != ChartMoveKind.debut &&
-        _isNewPeak(entry, weekStartUtc: weekStartUtc, weekEndUtc: weekEndUtc);
+        _isNewPeak(
+          entry,
+          previousRank: extended,
+          weekStartUtc: weekStartUtc,
+          weekEndUtc: weekEndUtc,
+        );
 
     final achievement = switch (kind) {
       ChartMoveKind.debut => ChartAchievement.newEntry,
@@ -192,6 +197,7 @@ class ChartEntryMovement {
 
   static bool _isNewPeak(
     ChartEntry entry, {
+    required int? previousRank,
     DateTime? weekStartUtc,
     DateTime? weekEndUtc,
   }) {
@@ -200,9 +206,12 @@ class ChartEntryMovement {
     // A finalized week read from storage: the peak it reached that week.
     if (weekStartUtc == null || weekEndUtc == null) return false;
     final at = entry.peakAchievedAt.toUtc();
+    // Judged against last week's Top 200 position, so a Bubbling Under
+    // climb to its best position is a new peak too (App Update 1.3
+    // movement rules: NEW PEAK is the best position in the chart's history).
     return entry.peakRank == entry.rank &&
-        entry.previousFinalRank != null &&
-        entry.rank < entry.previousFinalRank! &&
+        previousRank != null &&
+        entry.rank < previousRank &&
         !at.isBefore(weekStartUtc.toUtc()) &&
         at.isBefore(weekEndUtc.toUtc());
   }
