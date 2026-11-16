@@ -522,10 +522,10 @@ class _StatCell extends StatelessWidget {
       label: spoken,
       excludeSemantics: true,
       child: Material(
-        color: Color.alphaBlend(
-          colors.textPrimary.withValues(alpha: 0.04),
-          Colors.transparent,
-        ),
+        // A dark inset over the open tile's gradient, never a grey block.
+        color: tokens.decoration.allowGradients
+            ? colors.background.withValues(alpha: 0.42)
+            : colors.textPrimary.withValues(alpha: 0.05),
         borderRadius: radius,
         child: stat.onTap == null
             ? body

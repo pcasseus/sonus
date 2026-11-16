@@ -395,6 +395,7 @@ class _ChartCompactRowState extends State<ChartCompactRow>
         ),
         gradient: style.outlineGradient,
         color: style.outlineGradient == null ? style.outline : null,
+        boxShadow: style.glow,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
@@ -403,27 +404,33 @@ class _ChartCompactRowState extends State<ChartCompactRow>
             color: style.background,
             gradient: style.backgroundGradient,
           ),
-          child: Material(
-            type: MaterialType.transparency,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: row),
-                    toggle,
-                  ],
-                ),
-                if (showDetails)
-                  SizeTransition(
-                    sizeFactor: CurvedAnimation(
-                      parent: reveal,
-                      curve: tokens.motion.curve,
-                    ),
-                    alignment: Alignment.topCenter,
-                    child: Builder(builder: widget.details),
+          child: CustomPaint(
+            key: style.flow == null
+                ? null
+                : ValueKey<String>('charts-tile-flow-$id'),
+            painter: style.flow,
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: row),
+                      toggle,
+                    ],
                   ),
-              ],
+                  if (showDetails)
+                    SizeTransition(
+                      sizeFactor: CurvedAnimation(
+                        parent: reveal,
+                        curve: tokens.motion.curve,
+                      ),
+                      alignment: Alignment.topCenter,
+                      child: Builder(builder: widget.details),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -433,15 +440,22 @@ class _ChartCompactRowState extends State<ChartCompactRow>
 }
 
 /// The tile's outline and fill. Every tile has the same outline width, so
-/// selection and the Top 10 accents never change a row's size. Without
-/// gradients (High contrast, Low effects, Decoration Off) and in Monochrome
-/// the outline is a plain colour.
+/// selection and the Top 10 accents never change a row's size.
+///
+/// The open entry alone gets the signature treatment (App Update 1.3 Chart
+/// Studio polish): a cyan-to-pink outline with a soft glow, a deep base
+/// washed with both accents, and static flowing ribbons behind its header.
+/// Closed rows keep quiet, low-contrast outlines. Without gradients (High
+/// contrast, Low effects, Decoration Off) and in Monochrome everything is a
+/// plain colour; the ribbons never move, so Reduce Motion needs no variant.
 class _TileStyle {
   const _TileStyle({
     required this.outline,
     required this.background,
     this.outlineGradient,
     this.backgroundGradient,
+    this.glow,
+    this.flow,
   });
 
   static const double outlineWidth = 1.5;
@@ -460,32 +474,61 @@ class _TileStyle {
         Color.alphaBlend(tint.withValues(alpha: alpha), colors.surface);
 
     if (selected) {
+      // A deep base from the page colour, never a flat grey surface.
+      Color deep(Color tint, double alpha) =>
+          Color.alphaBlend(tint.withValues(alpha: alpha), colors.background);
       return _TileStyle(
         outline: grey ? colors.textPrimary : colors.focus,
         outlineGradient: gradients
             ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [a, b],
+                colors: [a, Color.lerp(a, b, 0.5)!, b],
               )
             : null,
-        background: over(colors.textPrimary, 0.04),
+        glow: gradients && tokens.decoration.allowGlow
+            ? [
+                BoxShadow(
+                  color: a.withValues(alpha: 0.22),
+                  blurRadius: 14,
+                  offset: const Offset(-2, -1),
+                ),
+                BoxShadow(
+                  color: b.withValues(alpha: 0.2),
+                  blurRadius: 14,
+                  offset: const Offset(2, 2),
+                ),
+              ]
+            : null,
+        background: gradients
+            ? deep(a, 0.05)
+            : Color.alphaBlend(
+                colors.textPrimary.withValues(alpha: 0.04),
+                colors.surface,
+              ),
         backgroundGradient: gradients
             ? LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [over(a, 0.14), over(b, 0.05), over(b, 0.12)],
+                stops: const [0, 0.38, 0.72, 1],
+                colors: [
+                  deep(a, 0.2),
+                  deep(a, 0.04),
+                  deep(b, 0.08),
+                  deep(b, 0.2),
+                ],
               )
             : null,
+        flow: gradients ? _FlowPainter(a: a, b: b) : null,
       );
     }
     return _TileStyle(
       outline: switch (tier) {
         _ when grey || tokens.decoration.highContrast => colors.border,
-        ChartRowTier.featured => over(a, 0.55),
-        ChartRowTier.topTen => over(a, 0.3),
+        ChartRowTier.featured => over(a, 0.26),
+        ChartRowTier.topTen => over(a, 0.12),
         ChartRowTier.compact => Color.alphaBlend(
-          colors.border.withValues(alpha: 0.6),
+          colors.border.withValues(alpha: 0.12),
           colors.surface,
         ),
       },
@@ -497,4 +540,66 @@ class _TileStyle {
   final Gradient? outlineGradient;
   final Color background;
   final Gradient? backgroundGradient;
+  final List<BoxShadow>? glow;
+  final CustomPainter? flow;
+}
+
+/// Static ribbons sweeping up to the open tile's top-right corner, in the
+/// two accents (the approved reference's flowing gradient). Painted behind
+/// the content and never animated.
+class _FlowPainter extends CustomPainter {
+  const _FlowPainter({required this.a, required this.b});
+
+  final Color a;
+  final Color b;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // The ribbons live in the header band, whatever the tile's height.
+    final band = Rect.fromLTWH(0, 0, size.width, size.height.clamp(0, 140));
+    final w = band.width;
+    final h = band.height;
+    final shader = LinearGradient(
+      colors: [a.withValues(alpha: 0), a, b],
+      stops: const [0, 0.45, 1],
+    ).createShader(Rect.fromLTWH(w * 0.35, 0, w * 0.65, h));
+
+    Path ribbon(double lift) => Path()
+      ..moveTo(w * 0.38, h * (0.95 - lift))
+      ..cubicTo(
+        w * 0.62,
+        h * (0.9 - lift),
+        w * 0.78,
+        h * (0.55 - lift),
+        w * 1.02,
+        h * (0.02 - lift * 0.5),
+      );
+
+    canvas.drawPath(
+      ribbon(0),
+      Paint()
+        ..shader = shader
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 26
+        ..color = const Color(0x24FFFFFF)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+    for (final (lift, width, alpha) in const [
+      (0.0, 1.6, 0.55),
+      (0.12, 1.0, 0.32),
+      (0.24, 0.8, 0.2),
+    ]) {
+      canvas.drawPath(
+        ribbon(lift),
+        Paint()
+          ..shader = shader
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..color = Color.fromRGBO(255, 255, 255, alpha),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FlowPainter old) => old.a != a || old.b != b;
 }
