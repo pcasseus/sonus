@@ -217,9 +217,9 @@ class _SinglePresentationEditorPageState
                 SwitchListTile(
                   key: const ValueKey<String>('single-cover-in-charts'),
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Use this cover in charts and Moments'),
+                  title: const Text('Use this cover in Moments'),
                   subtitle: const Text(
-                    'Otherwise charts and Moments keep the usual artwork.',
+                    'Otherwise Moments keep the usual artwork.',
                   ),
                   value: presentation?.useArtworkInCharts ?? false,
                   onChanged: cover == null || _busy

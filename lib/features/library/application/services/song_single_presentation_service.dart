@@ -6,7 +6,7 @@ import '../../domain/repositories/song_repository.dart';
 import '../../domain/repositories/song_single_presentation_repository.dart';
 
 /// Edits a song's Single presentation (App Update 1.3, REF-1.3-04): the
-/// release date, the dedicated cover and whether charts and Moments may
+/// release date, the dedicated cover and whether Moments may
 /// show it, each on its own.
 ///
 /// Never touches the song, its Single designation, its album, its edition
@@ -80,7 +80,7 @@ class SongSinglePresentationService {
     ),
   );
 
-  /// Whether charts and Moments may show the single cover.
+  /// Whether Moments may show the single cover (never chart rows).
   Future<SongSinglePresentation> setUseArtworkInCharts(
     String songId, {
     required bool value,

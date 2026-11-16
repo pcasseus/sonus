@@ -110,6 +110,13 @@ void main() {
       tester.widget<SwitchListTile>(_key('single-cover-in-charts')).value,
       isTrue,
     );
+    // Approved wording (App Update 1.3): the cover reaches Moments only,
+    // never chart rows.
+    expect(find.text('Use this cover in Moments'), findsOneWidget);
+    expect(
+      find.text('Otherwise Moments keep the usual artwork.'),
+      findsOneWidget,
+    );
 
     await tester.tap(_key('single-cover-remove'));
     await tester.pumpAndSettle();

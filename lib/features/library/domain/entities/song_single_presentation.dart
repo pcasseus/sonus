@@ -28,7 +28,8 @@ class SongSinglePresentation {
   /// The cover's file, when read with it.
   final String? artworkPath;
 
-  /// Whether charts and Moments may show the cover for this song.
+  /// Whether Moments may show the cover for this song. The name predates
+  /// the chart artwork correction; chart rows never use the cover.
   final bool useArtworkInCharts;
 
   final DateTime createdAt;
