@@ -47,10 +47,10 @@ void main() {
     });
   });
 
-  group('charts and Moments', () {
-    test('only for a Single whose cover was chosen for charts', () {
+  group('Moments', () {
+    test('only for a Single whose cover was chosen for Moments', () {
       String? cover({required bool isSingle, required bool inCharts}) =>
-          SingleCoverPolicy.chartCover(
+          SingleCoverPolicy.momentCover(
             isSingle: isSingle,
             single: _single(inCharts: inCharts),
             existing: '/art/usual.png',
@@ -63,7 +63,7 @@ void main() {
 
     test('a chosen cover without a file falls back to the usual art', () {
       expect(
-        SingleCoverPolicy.chartCover(
+        SingleCoverPolicy.momentCover(
           isSingle: true,
           single: _single(cover: null, inCharts: true),
           existing: '/art/usual.png',
@@ -71,7 +71,7 @@ void main() {
         '/art/usual.png',
       );
       expect(
-        SingleCoverPolicy.chartCover(
+        SingleCoverPolicy.momentCover(
           isSingle: true,
           single: null,
           existing: null,

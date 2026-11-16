@@ -171,8 +171,9 @@ class ChartsController extends ChangeNotifier {
   final SongEditionMembershipsLoader? _loadSongEditionMemberships;
   MomentEditionResolver _momentEditions = MomentEditionResolver.empty();
 
-  /// Singles' own covers (App Update 1.3, REF-1.3-04), shown on chart rows
-  /// and in Moments only where the listener chose to ([SingleCoverPolicy]).
+  /// Singles' own covers (App Update 1.3, REF-1.3-04), shown in Moments
+  /// only where the listener chose to; never on chart rows
+  /// ([SingleCoverPolicy]).
   final SinglePresentationsLoader? _loadSinglePresentations;
   Map<String, SongSinglePresentation> _singles = const {};
 
@@ -1243,14 +1244,6 @@ class ChartsController extends ChangeNotifier {
     }
   }
 
-  /// A song's picture on chart rows: its Single cover when chosen for
-  /// charts (App Update 1.3), otherwise its usual artwork.
-  String? songChartCover(LibraryTrack track) => SingleCoverPolicy.chartCover(
-    isSingle: track.isSingle,
-    single: _singles[track.songId],
-    existing: track.artworkPath,
-  );
-
   Future<List<SongEditionMembership>?> _readSongEditionMemberships() async {
     final load = _loadSongEditionMemberships;
     if (load == null) return null;
@@ -1750,12 +1743,12 @@ class _ControllerMomentLookups implements MomentLookups {
   /// [MomentEditionResolver.songCover]).
   ///
   /// App Update 1.3 (REF-1.3-04): a Single's own cover comes first when the
-  /// listener chose to show it in charts and Moments ([SingleCoverPolicy]).
+  /// listener chose to show it in Moments ([SingleCoverPolicy]).
   @override
   String? currentSongCover(String songId) {
     final track = _controller._tracksById[songId];
     if (track == null) return null;
-    return SingleCoverPolicy.chartCover(
+    return SingleCoverPolicy.momentCover(
       isSingle: track.isSingle,
       single: _controller._singles[songId],
       existing: _controller._momentEditions.songCover(

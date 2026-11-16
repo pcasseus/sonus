@@ -1907,9 +1907,9 @@ void main() {
     );
   });
 
-  // App Update 1.3 (REF-1.3-04): a Single's own cover on chart rows and in
-  // Moments only when the listener chose it; the release card keeps the
-  // release's cover.
+  // App Update 1.3 (REF-1.3-04): a Single's own cover in Moments only when
+  // the listener chose it; the release card keeps the release's cover.
+  // Chart rows never show it (App Update 1.3 chart artwork correction).
   group('Single covers', () {
     SongSinglePresentation single({required bool inCharts}) =>
         SongSinglePresentation(
@@ -1939,10 +1939,34 @@ void main() {
       singlePresentations: () async => {'songs_1': single(inCharts: inCharts)},
     );
 
-    test('chosen for charts: rows and Moments show it', () async {
+    String? rowArtwork(WidgetTester tester) => tester
+        .widget<ChartCompactRow>(
+          find.byKey(const ValueKey('charts-entry-songs_1')),
+        )
+        .artworkPath;
+
+    testWidgets('chosen: the chart row keeps the usual artwork', (
+      tester,
+    ) async {
       final controller = await controllerWith(isSingle: true, inCharts: true);
-      final track = controller.trackForEntry(controller.entries.single)!;
-      expect(controller.songChartCover(track), '/art/single.png');
+      await _pumpPage(tester, controller);
+      expect(rowArtwork(tester), '/art/usual.png');
+    });
+
+    testWidgets('a Single that was never given a chart choice keeps the '
+        'usual artwork on its row', (tester) async {
+      for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
+        final controller = await controllerWith(
+          isSingle: isSingle,
+          inCharts: inCharts,
+        );
+        await _pumpPage(tester, controller);
+        expect(rowArtwork(tester), '/art/usual.png');
+      }
+    });
+
+    test('chosen: Moments show it', () async {
+      final controller = await controllerWith(isSingle: true, inCharts: true);
       expect(
         controller.momentLookups.currentSongCover('songs_1'),
         '/art/single.png',
@@ -1955,20 +1979,21 @@ void main() {
       );
     });
 
-    test('not chosen, or no longer a Single: the usual artwork', () async {
-      for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
-        final controller = await controllerWith(
-          isSingle: isSingle,
-          inCharts: inCharts,
-        );
-        final track = controller.trackForEntry(controller.entries.single)!;
-        expect(controller.songChartCover(track), '/art/usual.png');
-        expect(
-          controller.momentLookups.currentSongCover('songs_1'),
-          isNot('/art/single.png'),
-        );
-      }
-    });
+    test(
+      'not chosen, or no longer a Single: Moments keep their artwork',
+      () async {
+        for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
+          final controller = await controllerWith(
+            isSingle: isSingle,
+            inCharts: inCharts,
+          );
+          expect(
+            controller.momentLookups.currentSongCover('songs_1'),
+            isNot('/art/single.png'),
+          );
+        }
+      },
+    );
   });
 
   testWidgets('a story opens with its song\'s version as a badge '
