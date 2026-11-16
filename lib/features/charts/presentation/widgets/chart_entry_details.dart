@@ -6,10 +6,10 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/all_time_entry_stats.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/services/all_time_history_replay.dart';
+import '../../../../core/design/sonus_count_label.dart';
+import '../models/chart_entry_text.dart';
 import '../models/chart_longevity.dart';
 import '../models/chart_rank_trend.dart';
-import 'all_time_chart_cards.dart';
-import 'chart_entry_card.dart';
 import 'chart_extended_divider.dart';
 import 'chart_longevity_facts.dart';
 
@@ -22,6 +22,63 @@ String chartGroupedCount(int value) {
     out.write(digits[i]);
   }
   return out.toString();
+}
+
+/// Every zone, as a sheet opened from an entry's details.
+Future<void> showZoneWeeksSheet(
+  BuildContext context, {
+  required String title,
+  required ZoneWeeks zones,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final colors = SonusTheme.of(sheetContext).colors;
+      final theme = Theme.of(sheetContext);
+
+      return SafeArea(
+        child: ListView(
+          key: const ValueKey<String>('charts-zone-weeks-sheet'),
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                'Weeks in zones',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$title · completed chart weeks in the career standings. A '
+              'week at #3 counts for the Top 3 and every larger zone.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final zone in ZoneWeeks.zones)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Top $zone'),
+                trailing: Text(
+                  '${zones.weeksIn(zone)} '
+                  '${sonusCountNoun(zones.weeksIn(zone), 'week')}',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 /// One statistic in the expanded entry.
@@ -118,7 +175,7 @@ class ChartDetailsData {
           ),
       ],
       facts: [
-        ChartEntryCard.lastWeekText(
+        ChartEntryText.lastWeekText(
           entry,
           isAllTime: true,
           previousExtendedRank: null,
@@ -170,7 +227,7 @@ class ChartDetailsData {
         ChartDetailStat(id: 'weeks', label: 'Weeks on chart', value: '$weeks'),
       ],
       facts: [
-        ChartEntryCard.lastWeekText(
+        ChartEntryText.lastWeekText(
           entry,
           isAllTime: false,
           previousExtendedRank: previousExtendedRank,

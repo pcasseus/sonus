@@ -32,9 +32,8 @@ import '../editorial/moment_publisher.dart';
 import '../models/chart_week_label.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
-import '../widgets/all_time_chart_cards.dart';
+import '../models/chart_entry_text.dart';
 import '../widgets/chart_board_rows.dart';
-import '../widgets/chart_entry_card.dart';
 import '../widgets/chart_entry_details.dart';
 import '../widgets/chart_row_expansion.dart';
 import '../widgets/chart_extended_divider.dart';
@@ -1644,7 +1643,7 @@ class _ChartEntryItem extends StatelessWidget {
       entry: entry,
       movement: movement,
       title: presentation?.title ?? song?.title ?? entry.entity.title,
-      subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
+      subtitle: song?.subtitle ?? ChartEntryText.subtitleFor(entry, chartType),
       artworkPath: artworkPath,
       fallbackIcon: chartType == ChartType.songs
           ? Icons.music_note_rounded

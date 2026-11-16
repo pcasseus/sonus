@@ -5,7 +5,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../models/chart_entry_movement.dart';
-import 'chart_entry_card.dart';
+import '../models/chart_entry_text.dart';
 import 'chart_movement_indicator.dart';
 import 'chart_row_expansion.dart';
 import 'chart_version_badge.dart';

@@ -6,9 +6,8 @@ import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.d
 import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/services/all_time_history_replay.dart';
+import 'package:sonus_next/features/charts/presentation/models/chart_entry_text.dart';
 import 'package:sonus_next/features/charts/presentation/models/chart_longevity.dart';
-import 'package:sonus_next/features/charts/presentation/widgets/all_time_chart_cards.dart';
-import 'package:sonus_next/features/charts/presentation/widgets/chart_entry_card.dart';
 import 'package:sonus_next/features/charts/presentation/widgets/chart_entry_details.dart';
 
 ChartEntry _entry({
@@ -155,5 +154,36 @@ void main() {
       expect(peak.value, '#1');
       expect(peak.detail, 'Peak #2');
     });
+  });
+
+  testWidgets('weeks in zones open the full breakdown', (tester) async {
+    const zones = ZoneWeeks({3: 1, 5: 2, 10: 4});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ChartEntryDetails(
+              entityId: 's1',
+              data: _career(
+                stats: const AllTimeEntryStats(zones: zones),
+                onShowZones: () =>
+                    showZoneWeeksSheet(context, title: 'Song', zones: zones),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-detail-tap-zones-s1')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('charts-zone-weeks-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('Top 10'), findsOneWidget);
+    expect(find.text('4 weeks'), findsOneWidget);
   });
 }
