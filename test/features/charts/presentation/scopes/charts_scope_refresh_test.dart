@@ -89,24 +89,19 @@ void main() {
     await settle(tester);
 
     expect(find.text('Title s1'), findsOneWidget);
-    // The full card, with its stream count, is the row's details.
+    // The stream count is in the row's details.
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-row-expand-s1')),
     );
     await settle(tester);
-    expect(
-      find.bySemanticsLabel(RegExp('3 lifetime streams,')),
-      findsOneWidget,
-    );
+    expect(find.bySemanticsLabel('Total streams, 3'), findsOneWidget);
 
     plays.addAll(qualifiedPlays('s1', 'a1', 2, thisWeek.add(_hour)));
     signal.notify(LibraryChangeKind.listeningRecorded);
     await settle(tester);
 
-    expect(
-      find.bySemanticsLabel(RegExp('5 lifetime streams,')),
-      findsOneWidget,
-    );
+    // Still open, and up to date.
+    expect(find.bySemanticsLabel('Total streams, 5'), findsOneWidget);
   });
 
   testWidgets('a burst of changes reloads once, and nothing after dispose', (
@@ -127,7 +122,7 @@ void main() {
       find.byKey(const ValueKey<String>('charts-row-expand-s1')),
     );
     await settle(tester);
-    expect(find.bySemanticsLabel(RegExp('1 lifetime stream,')), findsOneWidget);
+    expect(find.bySemanticsLabel('Total streams, 1'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
     final afterDispose = playRepository.getAllCalls;

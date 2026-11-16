@@ -35,6 +35,8 @@ import '../controllers/charts_controller.dart';
 import '../widgets/all_time_chart_cards.dart';
 import '../widgets/chart_board_rows.dart';
 import '../widgets/chart_entry_card.dart';
+import '../widgets/chart_entry_details.dart';
+import '../widgets/chart_row_expansion.dart';
 import '../widgets/chart_extended_divider.dart';
 import '../widgets/chart_info_sheet.dart';
 
@@ -79,120 +81,129 @@ class ChartsPage extends StatelessWidget {
         ? 'charts-scroll-${controller.chartType.name}-${controller.board.name}'
         : 'charts-scroll';
 
-    return _ScrollToTopHost(
-      builder: (scroll, rows) => RefreshIndicator(
-        onRefresh: controller.refresh,
-        child: _ChartScrollRail(
-          controller: scroll,
-          enabled: entries.length > 25,
-          child: CustomScrollView(
-            key: PageStorageKey<String>(scrollKey),
+    // One expanded row per chart view (App Update 1.3 Chart Studio).
+    final expansionView = [
+      scrollKey,
+      if (controller.isViewingThisWeek) 'this-week',
+      if (controller.selectedHistoricalSnapshot case final week?)
+        week.weekStartUtc.toIso8601String(),
+    ].join('/');
+
+    return ChartRowExpansionHost(
+      view: expansionView,
+      child: _ScrollToTopHost(
+        builder: (scroll, rows) => RefreshIndicator(
+          onRefresh: controller.refresh,
+          child: _ChartScrollRail(
             controller: scroll,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-                sliver: SliverList.list(
-                  children: [
-                    _ChartsHeader(moments: controller.isShowingMoments),
-                    const SizedBox(height: 18),
-                    _ChartsPresentationSelector(controller: controller),
-                    const SizedBox(height: 20),
-
-                    if (controller.isShowingCharts) ...[
-                      _ChartTypeSelector(controller: controller),
+            enabled: entries.length > 25,
+            child: CustomScrollView(
+              key: PageStorageKey<String>(scrollKey),
+              controller: scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+                  sliver: SliverList.list(
+                    children: [
+                      _ChartsHeader(moments: controller.isShowingMoments),
                       const SizedBox(height: 18),
-                      _WeekNavigator(controller: controller),
-                      const SizedBox(height: 18),
-                      _ChartBoardSelector(controller: controller),
-                      if (controller.board == ChartBoard.top100) ...[
-                        const SizedBox(height: 14),
-                        _ViewSizeSelector(controller: controller),
-                      ],
+                      _ChartsPresentationSelector(controller: controller),
+                      const SizedBox(height: 20),
 
-                      const SizedBox(height: 22),
+                      if (controller.isShowingCharts) ...[
+                        _ChartTypeSelector(controller: controller),
+                        const SizedBox(height: 18),
+                        _WeekNavigator(controller: controller),
+                        const SizedBox(height: 18),
+                        _ChartBoardSelector(controller: controller),
+                        if (controller.board == ChartBoard.top100) ...[
+                          const SizedBox(height: 14),
+                          _ViewSizeSelector(controller: controller),
+                        ],
 
-                      if (controller.hasError && hasChart) ...[
-                        _RefreshErrorBanner(onRetry: controller.refresh),
-                        const SizedBox(height: 16),
-                      ],
+                        const SizedBox(height: 22),
 
-                      if (entries.isEmpty &&
-                          controller.board == ChartBoard.extended)
-                        _ChartsMessage(
-                          key: const ValueKey<String>('charts-board-empty'),
-                          icon: Icons.bubble_chart_outlined,
-                          title: controller.chartType == ChartType.songs
-                              ? 'Nothing is bubbling under yet'
-                              : 'No positions below #100 yet',
-                          message: controller.chartType == ChartType.songs
-                              ? 'Songs ranked #101–200 appear here once more than 100 songs have qualified listens.'
-                              : 'Releases ranked #101–200 appear here once more than 100 releases have qualified listens.',
-                        )
-                      else if (entries.isEmpty)
-                        controller.isViewingThisWeek
-                            ? const _ChartsMessage(
-                                key: ValueKey<String>('charts-empty'),
-                                icon: Icons.leaderboard_outlined,
-                                title: 'No chart entries this week yet',
-                                message:
-                                    'Qualified listens this week will appear here as you listen.',
-                              )
-                            : const _ChartsMessage(
-                                key: ValueKey<String>('charts-empty'),
-                                icon: Icons.leaderboard_outlined,
-                                title: 'No chart entries yet',
-                                message:
-                                    'Every qualified listen counts toward your Sonus Hot 100 career standings.',
-                              )
-                      else ...[
-                        _ChartSummary(
-                          chartType: controller.chartType,
-                          board: controller.board,
-                          positionCount: entries.length,
-                          onJump: () => _jumpToRank(
-                            context,
-                            scroll: scroll,
-                            rows: rows,
-                            entries: entries,
-                          ),
-                          isWeeklyHistory: controller.isViewingHistory,
-                          isThisWeek: controller.isViewingThisWeek,
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-                    ] else
-                      _MomentsFeedHeader(controller: controller),
-                  ],
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-                sliver: controller.isShowingMoments
-                    ? _momentsFeedSliver(controller)
-                    : SliverList.builder(
-                        // Built lazily: only the rows on screen exist.
-                        itemCount: entries.length,
-                        itemBuilder: (context, index) {
-                          final entry = entries[index];
-                          final framed =
-                              _rowTier(controller, entry) !=
-                              ChartRowTier.compact;
-                          return _RankAnchor(
-                            rank: entry.rank,
-                            rows: rows,
-                            child: Padding(
-                              padding: EdgeInsets.only(bottom: framed ? 6 : 0),
-                              child: _ChartEntryItem(
-                                entry: entry,
-                                controller: controller,
-                              ),
+                        if (controller.hasError && hasChart) ...[
+                          _RefreshErrorBanner(onRetry: controller.refresh),
+                          const SizedBox(height: 16),
+                        ],
+
+                        if (entries.isEmpty &&
+                            controller.board == ChartBoard.extended)
+                          _ChartsMessage(
+                            key: const ValueKey<String>('charts-board-empty'),
+                            icon: Icons.bubble_chart_outlined,
+                            title: controller.chartType == ChartType.songs
+                                ? 'Nothing is bubbling under yet'
+                                : 'No positions below #100 yet',
+                            message: controller.chartType == ChartType.songs
+                                ? 'Songs ranked #101–200 appear here once more than 100 songs have qualified listens.'
+                                : 'Releases ranked #101–200 appear here once more than 100 releases have qualified listens.',
+                          )
+                        else if (entries.isEmpty)
+                          controller.isViewingThisWeek
+                              ? const _ChartsMessage(
+                                  key: ValueKey<String>('charts-empty'),
+                                  icon: Icons.leaderboard_outlined,
+                                  title: 'No chart entries this week yet',
+                                  message:
+                                      'Qualified listens this week will appear here as you listen.',
+                                )
+                              : const _ChartsMessage(
+                                  key: ValueKey<String>('charts-empty'),
+                                  icon: Icons.leaderboard_outlined,
+                                  title: 'No chart entries yet',
+                                  message:
+                                      'Every qualified listen counts toward your Sonus Hot 100 career standings.',
+                                )
+                        else ...[
+                          _ChartSummary(
+                            chartType: controller.chartType,
+                            board: controller.board,
+                            positionCount: entries.length,
+                            onJump: () => _jumpToRank(
+                              context,
+                              scroll: scroll,
+                              rows: rows,
+                              entries: entries,
                             ),
-                          );
-                        },
-                      ),
-              ),
-            ],
+                            isWeeklyHistory: controller.isViewingHistory,
+                            isThisWeek: controller.isViewingThisWeek,
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                      ] else
+                        _MomentsFeedHeader(controller: controller),
+                    ],
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                  sliver: controller.isShowingMoments
+                      ? _momentsFeedSliver(controller)
+                      : SliverList.builder(
+                          // Built lazily: only the rows on screen exist.
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            return _RankAnchor(
+                              rank: entry.rank,
+                              rows: rows,
+                              child: Padding(
+                                // Every position the same (Chart Studio).
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: _ChartEntryItem(
+                                  entry: entry,
+                                  controller: controller,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1579,134 +1590,80 @@ class _ChartEntryItem extends StatelessWidget {
           )
         : null;
 
+    final id = entry.entity.entityId;
+    final movement = controller.movementFor(entry);
     final allTime = controller.allTimeChart;
-    if (controller.isViewingAllTime && allTime != null) {
-      final stats = allTime.statsFor(entry);
-      final weeklyPeak = controller.weeklyPeakFor(entry);
+    final isCareer = controller.isViewingAllTime && allTime != null;
 
-      // Every position is a compact row; its full card opens from it.
-      final cardKey = ValueKey<String>(
-        'charts-entry-card-${entry.entity.entityId}',
-      );
-      final card = entry.rank == 1
-          ? AllTimeSpotlightCard(
-              key: cardKey,
+    // Built only while the row is expanded (App Update 1.3 Chart Studio).
+    Widget details(BuildContext context) {
+      final trend = controller.weeklyRankTrendFor(entry);
+      final title = presentation?.title ?? song?.title ?? entry.entity.title;
+      final data = isCareer
+          ? ChartDetailsData.career(
               entry: entry,
               chartType: chartType,
-              stats: stats,
-              artworkPath: artworkPath,
-              status: status,
-              weeklyPeakRank: weeklyPeak,
+              stats: allTime.statsFor(entry),
+              weeklyPeakRank: controller.weeklyPeakFor(entry),
               longevity: longevity,
-              title: presentation?.title ?? song?.title,
-              subtitle: song?.subtitle,
-              movement: controller.movementFor(entry),
-              onTap: onTap,
-              onLongPress: onLongPress,
+              isSingle: track?.isSingle ?? false,
+              status: status,
+              trend: trend,
+              movementNote: movement.crossChartNote ?? movement.percentLabel,
+              onShowZones: () => showZoneWeeksSheet(
+                context,
+                title: title,
+                zones: allTime.statsFor(entry).zones,
+              ),
             )
-          : AllTimeEntryCard(
-              key: cardKey,
+          : ChartDetailsData.weekly(
               entry: entry,
               chartType: chartType,
-              stats: stats,
-              artworkPath: artworkPath,
-              status: status,
-              weeklyPeakRank: weeklyPeak,
+              previousExtendedRank: controller.previousExtendedRankFor(entry),
+              bestSoFarRank: controller.bestSoFarRankFor(entry),
+              weeklyPeakRank: controller.isViewingThisWeek
+                  ? controller.weeklyPeakFor(entry)
+                  : null,
               longevity: longevity,
-              title: presentation?.title ?? song?.title,
-              subtitle: song?.subtitle,
-              movement: controller.movementFor(entry),
-              onTap: onTap,
-              onLongPress: onLongPress,
+              isSingle: track?.isSingle ?? false,
+              status: status,
+              trend: trend,
+              movementNote: movement.crossChartNote ?? movement.percentLabel,
             );
-      return _tiered(
-        card: card,
-        artworkPath: artworkPath,
-        title: presentation?.title ?? song?.title ?? entry.entity.title,
-        subtitle:
-            song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
-        status: status,
-        onTap: onTap,
-        onLongPress: onLongPress,
+      return ChartEntryDetails(
+        entityId: id,
+        data: data,
+        openLabel: chartType == ChartType.songs ? 'Song stats' : 'Open release',
+        onOpen: onTap,
       );
     }
 
-    final id = entry.entity.entityId;
-    final card = ChartEntryCard(
-      key: ValueKey<String>('charts-entry-card-$id'),
-      entry: entry,
-      chartType: chartType,
-      artworkPath: artworkPath,
-      status: status,
-      longevity: longevity,
-      previousExtendedRank: controller.previousExtendedRankFor(entry),
-      bestSoFarRank: controller.bestSoFarRankFor(entry),
-      weeklyPeakRank: controller.isViewingThisWeek
-          ? controller.weeklyPeakFor(entry)
-          : null,
-      movement: controller.movementFor(entry),
-      title: song?.title,
-      subtitle: song?.subtitle,
-      versionBadge: version,
-      onTap: onTap,
-      onLongPress: onLongPress,
-    );
-
-    return _tiered(
-      versionBadge: version,
-      card: card,
-      artworkPath: artworkPath,
-      title: presentation?.title ?? song?.title ?? entry.entity.title,
-      subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
-      status: status,
-      onTap: onTap,
-      onLongPress: onLongPress,
-    );
-  }
-
-  /// Charts 2.0 C3 tiers, compact since the SN-50 device polish: every
-  /// position is one compact row with the full card on expand; #1 keeps a
-  /// slim gradient frame and trophy, #2–10 a slim artwork-tinted frame.
-  Widget _tiered({
-    String? versionBadge,
-    required Widget card,
-    required String? artworkPath,
-    required String title,
-    required String subtitle,
-    required ChartEntryStatus? status,
-    required VoidCallback? onTap,
-    required VoidCallback? onLongPress,
-  }) {
-    final id = entry.entity.entityId;
     final tier = _rowTier(controller, entry);
     final row = ChartCompactRow(
       key: ValueKey<String>('charts-entry-$id'),
       entry: entry,
-      movement: controller.movementFor(entry),
-      title: title,
-      subtitle: subtitle,
+      movement: movement,
+      title: presentation?.title ?? song?.title ?? entry.entity.title,
+      subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
       artworkPath: artworkPath,
-      fallbackIcon: controller.chartType == ChartType.songs
+      fallbackIcon: chartType == ChartType.songs
           ? Icons.music_note_rounded
           : Icons.album_rounded,
       status: status,
-      details: card,
+      details: details,
       onTap: onTap,
       onLongPress: onLongPress,
       tier: tier,
-      versionBadge: versionBadge,
+      versionBadge: version,
     );
-    return switch (tier) {
-      ChartRowTier.compact => row,
-      ChartRowTier.featured => ChartFeaturedFrame(
-        chartName: ChartZoneNames.chart(controller.chartType),
-        child: row,
-      ),
-      ChartRowTier.topTen => ChartTopTenFrame(
-        artworkPath: artworkPath,
-        child: row,
-      ),
-    };
+    return tier == ChartRowTier.featured
+        ? Semantics(
+            key: const ValueKey<String>('charts-featured-frame'),
+            container: true,
+            label: 'No. 1 · ${ChartZoneNames.chart(chartType)}',
+            child: row,
+          )
+        : row;
   }
 }
 

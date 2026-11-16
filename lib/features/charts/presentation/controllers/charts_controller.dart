@@ -34,6 +34,7 @@ import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_category.dart';
+import '../models/chart_rank_trend.dart';
 import '../models/chart_entry_movement.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
@@ -1646,6 +1647,17 @@ class ChartsController extends ChangeNotifier {
         ),
     });
   }
+
+  /// [entry]'s positions on the finalized weekly chart over its recent
+  /// weeks, through the week shown when a finalized week is shown (App
+  /// Update 1.3 Chart Studio). Null when there are too few to draw. Never
+  /// includes the provisional week in progress.
+  ChartRankTrend? weeklyRankTrendFor(ChartEntry entry) => ChartRankTrend.of(
+    _history,
+    chartType: _chartType,
+    entityId: entry.entity.entityId,
+    throughWeekStartUtc: selectedHistoricalSnapshot?.weekStartUtc,
+  );
 
   static Map<String, int> _weeklyPeaksOf(List<ChartSnapshot> history) {
     final peaks = <String, int>{};

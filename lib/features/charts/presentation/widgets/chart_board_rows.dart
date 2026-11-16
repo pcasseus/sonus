@@ -1,18 +1,17 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_greyscale_theme.dart';
 import '../../../../core/design/sonus_theme.dart';
-import '../../../../core/design/widgets/sonus_artwork_colors_request.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../models/chart_entry_movement.dart';
 import 'chart_entry_card.dart';
 import 'chart_movement_indicator.dart';
+import 'chart_row_expansion.dart';
 import 'chart_version_badge.dart';
 
-/// How a row is presented on a chart board (Charts 2.0 C3).
+/// The accent of a row's tile on a chart board (Charts 2.0 C3); one size
+/// for every tier since App Update 1.3 Chart Studio.
 enum ChartRowTier {
   /// #1 on the Top 100 board.
   featured,
@@ -30,143 +29,11 @@ enum ChartRowTier {
       : ChartRowTier.compact;
 }
 
-/// #1: a slim frame in the theme's own gradient around the compact row,
-/// over a tint of it; the row shows a trophy beside the rank. Plain under
-/// high contrast, low effects and Decoration Off; greyscale in Monochrome.
-class ChartFeaturedFrame extends StatelessWidget {
-  const ChartFeaturedFrame({
-    super.key,
-    required this.chartName,
-    required this.child,
-  });
-
-  final String chartName;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = SonusTheme.of(context);
-    final colors = tokens.colors;
-    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
-    final gradient = tokens.decoration.allowGradients;
-    final a = grey ? colors.textSecondary : colors.accentPrimary;
-    final b = grey ? colors.textPrimary : colors.accentSecondary;
-    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 2);
-
-    return Semantics(
-      container: true,
-      label: 'No. 1 · $chartName',
-      child: Container(
-        key: const ValueKey<String>('charts-featured-frame'),
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          gradient: gradient
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [a, b],
-                )
-              : null,
-          color: gradient ? null : colors.focus,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: colors.surface,
-              gradient: gradient
-                  ? LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        Color.alphaBlend(
-                          a.withValues(alpha: 0.24),
-                          colors.surface,
-                        ),
-                        Color.alphaBlend(
-                          b.withValues(alpha: 0.08),
-                          colors.surface,
-                        ),
-                      ],
-                    )
-                  : null,
-            ),
-            child: Material(type: MaterialType.transparency, child: child),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// #2–10: the compact row in a slim frame with an accent from its own
-/// artwork (theme colours when the artwork has none), over a light tint of
-/// it. Monochrome uses no tint.
-class ChartTopTenFrame extends StatefulWidget {
-  const ChartTopTenFrame({
-    super.key,
-    required this.artworkPath,
-    required this.child,
-    this.palette,
-  });
-
-  final String? artworkPath;
-  final Widget child;
-  final SonusArtworkPalette? palette;
-
-  @override
-  State<ChartTopTenFrame> createState() => _ChartTopTenFrameState();
-}
-
-class _ChartTopTenFrameState extends State<ChartTopTenFrame>
-    with SonusArtworkColorsRequest<ChartTopTenFrame> {
-  @override
-  SonusArtworkPalette? get artworkPalette => widget.palette;
-
-  @override
-  ValueListenable<String?>? artworkPathListenableOf(ChartTopTenFrame widget) =>
-      null;
-
-  @override
-  String? artworkPathOf(ChartTopTenFrame widget) => widget.artworkPath;
-
-  @override
-  Widget build(BuildContext context) {
-    // Re-requested when the artwork or the theme's brightness changes.
-    requestArtworkColors(Theme.of(context).brightness);
-    final tokens = SonusTheme.of(context);
-    final colors = tokens.colors;
-    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
-    final gradient = tokens.decoration.allowGradients && !grey;
-    final accent = grey
-        ? colors.border
-        : artworkColors?.accent ?? colors.accentPrimary;
-    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 1.5);
-    final tint = grey || !tokens.decoration.allowGradients
-        ? colors.surface
-        : Color.alphaBlend(accent.withValues(alpha: 0.1), colors.surface);
-    return Container(
-      key: const ValueKey<String>('charts-top-ten-frame'),
-      padding: const EdgeInsets.all(1.5),
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        gradient: gradient
-            ? LinearGradient(colors: [accent, colors.accentSecondary])
-            : null,
-        color: gradient ? null : colors.border,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-        child: Material(color: tint, child: widget.child),
-      ),
-    );
-  }
-}
-
-/// Every position: one line — rank, genuine artwork, title and artist,
-/// and the C2 movement — with the entry's full card one tap away. #1–10
-/// are the same row inside a frame ([tier]); #1 adds a trophy.
+/// Every position: one tile of the same size, #1 to #200 (App Update 1.3
+/// Chart Studio): rank, genuine artwork, title and artist, and the movement.
+/// Expanding opens the entry's statistics underneath, inside the same tile,
+/// and outlines the tile in the theme's signature gradient. #1 adds a
+/// trophy and #2–10 a tinted outline, never a larger card.
 class ChartCompactRow extends StatefulWidget {
   const ChartCompactRow({
     super.key,
@@ -187,7 +54,7 @@ class ChartCompactRow extends StatefulWidget {
   final ChartEntry entry;
   final ChartEntryMovement movement;
 
-  /// The frame around the row; a framed row has no divider of its own.
+  /// The accent of the tile's outline.
   final ChartRowTier tier;
   final String title;
   final String subtitle;
@@ -195,8 +62,8 @@ class ChartCompactRow extends StatefulWidget {
   final IconData fallbackIcon;
   final ChartEntryStatus? status;
 
-  /// The entry's full card, shown when expanded.
-  final Widget details;
+  /// The entry's statistics, built only while expanded.
+  final WidgetBuilder details;
 
   /// Opens the song (Song Stats in C4).
   final VoidCallback? onTap;
@@ -212,8 +79,107 @@ class ChartCompactRow extends StatefulWidget {
   State<ChartCompactRow> createState() => _ChartCompactRowState();
 }
 
-class _ChartCompactRowState extends State<ChartCompactRow> {
+class _ChartCompactRowState extends State<ChartCompactRow>
+    with SingleTickerProviderStateMixin {
+  ValueNotifier<String?>? _shared;
   bool _open = false;
+  AnimationController? _reveal;
+
+  String get _id => widget.entry.entity.entityId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shared = ChartRowExpansion.maybeOf(context)?.open;
+    if (shared == _shared) return;
+    _shared?.removeListener(_sharedChanged);
+    _shared = shared?..addListener(_sharedChanged);
+    if (shared != null) _open = shared.value == _id;
+    _revealController().value = _open ? 1 : 0;
+  }
+
+  @override
+  void didUpdateWidget(ChartCompactRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final shared = _shared;
+    if (shared != null && oldWidget.entry.entity.entityId != _id) {
+      _open = shared.value == _id;
+      _revealController().value = _open ? 1 : 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _shared?.removeListener(_sharedChanged);
+    _reveal?.dispose();
+    super.dispose();
+  }
+
+  AnimationController _revealController() =>
+      _reveal ??= AnimationController(vsync: this)
+        ..addStatusListener((status) {
+          // Drop the statistics once fully collapsed.
+          if (status == AnimationStatus.dismissed && mounted) setState(() {});
+        });
+
+  void _sharedChanged() {
+    final value = _shared!.value;
+    final open = value == _id;
+    if (open == _open) return;
+    // Closed because another row opened: at once, so the row that opened
+    // stays where it was on screen (see [_toggle]).
+    _show(open, instant: !open && value != null);
+  }
+
+  void _show(bool open, {required bool instant}) {
+    final motion = SonusTheme.of(context).motion;
+    final reveal = _revealController();
+    setState(() => _open = open);
+    if (instant || motion.reduced) {
+      reveal.value = open ? 1 : 0;
+    } else {
+      reveal.duration = motion.medium;
+      open ? reveal.forward() : reveal.reverse();
+    }
+  }
+
+  void _toggle() {
+    final shared = _shared;
+    if (shared == null) {
+      _show(!_open, instant: false);
+      return;
+    }
+    if (_open) {
+      shared.value = null;
+      return;
+    }
+    // Another row above may close as this one opens: keep this row where
+    // it is on screen instead of letting the list jump.
+    final before = _top();
+    shared.value = _id;
+    if (before == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final position = Scrollable.maybeOf(context)?.position;
+      final after = _top();
+      if (position == null || after == null) return;
+      final shift = after - before;
+      if (shift.abs() < 0.5) return;
+      position.jumpTo(
+        (position.pixels + shift).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    });
+  }
+
+  double? _top() {
+    final box = context.findRenderObject();
+    return box is RenderBox && box.attached
+        ? box.localToGlobal(Offset.zero).dy
+        : null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -246,78 +212,78 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
         onLongPress: widget.onLongPress,
         borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 60),
+          constraints: const BoxConstraints(minHeight: 64),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
+            padding: const EdgeInsetsDirectional.fromSTEB(6, 8, 0, 8),
+            child: Builder(
+              builder: (context) {
                 final scaler = MediaQuery.textScalerOf(context);
                 // The rank keeps up to three digits at any text size,
-                // without taking the title's room.
-                final rankWidth = scaler.scale(34).clamp(34.0, 56.0);
-                const movementWidth = 76.0;
-                final fixed = rankWidth + 8 + 44 + 10 + 6 + movementWidth;
-                // Too little room for a readable title beside the
-                // movement: it moves under the title instead.
-                final stacked = constraints.maxWidth - fixed < 120;
+                // without taking the title's room; the arrow sits under it.
+                final rankWidth = scaler.scale(40).clamp(40.0, 60.0);
+                final hasAchievement =
+                    widget.movement.achievement != ChartAchievement.none;
 
                 final rank = SizedBox(
                   width: rankWidth,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (widget.tier == ChartRowTier.featured)
-                        Icon(
-                          Icons.emoji_events_rounded,
-                          key: const ValueKey<String>('charts-number-one'),
-                          size: 16,
-                          color: sonusThemeIsGreyscale(colors.accentPrimary)
-                              ? colors.textPrimary
-                              : colors.accentPrimary,
-                        ),
+                      // #1's trophy sits beside the rank, never above it,
+                      // so #1 is the same height as every other row.
                       FittedBox(
                         fit: BoxFit.scaleDown,
-                        child: Text(
-                          '${entry.rank}',
-                          key: ValueKey<String>('charts-rank-$id'),
-                          textAlign: TextAlign.center,
-                          style:
-                              (widget.tier == ChartRowTier.compact
-                                      ? theme.textTheme.titleMedium
-                                      : theme.textTheme.titleLarge)
-                                  ?.copyWith(
-                                    color: entry.isOffChartStanding
-                                        ? colors.textSecondary
-                                        : colors.textPrimary,
-                                    fontWeight: FontWeight.w900,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (widget.tier == ChartRowTier.featured)
+                              Icon(
+                                Icons.emoji_events_rounded,
+                                key: const ValueKey<String>(
+                                  'charts-number-one',
+                                ),
+                                size: 14,
+                                color:
+                                    sonusThemeIsGreyscale(colors.accentPrimary)
+                                    ? colors.textPrimary
+                                    : colors.accentPrimary,
+                              ),
+                            Text(
+                              '${entry.rank}',
+                              key: ValueKey<String>('charts-rank-$id'),
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: entry.isOffChartStanding
+                                    ? colors.textSecondary
+                                    : colors.textPrimary,
+                                fontWeight: FontWeight.w800,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: ChartMovementIndicator(
+                          entry: entry,
+                          movement: widget.movement,
+                          part: ChartIndicatorPart.arrow,
                         ),
                       ),
                     ],
                   ),
                 );
-                final hasAchievement =
-                    widget.movement.achievement != ChartAchievement.none;
-                final achievement = ChartMovementIndicator(
-                  entry: entry,
-                  movement: widget.movement,
-                  part: ChartIndicatorPart.achievement,
-                );
-                final move = ChartMovementIndicator(
-                  entry: entry,
-                  movement: widget.movement,
-                  part: ChartIndicatorPart.movement,
-                );
                 final titleText = Text(
                   widget.title,
-                  maxLines: stacked ? 2 : 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge?.copyWith(
+                  style: theme.textTheme.titleSmall?.copyWith(
                     color: colors.textPrimary,
                     fontWeight: FontWeight.w700,
+                    height: 1.2,
                   ),
                 );
                 final version = widget.versionBadge;
@@ -353,73 +319,40 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
                     const SizedBox(width: 8),
                     SonusArtworkImage(
                       path: widget.artworkPath,
-                      size: 44,
+                      size: 48,
                       placeholderIcon: widget.fallbackIcon,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: stacked
-                          ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                title,
-                                const SizedBox(height: 2),
-                                // Scale down rather than overflow.
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: AlignmentDirectional.centerStart,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      move,
-                                      if (hasAchievement) ...[
-                                        const SizedBox(width: 6),
-                                        achievement,
-                                      ],
-                                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          title,
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              if (hasAchievement) ...[
+                                // Scales down rather than overflow at
+                                // large text.
+                                Flexible(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: ChartMovementIndicator(
+                                      entry: entry,
+                                      movement: widget.movement,
+                                      part: ChartIndicatorPart.achievement,
+                                    ),
                                   ),
                                 ),
-                                subtitle,
+                                const SizedBox(width: 6),
                               ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                title,
-                                Row(
-                                  children: [
-                                    if (hasAchievement) ...[
-                                      // Scales down rather than overflow
-                                      // at large text.
-                                      Flexible(
-                                        child: FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          alignment:
-                                              AlignmentDirectional.centerStart,
-                                          child: achievement,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
-                                    Expanded(child: subtitle),
-                                  ],
-                                ),
-                              ],
-                            ),
-                    ),
-                    if (!stacked) ...[
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: movementWidth,
-                        ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerRight,
-                          child: move,
-                        ),
+                              Expanded(child: subtitle),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ],
                 );
               },
@@ -429,41 +362,139 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
       ),
     );
 
-    // Expanded, the row becomes the entry's full card (no repeated rank
-    // or movement), with a way back.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_open) ...[
-          const SizedBox(height: 6),
-          widget.details,
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: TextButton.icon(
-              key: ValueKey<String>('charts-row-collapse-$id'),
-              onPressed: () => setState(() => _open = false),
-              icon: const Icon(Icons.expand_less_rounded),
-              label: const Text('Hide details'),
+    final open = _open;
+    final reveal = _revealController();
+    final showDetails = open || reveal.value > 0;
+    final style = _TileStyle.of(tokens, widget.tier, selected: open);
+
+    final toggle = Semantics(
+      expanded: open,
+      child: IconButton(
+        key: ValueKey<String>(
+          open ? 'charts-row-collapse-$id' : 'charts-row-expand-$id',
+        ),
+        tooltip: open ? 'Hide details' : 'Show details',
+        onPressed: _toggle,
+        icon: AnimatedRotation(
+          turns: open ? 0.5 : 0,
+          duration: tokens.motion.short,
+          child: Icon(
+            Icons.expand_more_rounded,
+            color: open ? colors.textPrimary : colors.textSecondary,
+          ),
+        ),
+      ),
+    );
+
+    return Container(
+      key: ValueKey<String>('charts-tile-$id'),
+      padding: const EdgeInsets.all(_TileStyle.outlineWidth),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+          tokens.metrics.cardRadius + _TileStyle.outlineWidth,
+        ),
+        gradient: style.outlineGradient,
+        color: style.outlineGradient == null ? style.outline : null,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: style.background,
+            gradient: style.backgroundGradient,
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: row),
+                    toggle,
+                  ],
+                ),
+                if (showDetails)
+                  SizeTransition(
+                    sizeFactor: CurvedAnimation(
+                      parent: reveal,
+                      curve: tokens.motion.curve,
+                    ),
+                    alignment: Alignment.topCenter,
+                    child: Builder(builder: widget.details),
+                  ),
+              ],
             ),
           ),
-        ] else
-          Row(
-            children: [
-              Expanded(child: row),
-              IconButton(
-                key: ValueKey<String>('charts-row-expand-$id'),
-                tooltip: 'Show details',
-                onPressed: () => setState(() => _open = true),
-                icon: Icon(
-                  Icons.expand_more_rounded,
-                  color: colors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        if (widget.tier == ChartRowTier.compact)
-          Divider(height: 1, color: colors.divider),
-      ],
+        ),
+      ),
     );
   }
+}
+
+/// The tile's outline and fill. Every tile has the same outline width, so
+/// selection and the Top 10 accents never change a row's size. Without
+/// gradients (High contrast, Low effects, Decoration Off) and in Monochrome
+/// the outline is a plain colour.
+class _TileStyle {
+  const _TileStyle({
+    required this.outline,
+    required this.background,
+    this.outlineGradient,
+    this.backgroundGradient,
+  });
+
+  static const double outlineWidth = 1.5;
+
+  factory _TileStyle.of(
+    SonusThemeData tokens,
+    ChartRowTier tier, {
+    required bool selected,
+  }) {
+    final colors = tokens.colors;
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
+    final gradients = tokens.decoration.allowGradients && !grey;
+    final a = colors.accentPrimary;
+    final b = colors.accentSecondary;
+    Color over(Color tint, double alpha) =>
+        Color.alphaBlend(tint.withValues(alpha: alpha), colors.surface);
+
+    if (selected) {
+      return _TileStyle(
+        outline: grey ? colors.textPrimary : colors.focus,
+        outlineGradient: gradients
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [a, b],
+              )
+            : null,
+        background: over(colors.textPrimary, 0.04),
+        backgroundGradient: gradients
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [over(a, 0.14), over(b, 0.05), over(b, 0.12)],
+              )
+            : null,
+      );
+    }
+    return _TileStyle(
+      outline: switch (tier) {
+        _ when grey || tokens.decoration.highContrast => colors.border,
+        ChartRowTier.featured => over(a, 0.55),
+        ChartRowTier.topTen => over(a, 0.3),
+        ChartRowTier.compact => Color.alphaBlend(
+          colors.border.withValues(alpha: 0.6),
+          colors.surface,
+        ),
+      },
+      background: colors.surface,
+    );
+  }
+
+  final Color outline;
+  final Gradient? outlineGradient;
+  final Color background;
+  final Gradient? backgroundGradient;
 }
