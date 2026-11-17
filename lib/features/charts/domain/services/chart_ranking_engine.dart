@@ -71,6 +71,7 @@ class ChartRankingEngine {
           historicalPeakRank: rankedState.history?.peakRank,
           livePeakRank: rankedState.livePeakRank,
         );
+        final chartedEarlierThisWeek = rankedState.firstChartedAt != null;
 
         rankedState.observeRank(
           rank: rank,
@@ -95,6 +96,7 @@ class ChartRankingEngine {
               previousPeakRank: previousPeakRank,
               currentPeakRank: currentPeakRank,
               previousFinalizedRank: rankedState.history?.previousExtendedRank,
+              chartedEarlierThisWeek: chartedEarlierThisWeek,
               observedAt: event.qualifiedAt.toUtc(),
             ),
           );
@@ -266,9 +268,14 @@ class ChartRankingEngine {
   }
 
   /// Last week's final official rank always decides the arrow; a dip out of
-  /// the Top 100 during the week never overrides it (SN-50 E-Q2). Returning
-  /// within the week makes RE-ENTRY only for an entity with no official
-  /// history that is back in the Top 100.
+  /// the Top 100 during the week never overrides it (SN-50 E-Q2).
+  ///
+  /// RE-ENTRY comes only from finalized chart history (user decision
+  /// 2026-11-16): leaving and returning within the provisional live week is
+  /// never a re-entry, so an entity with no finalized history stays NEW
+  /// however often it crosses the Top 100 line that week.
+  /// [ChartRankedEntity.hasReenteredOfficialChartThisWeek] remains a
+  /// recorded fact and does not decide movement.
   static ChartMovement _movementFor({
     required _MutableChartState state,
     required int currentRank,
@@ -299,11 +306,6 @@ class ChartRankingEngine {
     if (currentRank > officialChartLimit &&
         history?.previousExtendedRank == null &&
         history?.peakRank != null) {
-      return ChartMovement.reentry;
-    }
-
-    if (currentRank <= officialChartLimit &&
-        state.hasReenteredOfficialChartThisWeek) {
       return ChartMovement.reentry;
     }
 

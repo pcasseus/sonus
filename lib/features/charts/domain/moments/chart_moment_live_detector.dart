@@ -72,7 +72,13 @@ class ChartMomentLiveDetector {
             ),
           );
         }
-      } else if (previousRank == null) {
+      } else if (previousRank == null &&
+          observation.previousFinalizedRank == null &&
+          !observation.chartedEarlierThisWeek) {
+        // Debut and re-entry come from finalized history only (user
+        // decision 2026-11-16): a return after dipping out earlier this
+        // live week, or for an entity that finished last finalized week in
+        // the Top 200, is not a lifecycle entry.
         isLifecycleEntry = true;
 
         events.add(

@@ -8,6 +8,7 @@ class ChartMomentRankObservation {
     this.previousPeakRank,
     this.currentPeakRank,
     this.previousFinalizedRank,
+    this.chartedEarlierThisWeek = false,
     required this.observedAt,
   });
 
@@ -48,6 +49,12 @@ class ChartMomentRankObservation {
   /// Rank in the immediately preceding finalized week within the persisted
   /// Top 200. Null means the entity did not finish that week in the Top 200.
   final int? previousFinalizedRank;
+
+  /// Whether the entity already held a Top-200 position earlier in this
+  /// week's reconstruction. A return after such a dip is provisional churn
+  /// within the live week, never a debut or re-entry: those come from
+  /// finalized chart history only (user decision 2026-11-16).
+  final bool chartedEarlierThisWeek;
 
   final DateTime observedAt;
 

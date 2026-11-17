@@ -357,11 +357,12 @@ void main() {
 
     // Charts 2.0 C2 (ChartEntryMovement doc; chart_entry_movement_test
     // "across rank 100"): on career standings a continuous move across
-    // rank 100 is a promotion. The 1.3 directive would call a first career
-    // Hot 100 arrival NEW and a return RE-ENTRY; reported as a conflict,
-    // so these pin today's recorded rule.
+    // rank 100 is a promotion, and #100 to #101 a demotion (above).
+    // Approved by user decision 2026-11-16: career #101 to #100 shows
+    // PROMOTED and #100 to #101 DEMOTED, keeping continuous-chart movement,
+    // peaks and history.
     test(
-      '#101 to #100, never on the Hot 100: promoted (recorded C2 rule)',
+      '#101 to #100, never on the Hot 100: promoted (approved 2026-11-16)',
       () async {
         final career = _CareerChart()
           ..tier('top', 99, 10)
@@ -378,8 +379,8 @@ void main() {
       },
     );
 
-    test('#101 to #100 after an earlier Hot 100 run: promoted (recorded C2 '
-        'rule)', () async {
+    test('#101 to #100 after an earlier Hot 100 run: promoted (approved '
+        '2026-11-16)', () async {
       final career = _CareerChart()
         ..plays(song, 4, career0) // #1 at first.
         ..tier('top', 99, 10)
