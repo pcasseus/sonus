@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/widgets/sonus_horizontal_rail.dart';
 
 /// One destination of [ArtistProfileSectionTabs]: a real section of the
 /// page, found by its [anchor].
@@ -40,58 +41,64 @@ class ArtistProfileSectionTabs extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: colors.divider)),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ValueListenableBuilder<int>(
-          valueListenable: selected,
-          builder: (context, current, _) => Row(
-            children: [
-              for (var i = 0; i < tabs.length; i++)
-                Semantics(
-                  button: true,
-                  selected: i == current,
-                  label: tabs[i].label,
-                  excludeSemantics: true,
-                  child: InkWell(
-                    key: ValueKey<String>('artist-profile-section-tab-$i'),
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => onSelected(i),
-                    child: Container(
-                      constraints: const BoxConstraints(minHeight: 48),
-                      padding: EdgeInsets.fromLTRB(i == 0 ? 2 : 12, 0, 12, 0),
-                      alignment: Alignment.center,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            tabs[i].label,
-                            maxLines: 1,
-                            softWrap: false,
-                            style: text.titleSmall?.copyWith(
-                              color: i == current
-                                  ? colors.textPrimary
-                                  : colors.textSecondary,
-                              fontWeight: i == current
-                                  ? FontWeight.w800
-                                  : FontWeight.w600,
+      // Starts at the first section for each artist; never shares the
+      // page's scroll storage ([SonusHorizontalRail]).
+      child: SonusHorizontalRail(
+        identity: [for (final tab in tabs) tab.label].join('|'),
+        builder: (context, controller) => SingleChildScrollView(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          child: ValueListenableBuilder<int>(
+            valueListenable: selected,
+            builder: (context, current, _) => Row(
+              children: [
+                for (var i = 0; i < tabs.length; i++)
+                  Semantics(
+                    button: true,
+                    selected: i == current,
+                    label: tabs[i].label,
+                    excludeSemantics: true,
+                    child: InkWell(
+                      key: ValueKey<String>('artist-profile-section-tab-$i'),
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => onSelected(i),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        padding: EdgeInsets.fromLTRB(i == 0 ? 2 : 12, 0, 12, 0),
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              tabs[i].label,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: text.titleSmall?.copyWith(
+                                color: i == current
+                                    ? colors.textPrimary
+                                    : colors.textSecondary,
+                                fontWeight: i == current
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          AnimatedContainer(
-                            duration: tokens.motion.short,
-                            height: 3,
-                            width: i == current ? 28 : 0,
-                            decoration: BoxDecoration(
-                              color: accent,
-                              borderRadius: BorderRadius.circular(2),
+                            const SizedBox(height: 6),
+                            AnimatedContainer(
+                              duration: tokens.motion.short,
+                              height: 3,
+                              width: i == current ? 28 : 0,
+                              decoration: BoxDecoration(
+                                color: accent,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

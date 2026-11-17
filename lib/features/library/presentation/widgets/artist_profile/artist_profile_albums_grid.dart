@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/widgets/sonus_horizontal_rail.dart';
 import '../../../application/models/library_album.dart';
 import '../../../application/models/library_track.dart';
 import '../../models/artist_profile_sections.dart';
@@ -55,44 +56,50 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
           height: tileWidth + 10 + captionHeight,
           // Every card is built (as the grid did), so each release stays
           // findable by screen readers and lookups; covers decode lazily.
-          child: SingleChildScrollView(
-            key: const ValueKey<String>('artist-profile-albums-grid'),
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final (index, card) in cards.indexed) ...[
-                  if (index > 0) const SizedBox(width: spacing),
-                  SizedBox(
-                    width: tileWidth,
-                    child: _AlbumCard(
-                      key: ValueKey<String>(switch (card) {
-                        ArtistReleaseCard(:final album) =>
-                          'artist-album-${album.albumId}',
-                        ArtistSingleSongCard(:final track) =>
-                          'artist-single-song-${track.songId}',
-                      }),
-                      card: card,
-                      artworkSize: tileWidth,
-                      onTap: switch (card) {
-                        ArtistReleaseCard(:final album) => () => onAlbumTap(
-                          album,
-                        ),
-                        ArtistSingleSongCard(:final track) =>
-                          onSingleSongTap == null
-                              ? null
-                              : () => onSingleSongTap!(track),
-                      },
+          // Starts at its first card on entry and for another artist or
+          // order ([SonusHorizontalRail]); never shares the page's offset.
+          child: SonusHorizontalRail(
+            identity: cards.map(_cardId).join('|'),
+            builder: (context, controller) => SingleChildScrollView(
+              key: const ValueKey<String>('artist-profile-albums-grid'),
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (index, card) in cards.indexed) ...[
+                    if (index > 0) const SizedBox(width: spacing),
+                    SizedBox(
+                      width: tileWidth,
+                      child: _AlbumCard(
+                        key: ValueKey<String>(_cardId(card)),
+                        card: card,
+                        artworkSize: tileWidth,
+                        onTap: switch (card) {
+                          ArtistReleaseCard(:final album) => () => onAlbumTap(
+                            album,
+                          ),
+                          ArtistSingleSongCard(:final track) =>
+                            onSingleSongTap == null
+                                ? null
+                                : () => onSingleSongTap!(track),
+                        },
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         );
       },
     );
   }
+
+  static String _cardId(ArtistRailCard card) => switch (card) {
+    ArtistReleaseCard(:final album) => 'artist-album-${album.albumId}',
+    ArtistSingleSongCard(:final track) => 'artist-single-song-${track.songId}',
+  };
 }
 
 class _AlbumCard extends StatelessWidget {

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_horizontal_rail.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../library/application/models/library_album.dart';
@@ -248,9 +249,9 @@ class _Rail extends StatelessWidget {
     required this.itemBuilder,
   });
 
-  /// Gives the rail its own PageStorage slot. Without it every rail shares
-  /// the page's slot and restores the page's vertical offset as its own
-  /// horizontal one.
+  /// Names the rail. Each rail starts at its first card whenever Home is
+  /// entered and never touches the page's scroll storage
+  /// ([SonusHorizontalRail]); a refresh of the same rail does not move it.
   final String storageId;
   final double height;
   final int itemCount;
@@ -262,13 +263,17 @@ class _Rail extends StatelessWidget {
 
     return SizedBox(
       height: height,
-      child: ListView.separated(
-        key: PageStorageKey<String>('home-rail-$storageId'),
-        padding: EdgeInsets.symmetric(horizontal: gutter),
-        scrollDirection: Axis.horizontal,
-        itemCount: itemCount,
-        separatorBuilder: (_, _) => const SizedBox(width: _RailSizing.gap),
-        itemBuilder: itemBuilder,
+      child: SonusHorizontalRail(
+        identity: 'home-rail-$storageId',
+        builder: (context, controller) => ListView.separated(
+          key: ValueKey<String>('home-rail-$storageId'),
+          controller: controller,
+          padding: EdgeInsets.symmetric(horizontal: gutter),
+          scrollDirection: Axis.horizontal,
+          itemCount: itemCount,
+          separatorBuilder: (_, _) => const SizedBox(width: _RailSizing.gap),
+          itemBuilder: itemBuilder,
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../core/design/widgets/sonus_horizontal_rail.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/models/alphabet_index.dart';
@@ -248,24 +249,30 @@ class _PlaylistSongPickerPageState extends State<PlaylistSongPickerPage> {
   }
 
   Widget _modes() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: SegmentedButton<PlaylistPickerMode>(
-        key: const ValueKey<String>('song-picker-mode'),
-        showSelectedIcon: false,
-        segments: [
-          for (final mode in PlaylistPickerMode.values)
-            ButtonSegment(
-              value: mode,
-              label: Text(
-                mode.label,
-                key: ValueKey<String>('song-picker-mode-${mode.name}'),
+    // Its own controller: never shares the picker list's scroll storage
+    // ([SonusHorizontalRail]).
+    return SonusHorizontalRail(
+      identity: 'song-picker-modes',
+      builder: (context, controller) => SingleChildScrollView(
+        controller: controller,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: SegmentedButton<PlaylistPickerMode>(
+          key: const ValueKey<String>('song-picker-mode'),
+          showSelectedIcon: false,
+          segments: [
+            for (final mode in PlaylistPickerMode.values)
+              ButtonSegment(
+                value: mode,
+                label: Text(
+                  mode.label,
+                  key: ValueKey<String>('song-picker-mode-${mode.name}'),
+                ),
               ),
-            ),
-        ],
-        selected: {_controller.mode},
-        onSelectionChanged: (modes) => _setMode(modes.single),
+          ],
+          selected: {_controller.mode},
+          onSelectionChanged: (modes) => _setMode(modes.single),
+        ),
       ),
     );
   }
