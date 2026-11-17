@@ -21,8 +21,7 @@ import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
-import '../../../player/data/daos/track_lyrics_dao.dart';
-import '../../../player/data/repositories/sqlite_track_lyrics_repository.dart';
+import '../../../../core/lyrics/sqlite_lyrics_provenance_store.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/services/atomic_library_importer.dart';
 import '../../application/services/device_music_access.dart';
@@ -246,10 +245,7 @@ class _ImportScopeState extends State<ImportScope> {
 
     // Sidecar lyrics are written after the song import commits, so the write
     // must participate in restore admission on its own.
-    final trackLyricsRepository = SqliteTrackLyricsRepository(
-      TrackLyricsDao(sqliteDatabase),
-      appDatabase: database,
-    );
+    final lyricsWriter = SqliteLyricsProvenanceStore(appDatabase: database);
 
     // Review resolution and startup cleanup write outside any caller-owned
     // transaction, so both participate in restore admission.
@@ -300,7 +296,7 @@ class _ImportScopeState extends State<ImportScope> {
       sourceReader: LocalLyricsSourceReader(
         saf: Platform.isAndroid ? _saf : null,
       ),
-      trackLyricsRepository: trackLyricsRepository,
+      lyricsWriter: lyricsWriter,
       // App Update 1.3 (REF-1.3-07): lyrics in the song's own ID3 tag,
       // read locally (bounded reads, never the audio itself).
       embeddedReader: (candidate) async {

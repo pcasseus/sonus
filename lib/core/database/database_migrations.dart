@@ -7,6 +7,7 @@ import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/album_edition_disc_label_schema.dart';
 import 'schema/song_single_presentation_schema.dart';
+import 'schema/lyrics_provenance_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -563,6 +564,14 @@ abstract final class DatabaseMigrations {
         // (release date and dedicated cover). One new table; every existing
         // row is untouched and no song has a presentation yet.
         await SongSinglePresentationSchema.create(db);
+        return;
+
+      case 48:
+        // App Update 1.3: where each lyrics text came from. Nullable
+        // columns only; every stored text is kept and left legacy (source
+        // not recorded, never assumed to be the listener's edit).
+        if (!await _tableExists(db, DatabaseTables.trackLyrics)) return;
+        await LyricsProvenanceSchema.addColumns(db);
         return;
 
       default:

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/core/lyrics/sqlite_lyrics_provenance_store.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
@@ -22,8 +23,6 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
-import 'package:sonus_next/features/player/domain/models/track_lyrics.dart';
-import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 
 class CallbackAudioMetadataReader implements AudioMetadataReader {
   CallbackAudioMetadataReader(this.callback);
@@ -47,28 +46,27 @@ class CallbackLyricsSourceReader implements LyricsSourceReader {
   }
 }
 
-class RecordingTrackLyricsRepository implements TrackLyricsRepository {
+class RecordingTrackLyricsRepository implements LyricsProvenanceWriter {
   int saveCalls = 0;
   String? savedSongId;
   String? savedPlainText;
   String? savedSyncedText;
 
   @override
-  Future<void> deleteBySongId(String songId) async {}
+  Future<Map<String, Object?>?> read(String songId) async => null;
 
   @override
-  Future<TrackLyrics?> getBySongId(String songId) async => null;
-
-  @override
-  Future<void> save({
+  Future<LyricsWriteResult> saveAutomatic({
     required String songId,
-    String? plainText,
-    String? syncedText,
+    LyricsCandidate? plain,
+    LyricsCandidate? synced,
+    LyricsProviderDetails? provider,
   }) async {
     saveCalls += 1;
     savedSongId = songId;
-    savedPlainText = plainText;
-    savedSyncedText = syncedText;
+    savedPlainText = plain?.text;
+    savedSyncedText = synced?.text;
+    return LyricsWriteResult(plain: plain != null, synced: synced != null);
   }
 }
 
@@ -334,7 +332,7 @@ void main() {
             lyricsCandidate = candidate;
             return '[00:01.00]First line';
           }),
-          trackLyricsRepository: lyricsRepository,
+          lyricsWriter: lyricsRepository,
         ),
       );
 
@@ -373,7 +371,7 @@ void main() {
       ),
       lyricsIngestionService: LyricsIngestionService(
         sourceReader: CallbackLyricsSourceReader((_) async => null),
-        trackLyricsRepository: lyricsRepository,
+        lyricsWriter: lyricsRepository,
         embeddedReader: (_) async =>
             const EmbeddedLyrics(syncedLrc: '[00:01.00]From the tag'),
       ),

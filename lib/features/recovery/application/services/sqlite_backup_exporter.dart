@@ -1,6 +1,8 @@
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/database_tables.dart';
+import '../../../../core/lyrics/lyrics_provenance.dart';
 import '../models/backup_data_payload.dart';
 import '../models/backup_manifest.dart';
 import '../models/backup_table_coverage.dart';
@@ -43,9 +45,17 @@ class SqliteBackupExporter {
         // Table identifiers originate from the trusted coverage contract.
         final rows = await transaction.query(table);
 
-        tables[table] = [
-          for (final row in rows) Map<String, Object?>.from(row),
-        ];
+        tables[table] = table == DatabaseTables.trackLyrics
+            // Display-only provider text stays on this device (App Update
+            // 1.3); a row with nothing else is left out.
+            ? [
+                for (final row in rows)
+                  if (!LyricsRows.hasDisplayOnly(row))
+                    Map<String, Object?>.from(row)
+                  else
+                    ?LyricsRows.portable(row),
+              ]
+            : [for (final row in rows) Map<String, Object?>.from(row)];
 
         if (afterTableRead != null) {
           await afterTableRead!(table);

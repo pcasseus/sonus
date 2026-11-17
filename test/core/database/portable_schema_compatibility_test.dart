@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/core/database/schema/lyrics_provenance_schema.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_migrations.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
@@ -87,8 +88,9 @@ void main() {
       45,
       46,
       47,
+      48,
     });
-    expect(AppDatabase.databaseVersion, 47);
+    expect(AppDatabase.databaseVersion, 48);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -122,9 +124,10 @@ void main() {
     final v44 = await migrateTo(await copyOfV31('v44.db'), 44);
     final v45 = await migrateTo(await copyOfV31('v45.db'), 45);
     final v46 = await migrateTo(await copyOfV31('v46.db'), 46);
-    final v47 = AppDatabase(
+    final v47 = await migrateTo(await copyOfV31('v47.db'), 47);
+    final v48 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v47.db'),
+      databasePath: await copyOfV31('v48.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -149,7 +152,8 @@ void main() {
       expect(await userVersion(v44), 44);
       expect(await userVersion(v45), 45);
       expect(await userVersion(v46), 46);
-      expect(await userVersion(await v47.database), 47);
+      expect(await userVersion(v47), 47);
+      expect(await userVersion(await v48.database), 48);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -179,15 +183,17 @@ void main() {
       expectCompatible(await _portableSchema(v40));
       // 42, 43 and 44 only changed device-local tables, 45 added the
       // optional disc names table, 46 the nullable chart provenance column
-      // and 47 the optional Single presentations table: the older ones are
-      // compatible, and the current version is identical.
+      // 47 the optional Single presentations table and 48 the nullable
+      // lyrics provenance columns: the older ones are compatible, and the
+      // current version is identical.
       expectCompatible(await _portableSchema(v41));
       expectCompatible(await _portableSchema(v42));
       expectCompatible(await _portableSchema(v43));
       expectCompatible(await _portableSchema(v44));
       expectCompatible(await _portableSchema(v45));
       expectCompatible(await _portableSchema(v46));
-      expect(await _portableSchema(await v47.database), reference);
+      expectCompatible(await _portableSchema(v47));
+      expect(await _portableSchema(await v48.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -206,6 +212,7 @@ void main() {
       await v45.close();
       await v46.close();
       await v47.close();
+      await v48.close();
       await fresh.close();
     }
   });
@@ -230,10 +237,22 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 47);
+      expect(await userVersion(db), 48);
       expect(rowsAfter[DatabaseTables.albumEditionDiscLabels], isEmpty);
       // Migration 47 adds the Single presentations table, empty.
       expect(rowsAfter[DatabaseTables.songSinglePresentations], isEmpty);
+      // Migration 48 keeps every lyrics text and records no provenance.
+      for (final row in rowsAfter[DatabaseTables.trackLyrics]!) {
+        for (final column in LyricsProvenanceSchema.columnNames) {
+          expect(row[column], isNull, reason: column);
+        }
+      }
+      rowsAfter[DatabaseTables.trackLyrics] = [
+        for (final row in rowsAfter[DatabaseTables.trackLyrics]!)
+          {...row}..removeWhere(
+            (key, _) => LyricsProvenanceSchema.columnNames.contains(key),
+          ),
+      ];
       // Migration 46 starts the chart history at the upgrade, and leaves
       // every stored week's provenance unknown.
       expect(rowsAfter[DatabaseTables.chartHistoryOrigin], hasLength(1));

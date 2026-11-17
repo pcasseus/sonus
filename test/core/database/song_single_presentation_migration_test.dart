@@ -82,7 +82,7 @@ void main() {
     final db = await (await fresh('fresh.db')).database;
     expect(
       (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-      47,
+      48,
     );
     expect(await db.query(table), isEmpty);
     expect(
@@ -301,6 +301,6 @@ void main() {
     expect(coverage.requiredInEveryBackup, isFalse);
     expect(BackupCompatibility.restorableDatabaseVersions, contains(46));
     expect(BackupCompatibility.restorableDatabaseVersions, contains(47));
-    expect(AppDatabase.databaseVersion, 47);
+    expect(AppDatabase.databaseVersion, 48);
   });
 }

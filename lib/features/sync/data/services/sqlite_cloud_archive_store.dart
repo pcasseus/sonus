@@ -11,6 +11,9 @@ import '../../../../core/database/schema/sync_schema.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../application/services/cloud_archive_sync_service.dart';
 import '../../domain/models/cloud_archive_record.dart';
+import '../../domain/models/lyrics_archive_sync_gate.dart';
+import '../../../../core/lyrics/lyrics_provenance.dart';
+import '../../../../core/lyrics/sqlite_lyrics_provenance_store.dart';
 
 /// Reads archive records from, and applies them to, the local database.
 class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
@@ -44,8 +47,11 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
       ...await _playlists(db),
       ...await _sessions(db),
       ...await _deletions(db),
+      // Display-only text never leaves the device; unset provenance is
+      // left out (see LyricsArchiveSyncGate.payloadFor).
       for (final row in await db.query(DatabaseTables.trackLyrics))
-        _record(CloudArchiveKind.lyrics, row['song_id']! as String, row),
+        if (LyricsArchiveSyncGate.payloadFor(row) case final payload?)
+          _record(CloudArchiveKind.lyrics, row['song_id']! as String, payload),
       for (final row in await db.query(DatabaseTables.artworkCrops))
         _record(
           CloudArchiveKind.artworkCrop,
@@ -339,7 +345,7 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
         )) {
           return CloudArchiveApplyOutcome.missingDependencies;
         }
-        await _upsert(txn, _tables[record.kind]!, payload, ['song_id']);
+        await _applyLyrics(txn, record.key, payload);
 
       case CloudArchiveKind.artworkCrop:
         for (final column in ['source_artwork_id', 'output_artwork_id']) {
@@ -435,6 +441,46 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
         if (!applied) return CloudArchiveApplyOutcome.missingDependencies;
     }
     return CloudArchiveApplyOutcome.applied;
+  }
+
+  /// App Update 1.3 (database version 48): lyrics are merged text by text,
+  /// never overwritten as a whole row. See [LyricsArchiveSyncGate].
+  static Future<void> _applyLyrics(
+    Transaction txn,
+    String songId,
+    Map<String, Object?> payload,
+  ) async {
+    final local = await SqliteLyricsProvenanceStore.readIn(txn, songId);
+    Map<String, Object?> incoming;
+    if (LyricsArchiveSyncGate.isMarked(payload)) {
+      incoming = payload;
+    } else {
+      // An older build's record: legacy text only, and only where this
+      // device records no provenance at all.
+      if (local != null && LyricsRows.hasProvenance(local)) return;
+      incoming = LyricsRows.withoutProvenance(payload);
+    }
+    // Display-only text is never stored from another device.
+    if (LyricsRows.hasDisplayOnly(incoming)) {
+      final portable = LyricsRows.portable(incoming);
+      if (portable == null) return;
+      incoming = portable;
+    }
+    final updated = payload['updated_at'];
+    final merged = LyricsRows.merge(
+      songId: songId,
+      existing: local,
+      incoming: incoming,
+      stamp: updated is String
+          ? updated
+          : DateTime.now().toUtc().toIso8601String(),
+    );
+    if (merged == null) return;
+    await SqliteLyricsProvenanceStore.writeIn(
+      txn,
+      merged,
+      exists: local != null,
+    );
   }
 
   @override

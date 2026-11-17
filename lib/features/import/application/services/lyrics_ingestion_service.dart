@@ -3,7 +3,8 @@ import 'dart:developer' as developer;
 import 'package:sonus_next/features/import/application/lyrics/id3_lyrics_reader.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
-import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
+import 'package:sonus_next/core/lyrics/lyrics_provenance.dart';
+import 'package:sonus_next/core/lyrics/sqlite_lyrics_provenance_store.dart';
 import 'package:sonus_next/features/player/domain/services/lrc_parser.dart';
 
 /// Reads the lyrics embedded in a candidate's audio file, if any.
@@ -24,15 +25,22 @@ typedef EmbeddedLyricsReader =
 /// The best of each is stored together, so a song can keep plain lyrics
 /// beside synchronised ones. Local only: nothing is fetched, uploaded or
 /// transcribed.
+///
+/// Database version 48: each text is written with its source (`embedded`,
+/// `sidecarLrc` for a `.lrc` file, `sidecarTxt` otherwise) through
+/// [LyricsProvenanceWriter.saveAutomatic], text by text. A rescan never
+/// replaces the listener's edit or a better source, and a sidecar with only
+/// one kind of text leaves the other stored text alone. The file is never
+/// rewritten.
 class LyricsIngestionService {
   const LyricsIngestionService({
     required this.sourceReader,
-    required this.trackLyricsRepository,
+    required this.lyricsWriter,
     this.embeddedReader,
   });
 
   final LyricsSourceReader sourceReader;
-  final TrackLyricsRepository trackLyricsRepository;
+  final LyricsProvenanceWriter lyricsWriter;
 
   /// Null reads sidecars only.
   final EmbeddedLyricsReader? embeddedReader;
@@ -52,23 +60,51 @@ class LyricsIngestionService {
       // only fills in lyrics it does not have: stored lyrics (restored,
       // synced, or edited later) are never replaced from a tag, and the
       // file is not reopened.
-      final stored = await trackLyricsRepository.getBySongId(songId);
-      if (stored?.hasLyrics ?? false) return;
+      final stored = await lyricsWriter.read(songId);
+      if (stored != null && _hasLyrics(stored)) return;
     }
     final embedded = await _embedded(candidate);
 
     final sidecarSynced =
         sidecar != null && LrcParser.parse(sidecar).isNotEmpty;
-    final synced = embedded?.syncedLrc ?? (sidecarSynced ? sidecar : null);
-    final plain = embedded?.plain ?? (sidecarSynced ? null : sidecar);
+    final sidecarSource = _sidecarSource(candidate);
+    final synced = switch ((embedded?.syncedLrc, sidecarSynced)) {
+      (final String tag, _) => LyricsCandidate(
+        text: tag,
+        source: LyricsSource.embedded,
+      ),
+      (null, true) => LyricsCandidate(text: sidecar!, source: sidecarSource),
+      _ => null,
+    };
+    final plain = switch ((embedded?.plain, sidecar, sidecarSynced)) {
+      (final String tag, _, _) => LyricsCandidate(
+        text: tag,
+        source: LyricsSource.embedded,
+      ),
+      (null, final String text, false) => LyricsCandidate(
+        text: text,
+        source: sidecarSource,
+      ),
+      _ => null,
+    };
 
     if (synced == null && plain == null) return;
-    await trackLyricsRepository.save(
+    await lyricsWriter.saveAutomatic(
       songId: songId,
-      plainText: plain,
-      syncedText: synced,
+      plain: plain,
+      synced: synced,
     );
   }
+
+  static bool _hasLyrics(Map<String, Object?> row) => LyricsTextKind.values.any(
+    (kind) => LyricsText.fromRow(row, kind).hasText,
+  );
+
+  /// A `.lrc` sidecar ranks above any other sidecar file.
+  static LyricsSource _sidecarSource(ImportCandidate candidate) =>
+      (candidate.lyricsPath ?? '').trim().toLowerCase().endsWith('.lrc')
+      ? LyricsSource.sidecarLrc
+      : LyricsSource.sidecarTxt;
 
   Future<EmbeddedLyrics?> _embedded(ImportCandidate candidate) async {
     final reader = embeddedReader;

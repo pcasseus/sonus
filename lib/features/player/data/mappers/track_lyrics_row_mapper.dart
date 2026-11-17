@@ -15,20 +15,4 @@ class TrackLyricsRowMapper {
           : LrcParser.parse(syncedText),
     );
   }
-
-  static Map<String, Object?> toRow({
-    required String songId,
-    required String? plainText,
-    required String? syncedText,
-    required DateTime createdAt,
-    required DateTime updatedAt,
-  }) {
-    return <String, Object?>{
-      'song_id': songId,
-      'plain_text': plainText,
-      'synced_text': syncedText,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
-    };
-  }
 }

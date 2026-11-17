@@ -123,16 +123,6 @@ class FakeTrackLyricsRepository implements TrackLyricsRepository {
 
     return Future<TrackLyrics?>.value(lyricsBySongId[songId]);
   }
-
-  @override
-  Future<void> save({
-    required String songId,
-    String? plainText,
-    String? syncedText,
-  }) async {}
-
-  @override
-  Future<void> deleteBySongId(String songId) async {}
 }
 
 const track1 = PlaybackTrack(

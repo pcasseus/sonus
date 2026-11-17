@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sonus_next/core/database/schema/lyrics_provenance_schema.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
@@ -674,6 +675,13 @@ void main() {
       // A version 31 week's provenance (version 46) is unknown.
       final weeks = rows[DatabaseTables.chartSnapshots]!;
       expect(weeks.map((row) => row['provenance']), everyElement(isNull));
+      // Version 31 lyrics restore as legacy: no provenance (version 48).
+      final lyrics = rows[DatabaseTables.trackLyrics]!;
+      for (final row in lyrics) {
+        for (final column in LyricsProvenanceSchema.columnNames) {
+          expect(row[column], isNull, reason: column);
+        }
+      }
       return {
         ...rows,
         DatabaseTables.albumEditions: [
@@ -682,6 +690,13 @@ void main() {
         ],
         DatabaseTables.chartSnapshots: [
           for (final row in weeks) {...row}..remove('provenance'),
+        ],
+        DatabaseTables.trackLyrics: [
+          for (final row in lyrics)
+            {...row}..removeWhere(
+              (column, _) =>
+                  LyricsProvenanceSchema.columnNames.contains(column),
+            ),
         ],
       };
     }

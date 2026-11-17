@@ -4,6 +4,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/core/lyrics/sqlite_lyrics_provenance_store.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
@@ -23,8 +24,6 @@ import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/services/album_edition_track_order.dart';
-import 'package:sonus_next/features/player/domain/models/track_lyrics.dart';
-import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 
 class _MetadataByPath implements AudioMetadataReader {
   _MetadataByPath(this.byPath);
@@ -48,22 +47,21 @@ class _LyricsByPath implements LyricsSourceReader {
       '[00:01.00]${candidate.filePath}';
 }
 
-class _RecordingLyrics implements TrackLyricsRepository {
+class _RecordingLyrics implements LyricsProvenanceWriter {
   final saves = <String, String?>{};
 
   @override
-  Future<void> deleteBySongId(String songId) async {}
+  Future<Map<String, Object?>?> read(String songId) async => null;
 
   @override
-  Future<TrackLyrics?> getBySongId(String songId) async => null;
-
-  @override
-  Future<void> save({
+  Future<LyricsWriteResult> saveAutomatic({
     required String songId,
-    String? plainText,
-    String? syncedText,
+    LyricsCandidate? plain,
+    LyricsCandidate? synced,
+    LyricsProviderDetails? provider,
   }) async {
-    saves[songId] = syncedText ?? plainText;
+    saves[songId] = synced?.text ?? plain?.text;
+    return LyricsWriteResult(plain: plain != null, synced: synced != null);
   }
 }
 
@@ -126,7 +124,7 @@ void main() {
         ),
         lyricsIngestionService: LyricsIngestionService(
           sourceReader: _LyricsByPath(),
-          trackLyricsRepository: lyrics,
+          lyricsWriter: lyrics,
         ),
       ),
       lyrics,
