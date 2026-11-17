@@ -6,6 +6,7 @@ import '../../../../library/application/models/library_track.dart';
 import '../../controllers/playback_coordinator.dart';
 import 'media_browse_library.dart';
 import 'media_session_state_mapper.dart';
+import 'voice_request_resolver.dart';
 
 /// The browsable library that Android Auto and other media browsers see.
 ///
@@ -131,60 +132,143 @@ class MediaBrowseCatalog {
 
     final tracks = await _containerTracks(playable.container);
     final index = playable.indexIn(tracks);
-    return index == -1 ? null : MediaBrowseQueue(tracks, index);
+    if (index == -1) return null;
+
+    return MediaBrowseQueue(
+      tracks,
+      index,
+      title: await _containerTitle(playable.container),
+    );
   }
 
-  /// The queue for a spoken request such as "play Sonus" or "play locket
-  /// by Madison Beer". An empty query resumes recent listening. An artist
-  /// or album named exactly plays that catalog; otherwise matching songs.
-  Future<MediaBrowseQueue?> queueForSearch(
-    String query, {
-    String? artist,
-    String? album,
-  }) async {
-    final trimmed = query.trim();
+  /// The playable song [mediaId] names: a song in a browsed list, or a
+  /// queue item, whose ID is the song's own. Null when it is gone or
+  /// cannot be played.
+  Future<LibraryTrack?> track(String mediaId) async {
+    final playable = MediaBrowsePlayableId.tryParse(mediaId);
 
-    if (trimmed.isEmpty && (artist ?? '').isEmpty && (album ?? '').isEmpty) {
-      final recent = await _containerTracks(MediaBrowseContainer.recent);
-      final queue = recent.isNotEmpty
-          ? recent
-          : await _containerTracks(MediaBrowseContainer.songs);
-      return queue.isEmpty ? null : MediaBrowseQueue(queue, 0);
+    if (playable != null) {
+      final tracks = await _containerTracks(playable.container);
+      final index = playable.indexIn(tracks);
+      return index == -1 ? null : tracks[index];
     }
 
-    final albumName = _normalize(album ?? '');
-    if (albumName.isNotEmpty || trimmed.isNotEmpty) {
-      final albums = await _library.albums();
-      final wanted = albumName.isNotEmpty ? albumName : _normalize(trimmed);
-      final match = albums.where((a) => _normalize(a.title) == wanted);
-      if (match.isNotEmpty) {
-        final tracks = await _containerTracks(
-          MediaBrowseContainer.album(match.first.albumId),
+    final tracks = await _containerTracks(MediaBrowseContainer.songs);
+    return tracks.where((track) => track.songId == mediaId).firstOrNull;
+  }
+
+  /// What to play for a spoken request such as "play locket by Madison
+  /// Beer", matched by [VoiceRequestResolver]. Each of its targets is
+  /// tried in order and the first with playable songs is played.
+  Future<VoiceResolution> resolveVoiceRequest(VoiceRequest request) async {
+    final plan = VoiceRequestResolver.plan(
+      request,
+      request.isEmpty ? const VoiceLibraryIndex() : await _voiceIndex(),
+    );
+
+    for (final target in plan) {
+      final tracks = await _voiceTargetTracks(target);
+      if (tracks.isEmpty) continue;
+
+      final title = _voiceTargetTitle(target, request);
+      return target.ambiguous
+          ? VoiceAmbiguous(tracks, 0, title)
+          : VoiceResolved(tracks, 0, title);
+    }
+
+    return VoiceNotFound(
+      request.spoken,
+      request.isEmpty
+          ? VoiceNotFoundReason.nothingToPlay
+          : plan.isEmpty
+          ? VoiceNotFoundReason.noMatch
+          : VoiceNotFoundReason.nothingPlayable,
+    );
+  }
+
+  Future<VoiceLibraryIndex> _voiceIndex() async {
+    final tracks = await _containerTracks(MediaBrowseContainer.songs);
+    final recent = await _library.recentlyPlayedTracks(recentLimit);
+
+    return VoiceLibraryIndex(
+      tracks: tracks,
+      albums: await _library.albums(),
+      artists: await _library.artists(),
+      playlists: await _library.playlists(),
+      recentSongIds: [for (final track in recent) track.songId],
+    );
+  }
+
+  /// Songs a genre request queues at most, so a car answers quickly.
+  static const int genreLimit = 200;
+
+  Future<List<LibraryTrack>> _voiceTargetTracks(VoiceTarget target) async {
+    switch (target) {
+      case VoiceSongs(:final tracks):
+        return tracks;
+      case VoiceAlbum(:final album):
+        return _containerTracks(MediaBrowseContainer.album(album.albumId));
+      case VoiceArtist(:final artist):
+        return _containerTracks(
+          MediaBrowseContainer.artistSongs(artist.artistId),
         );
-        if (tracks.isNotEmpty) return MediaBrowseQueue(tracks, 0);
-      }
+      case VoicePlaylist(:final playlist):
+        return _containerTracks(MediaBrowseContainer.playlist(playlist.id));
+      case VoiceGenre(:final albums):
+        final tracks = <LibraryTrack>[];
+        for (final album in albums) {
+          if (tracks.length >= genreLimit) break;
+          tracks.addAll(
+            await _containerTracks(MediaBrowseContainer.album(album.albumId)),
+          );
+        }
+        return tracks.take(genreLimit).toList(growable: false);
+      case VoiceRecent():
+        return _containerTracks(MediaBrowseContainer.recent);
+      case VoiceAllSongs():
+        return _containerTracks(MediaBrowseContainer.songs);
     }
+  }
 
-    final artistName = _normalize(artist ?? '');
-    if (artistName.isNotEmpty || trimmed.isNotEmpty) {
-      final artists = await _library.artists();
-      final wanted = artistName.isNotEmpty ? artistName : _normalize(trimmed);
-      final match = artists.where((a) => _normalize(a.name) == wanted);
-      if (match.isNotEmpty) {
-        final tracks = await _containerTracks(
-          MediaBrowseContainer.artistSongs(match.first.artistId),
-        );
-        if (tracks.isNotEmpty) return MediaBrowseQueue(tracks, 0);
-      }
+  static String _voiceTargetTitle(VoiceTarget target, VoiceRequest request) =>
+      switch (target) {
+        VoiceSongs() => MediaBrowseLabels.searchTitle(request.spoken),
+        VoiceAlbum(:final album) => album.displayTitle,
+        VoiceArtist(:final artist) => artist.name,
+        VoicePlaylist(:final playlist) => playlist.name,
+        VoiceGenre(:final genre) => genre,
+        VoiceRecent() => MediaBrowseLabels.recent,
+        VoiceAllSongs() => MediaBrowseLabels.songs,
+      };
+
+  /// The name of a browsed list, shown as the queue title.
+  Future<String?> _containerTitle(MediaBrowseContainer container) async {
+    final id = container.id;
+    switch (container.kind) {
+      case MediaBrowseContainerKind.recent:
+        return MediaBrowseLabels.recent;
+      case MediaBrowseContainerKind.recentlyAdded:
+        return MediaBrowseLabels.recentlyAdded;
+      case MediaBrowseContainerKind.songs:
+        return MediaBrowseLabels.songs;
+      case MediaBrowseContainerKind.search:
+        return MediaBrowseLabels.searchTitle(id!);
+      case MediaBrowseContainerKind.album:
+        final albums = await _library.albums();
+        return albums.where((a) => a.albumId == id).firstOrNull?.displayTitle;
+      case MediaBrowseContainerKind.artistSongs:
+        final artists = await _library.artists();
+        return artists.where((a) => a.artistId == id).firstOrNull?.name;
+      case MediaBrowseContainerKind.playlist:
+        final playlists = await _library.playlists();
+        return playlists.where((p) => p.id == id).firstOrNull?.name;
+      case MediaBrowseContainerKind.artists:
+      case MediaBrowseContainerKind.albums:
+      case MediaBrowseContainerKind.library:
+      case MediaBrowseContainerKind.playlists:
+      case MediaBrowseContainerKind.artist:
+        return null;
     }
-
-    final words = [
-      trimmed,
-      artist ?? '',
-      album ?? '',
-    ].where((part) => part.trim().isNotEmpty).join(' ');
-    final results = await _containerTracks(MediaBrowseContainer.search(words));
-    return results.isEmpty ? null : MediaBrowseQueue(results, 0);
   }
 
   Future<List<media.MediaItem>> _artistChildren(
@@ -267,10 +351,7 @@ class MediaBrowseCatalog {
     return [for (final entry in indexed.take(searchLimit)) entry.$2.$1];
   }
 
-  static String _normalize(String value) => value
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
-      .trim();
+  static String _normalize(String value) => voiceWords(value).join(' ');
 
   media.MediaItem _categoryItem(MediaBrowseCategory category) {
     return media.MediaItem(
@@ -341,10 +422,59 @@ class MediaBrowseCatalog {
 
 /// A list chosen in the car, with the song to start at.
 class MediaBrowseQueue {
-  const MediaBrowseQueue(this.tracks, this.startIndex);
+  const MediaBrowseQueue(this.tracks, this.startIndex, {this.title});
 
   final List<LibraryTrack> tracks;
   final int startIndex;
+
+  /// The queue title the car shows, when the list has a name.
+  final String? title;
+}
+
+/// The answer to a voice request (see
+/// [MediaBrowseCatalog.resolveVoiceRequest]).
+sealed class VoiceResolution {
+  const VoiceResolution();
+}
+
+/// Songs to play, best match first, with the queue title.
+class VoiceResolved extends VoiceResolution implements MediaBrowseQueue {
+  const VoiceResolved(this.tracks, this.startIndex, this.title);
+
+  @override
+  final List<LibraryTrack> tracks;
+
+  @override
+  final int startIndex;
+
+  @override
+  final String title;
+}
+
+/// Several matches were equally good; [tracks] starts with the one the
+/// documented tie-breaks chose (see [VoiceRequestResolver]).
+class VoiceAmbiguous extends VoiceResolved {
+  const VoiceAmbiguous(super.tracks, super.startIndex, super.title);
+}
+
+enum VoiceNotFoundReason {
+  /// An empty request, and nothing playable in the library.
+  nothingToPlay,
+
+  /// Nothing in the library has that name.
+  noMatch,
+
+  /// Something matched, but none of its songs can be played (an empty
+  /// playlist, or only blocked or unavailable files).
+  nothingPlayable,
+}
+
+/// Nothing to play; [spoken] is the request in words.
+class VoiceNotFound extends VoiceResolution {
+  const VoiceNotFound(this.spoken, this.reason);
+
+  final String spoken;
+  final VoiceNotFoundReason reason;
 }
 
 abstract final class MediaBrowseLabels {
@@ -355,6 +485,9 @@ abstract final class MediaBrowseLabels {
   static const String playlists = 'Playlists';
   static const String songs = 'Songs';
   static const String recentlyAdded = 'Recently Added';
+
+  /// The queue title of search results and spoken song requests.
+  static String searchTitle(String query) => 'Search: $query';
 }
 
 enum MediaBrowseCategory {

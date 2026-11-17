@@ -1021,6 +1021,7 @@ class AudioService {
     _observeMediaItem();
     _observeAndroidPlaybackInfo();
     _observeQueue();
+    _observeQueueTitle();
     _observePlaybackState();
 
     return handler;
@@ -1117,6 +1118,26 @@ class AudioService {
       try {
         await _platform.setQueue(SetQueueRequest(
             queue: queue.map((item) => item._toMessage()).toList()));
+      } catch (e) {
+        _asyncError.add(e);
+      }
+    }
+  }
+
+  // Sonus Patch 2: the queue title reaches the Android media session. The
+  // platform interface has no request for it, so it is sent on the same
+  // handler channel the interface uses, to the patched AudioServicePlugin.
+  // See PATCHES.md.
+  static const MethodChannel _queueTitleChannel =
+      MethodChannel('com.ryanheise.audio_service.handler.methods');
+
+  static Future<void> _observeQueueTitle() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    await for (var queueTitle in _handler.queueTitle.distinct()) {
+      try {
+        await _queueTitleChannel.invokeMethod<void>('setQueueTitle', {
+          'queueTitle': queueTitle.isEmpty ? null : queueTitle,
+        });
       } catch (e) {
         _asyncError.add(e);
       }

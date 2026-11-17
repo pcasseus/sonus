@@ -104,6 +104,8 @@ public class AudioService extends MediaBrowserServiceCompat {
     private static PendingIntent contentIntent;
     private static ServiceListener listener;
     private static List<MediaSessionCompat.QueueItem> queue = new ArrayList<>();
+    // Sonus Patch 2: kept like the queue, so a recreated session shows it.
+    private static String queueTitle;
     private static final Map<String, MediaMetadataCompat> mediaMetadataCache = new HashMap<>();
 
     public static void init(ServiceListener listener) {
@@ -321,6 +323,8 @@ public class AudioService extends MediaBrowserServiceCompat {
         mediaSession.setCallback(mediaSessionCallback = new MediaSessionCallback());
         setSessionToken(mediaSession.getSessionToken());
         mediaSession.setQueue(queue);
+        // Sonus Patch 2: restore the queue title with the queue.
+        mediaSession.setQueueTitle(queueTitle);
 
         PowerManager pm = (PowerManager)getSystemService(Context.POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, AudioService.class.getName());
@@ -765,6 +769,15 @@ public class AudioService extends MediaBrowserServiceCompat {
     synchronized void setQueue(List<MediaSessionCompat.QueueItem> queue) {
         AudioService.queue = queue;
         mediaSession.setQueue(queue);
+    }
+
+    /**
+     * Sonus Patch 2: the queue's title, shown by Android Auto and other
+     * controllers above the queue. Null clears it. See PATCHES.md.
+     */
+    synchronized void setQueueTitle(String queueTitle) {
+        AudioService.queueTitle = queueTitle;
+        if (mediaSession != null) mediaSession.setQueueTitle(queueTitle);
     }
 
     void playMediaItem(MediaDescriptionCompat description) {

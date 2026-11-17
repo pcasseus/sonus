@@ -864,6 +864,15 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
                     });
                     break;
                 }
+                case "setQueueTitle": {
+                    // Sonus Patch 2: see PATCHES.md.
+                    String queueTitle = (String)args.get("queueTitle");
+                    if (AudioService.instance != null) {
+                        AudioService.instance.setQueueTitle(queueTitle);
+                    }
+                    result.success(null);
+                    break;
+                }
                 case "setState": {
                     Map<?, ?> stateMap = (Map<?, ?>)args.get("state");
                     AudioProcessingState processingState = AudioProcessingState.values()[(Integer)stateMap.get("processingState")];

@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../player/application/services/media_session/media_browse_catalog_test.dart'
+    show FakeBrowseLibrary;
 import '../../../player/data/engines/simulated_just_audio_player.dart';
 import '../../support/direct_listening_session_mutation_runner.dart';
 
@@ -20,6 +22,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_restoration_controller.dart';
+import 'package:sonus_next/features/player/application/services/media_session/media_browse_catalog.dart';
 import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
 import 'package:sonus_next/features/player/data/engines/just_audio_playback_engine.dart';
 import 'package:sonus_next/features/player/data/services/playback_session_store.dart';
@@ -646,6 +649,83 @@ void main() {
         expect(qualifiedPlays.values, isEmpty);
       },
     );
+
+    group('voice requests (App Update 1.3)', () {
+      late _ResponsiveEngine responsive;
+      late PlaybackCoordinator coordinator;
+      late PlaybackAnalyticsController analytics;
+      late SonusAudioHandler mediaSession;
+
+      setUp(() {
+        responsive = _ResponsiveEngine();
+        coordinator = PlaybackCoordinator(engine: responsive);
+        analytics = PlaybackAnalyticsController(
+          playbackCoordinator: coordinator,
+          tracker: tracker,
+          now: () => now,
+          userIdProvider: () => currentUserId,
+          checkpointInterval: const Duration(seconds: 5),
+        );
+        mediaSession =
+            SonusAudioHandler(artworkExists: (_) => false, now: () => now)
+              ..attach(coordinator)
+              ..attachCatalog(
+                MediaBrowseCatalog(
+                  library: FakeBrowseLibrary()
+                    ..tracks = [libraryTrack1, libraryTrack2],
+                ),
+              );
+      });
+
+      tearDown(() async {
+        mediaSession.detach(coordinator);
+        await analytics.dispose();
+        await responsive.dispose();
+      });
+
+      test('preparing a spoken request records no session or play', () async {
+        await mediaSession.prepareFromSearch('Track 1');
+        await analytics.settled;
+        now = now.add(const Duration(minutes: 2));
+        await mediaSession.prepareFromSearch('Track 1');
+        await analytics.settled;
+        now = now.add(const Duration(minutes: 2));
+
+        expect(coordinator.currentState.status, PlaybackStatus.paused);
+        expect(coordinator.currentState.queue.currentTrack?.songId, 'song_1');
+        expect(playbackSessions.values, isEmpty);
+        expect(qualifiedPlays.values, isEmpty);
+      });
+
+      test('a not-found request changes no listening', () async {
+        await mediaSession.playFromSearch('Track 1');
+        await analytics.settled;
+        now = now.add(const Duration(seconds: 10));
+
+        await mediaSession.playFromSearch('nothing like this');
+        await analytics.settled;
+        now = now.add(const Duration(seconds: 30));
+        await mediaSession.stop();
+        await analytics.settled;
+
+        // One session, never interrupted, qualified by real listening.
+        expect(playbackSessions.values, hasLength(1));
+        expect(qualifiedPlays.values, hasLength(1));
+      });
+
+      test('rapid repeated requests play once and count one play', () async {
+        await Future.wait([
+          for (var i = 0; i < 3; i++) mediaSession.playFromSearch('Track 1'),
+        ]);
+        await analytics.settled;
+        now = now.add(const Duration(seconds: 40));
+        await mediaSession.stop();
+        await analytics.settled;
+
+        expect(playbackSessions.values, hasLength(1));
+        expect(qualifiedPlays.values, hasLength(1));
+      });
+    });
 
     group('with the real engine', () {
       late SimulatedJustAudioPlayer player;

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_browse_catalog.dart';
 import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
+import 'package:sonus_next/features/player/application/services/media_session/voice_request_resolver.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 
 import 'media_browse_catalog_test.dart'
@@ -168,8 +169,8 @@ void main() {
       library.tracks = [libraryTrack('t', title: 'angel wings')];
 
       await handler.playFromSearch('', {
-        SonusAudioHandler.searchArtistKey: 'Nobody',
-        SonusAudioHandler.searchAlbumKey: 42,
+        VoiceRequestKeys.artist: 'Nobody',
+        VoiceRequestKeys.album: 42,
       });
 
       // "Nobody" matches no artist or album and no song.

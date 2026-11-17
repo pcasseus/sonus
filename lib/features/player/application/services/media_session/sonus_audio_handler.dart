@@ -3,11 +3,13 @@ import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart' as media;
 
+import '../../../../library/application/models/library_track.dart';
 import '../../../domain/models/playback_repeat_mode.dart';
 import '../../../domain/models/playback_state.dart';
 import '../../controllers/playback_coordinator.dart';
 import 'media_browse_catalog.dart';
 import 'media_session_state_mapper.dart';
+import 'voice_request_resolver.dart';
 
 typedef MediaSessionClock = DateTime Function();
 typedef MediaSessionLogger = void Function(String message, {int level});
@@ -150,6 +152,8 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     _subscription = null;
     _coordinator = null;
     _restored = null;
+    _failure = null;
+    _setQueueTitle(null, const []);
     if (_ready.isCompleted) {
       _ready = Completer<void>();
     }
@@ -362,9 +366,51 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     Map<String, dynamic>? extras,
   ]) => _playSearched('prepareFromSearch', query, extras, autoPlay: false);
 
-  /// Android's keys for a structured voice request (MediaStore).
-  static const String searchArtistKey = 'android.intent.extra.artist';
-  static const String searchAlbumKey = 'android.intent.extra.album';
+  /// "Add to queue" from a media controller. Android Auto and the
+  /// Assistant do not send it; other controllers may, for a song they
+  /// browsed or a queue item. It is added as the app's Add to queue adds it.
+  @override
+  Future<void> addQueueItem(media.MediaItem mediaItem) => _queueSong(
+    'addQueueItem',
+    mediaItem.id,
+    (coordinator, track) => coordinator.addToQueue(track),
+  );
+
+  /// An insert right after the current song is the app's Play next; one at
+  /// the end is Add to queue. Sonus has no other insert, so any other
+  /// position is refused.
+  @override
+  Future<void> insertQueueItem(int index, media.MediaItem mediaItem) {
+    final current = _coordinator?.currentState.queue;
+    final hasCurrent = current != null && current.hasCurrentTrack;
+
+    if (!hasCurrent || index == current.currentIndex + 1) {
+      return _queueSong(
+        'insertQueueItem',
+        mediaItem.id,
+        (coordinator, track) => coordinator.playNext(track),
+      );
+    }
+
+    if (index >= current.tracks.length) {
+      return addQueueItem(mediaItem);
+    }
+
+    _log('Media command "insertQueueItem" ignored: only Play next is offered.');
+    return Future<void>.value();
+  }
+
+  /// Error codes for a voice request that fails, as PlaybackStateCompat
+  /// defines them. Android Auto shows the message and the Assistant says it.
+  static const int notFoundErrorCode = 0; // ERROR_CODE_UNKNOWN_ERROR
+  static const int notReadyErrorCode = 1; // ERROR_CODE_APP_ERROR
+
+  static const String notReadyMessage =
+      'Sonus is still starting. Try again in a moment.';
+
+  static String notFoundMessage(String spoken) => spoken.isEmpty
+      ? 'Sonus has nothing to play yet.'
+      : 'Sonus couldn\'t find "$spoken".';
 
   /// The saved session's current song, as the item Android's resume card
   /// shows, or null when nothing is saved.
@@ -412,51 +458,132 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     final catalog = await _awaitCatalog(command);
     if (catalog == null) return;
 
-    await _run(command, (coordinator) async {
-      final queue = await catalog.queueFor(mediaId);
-
-      if (queue == null) {
-        _log('Media command "$command" ignored: the song is unavailable.');
-        return;
-      }
-
-      await coordinator.playTracks(
-        queue.tracks,
-        startIndex: queue.startIndex,
-        autoPlay: autoPlay,
+    final MediaBrowseQueue? queue;
+    try {
+      queue = await catalog.queueFor(mediaId);
+    } catch (error, stackTrace) {
+      _log(
+        'Media command "$command" failed. error=${error.runtimeType}\n'
+        '$stackTrace',
+        level: 900,
       );
-    });
+      return;
+    }
+
+    if (queue == null) {
+      _log('Media command "$command" ignored: the song is unavailable.');
+      return;
+    }
+
+    await _playQueue(command, queue, autoPlay: autoPlay);
   }
 
+  /// Voice requests so far. Only the newest one plays, so a quick repeat
+  /// never lets an older, slower lookup replace what was asked last.
+  int _voiceRequests = 0;
+
+  /// A spoken request. When nothing matches, or Sonus is not ready, an
+  /// error is published for the car or Assistant to say, and whatever was
+  /// playing carries on.
   Future<void> _playSearched(
     String command,
     String query,
     Map<String, dynamic>? extras, {
     required bool autoPlay,
   }) async {
+    final request = VoiceRequest.fromSearch(query, extras);
+    final turn = ++_voiceRequests;
+    bool isLatest() => turn == _voiceRequests;
+
     final catalog = await _awaitCatalog(command);
-    if (catalog == null) return;
-
-    await _run(command, (coordinator) async {
-      final artist = extras?[searchArtistKey];
-      final album = extras?[searchAlbumKey];
-      final queue = await catalog.queueForSearch(
-        query,
-        artist: artist is String ? artist : null,
-        album: album is String ? album : null,
-      );
-
-      if (queue == null) {
-        _log('Media command "$command" found nothing to play.');
-        return;
+    if (catalog == null || _coordinator == null) {
+      if (catalog != null) {
+        _log('Media command "$command" ignored: playback is not ready.');
       }
+      if (isLatest()) _reportFailure(notReadyErrorCode, notReadyMessage);
+      return;
+    }
 
-      await coordinator.playTracks(
+    final VoiceResolution resolution;
+    try {
+      resolution = await catalog.resolveVoiceRequest(request);
+    } catch (error, stackTrace) {
+      _log(
+        'Media command "$command" failed. error=${error.runtimeType}\n'
+        '$stackTrace',
+        level: 900,
+      );
+      if (isLatest()) {
+        _reportFailure(notReadyErrorCode, notFoundMessage(request.spoken));
+      }
+      return;
+    }
+
+    if (!isLatest()) {
+      _log('Media command "$command" replaced by a newer request.');
+      return;
+    }
+
+    switch (resolution) {
+      case VoiceNotFound(:final spoken, :final reason):
+        _log(
+          'Media command "$command" found nothing to play. '
+          'reason=${reason.name}',
+        );
+        _reportFailure(notFoundErrorCode, notFoundMessage(spoken));
+      case VoiceResolved():
+        if (resolution is VoiceAmbiguous) {
+          _log('Media command "$command" was ambiguous; the best match plays.');
+        }
+        await _playQueue(command, resolution, autoPlay: autoPlay);
+    }
+  }
+
+  /// Plays [queue] as the app would, then names it for the car.
+  Future<void> _playQueue(
+    String command,
+    MediaBrowseQueue queue, {
+    required bool autoPlay,
+  }) async {
+    final played = await _run(
+      command,
+      (coordinator) => coordinator.playTracks(
         queue.tracks,
         startIndex: queue.startIndex,
         autoPlay: autoPlay,
+      ),
+    );
+    if (played) _setQueueTitle(queue.title, queue.tracks);
+  }
+
+  /// Adds the song [mediaId] names to the queue with [action].
+  Future<void> _queueSong(
+    String command,
+    String mediaId,
+    Future<void> Function(PlaybackCoordinator coordinator, LibraryTrack track)
+    action,
+  ) async {
+    final catalog = await _awaitCatalog(command);
+    if (catalog == null) return;
+
+    final LibraryTrack? track;
+    try {
+      track = await catalog.track(mediaId);
+    } catch (error, stackTrace) {
+      _log(
+        'Media command "$command" failed. error=${error.runtimeType}\n'
+        '$stackTrace',
+        level: 900,
       );
-    });
+      return;
+    }
+
+    if (track == null) {
+      _log('Media command "$command" ignored: the song is unavailable.');
+      return;
+    }
+
+    await _run(command, (coordinator) => action(coordinator, track!));
   }
 
   /// Waits, up to the readiness timeout, until both the library catalog
@@ -558,7 +685,9 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     return turn;
   }
 
-  Future<void> _run(
+  /// Runs [action] on the coordinator. True when it succeeded, which also
+  /// clears a failed voice request's error.
+  Future<bool> _run(
     String command,
     Future<void> Function(PlaybackCoordinator coordinator) action,
   ) async {
@@ -566,7 +695,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
 
     if (coordinator == null) {
       _log('Media command "$command" ignored: playback is not ready.');
-      return;
+      return false;
     }
 
     try {
@@ -577,6 +706,102 @@ class SonusAudioHandler extends media.BaseAudioHandler {
         '$stackTrace',
         level: 900,
       );
+      return false;
+    }
+
+    _clearFailure();
+    return true;
+  }
+
+  /// A failed voice request's error, shown until the next successful
+  /// command or until another song or queue is published.
+  ({int code, String message})? _failure;
+
+  /// Publishes a voice request's failure without touching playback.
+  ///
+  /// While something is queued the error is non-fatal: the state Android
+  /// sees keeps playing or paused, with the error code and message added,
+  /// which Android Auto shows as a message over the player. With nothing
+  /// queued the session reports STATE_ERROR, which the car shows in place
+  /// of the player and the Assistant reads out.
+  void _reportFailure(int code, String message) {
+    _failure = (code: code, message: message);
+    _publishSnapshot(
+      _published?.snapshot ??
+          MediaSessionStateMapper.map(const PlaybackState(), now: _now()),
+    );
+  }
+
+  void _clearFailure() {
+    if (_failure == null) return;
+    _failure = null;
+    final published = _published;
+    if (published != null) _publishSnapshot(published.snapshot);
+  }
+
+  /// [snapshot] with the current failure, if any, added.
+  MediaSessionSnapshot _withFailure(MediaSessionSnapshot snapshot) {
+    final failure = _failure;
+    if (failure == null) return snapshot;
+
+    final state = snapshot.state;
+    return MediaSessionSnapshot(
+      item: snapshot.item,
+      queue: snapshot.queue,
+      state: media.PlaybackState(
+        processingState:
+            state.processingState == media.AudioProcessingState.idle
+            ? media.AudioProcessingState.error
+            : state.processingState,
+        playing: state.playing,
+        controls: state.controls,
+        androidCompactActionIndices: state.androidCompactActionIndices,
+        systemActions: state.systemActions,
+        updatePosition: state.updatePosition,
+        bufferedPosition: state.bufferedPosition,
+        speed: state.speed,
+        updateTime: state.updateTime,
+        errorCode: failure.code,
+        errorMessage: failure.message,
+        repeatMode: state.repeatMode,
+        shuffleMode: state.shuffleMode,
+        captioningEnabled: state.captioningEnabled,
+        queueIndex: state.queueIndex,
+      ),
+    );
+  }
+
+  /// Songs of the queue [queueTitle] names, so the title is dropped once
+  /// the queue is replaced. Adding songs keeps it.
+  List<String>? _titledSongIds;
+
+  void _setQueueTitle(String? title, List<LibraryTrack> tracks) {
+    _titledSongIds = title == null
+        ? null
+        : [
+            for (final track in tracks)
+              if (PlaybackCoordinator.isPlayable(track)) track.songId,
+          ];
+    if (queueTitle.value != (title ?? '')) queueTitle.add(title ?? '');
+  }
+
+  /// Drops the queue title when [queue] no longer holds the titled songs.
+  /// An empty queue (a stopped session) keeps it, for a later resume.
+  void _checkQueueTitle(List<media.MediaItem> queue) {
+    final titled = _titledSongIds;
+    if (titled == null || queue.isEmpty) return;
+
+    final remaining = <String, int>{};
+    for (final item in queue) {
+      remaining[item.id] = (remaining[item.id] ?? 0) + 1;
+    }
+    for (final id in titled) {
+      final left = remaining[id] ?? 0;
+      if (left == 0) {
+        _setQueueTitle(null, const []);
+        return;
+      }
+      remaining[id] = left - 1;
     }
   }
 
@@ -592,7 +817,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     final published = _published;
 
     if (published != null &&
-        published.signature == _Signature.of(snapshot) &&
+        published.signature == _Signature.of(_withFailure(snapshot)) &&
         !_positionJumped(published.snapshot.state, snapshot.state, now)) {
       return;
     }
@@ -600,9 +825,22 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     _publishSnapshot(snapshot);
   }
 
+  /// Publishes [snapshot], Sonus's own state; [_published] keeps it as it
+  /// is, and the signature describes what Android was sent.
   void _publishSnapshot(MediaSessionSnapshot snapshot, {bool full = false}) {
     final previous = _published;
-    _published = _Published(snapshot, _Signature.of(snapshot));
+
+    // A different song or queue means the listener moved on.
+    if (_failure != null &&
+        previous != null &&
+        (previous.snapshot.item?.id != snapshot.item?.id ||
+            _Signature.of(previous.snapshot).queueRows !=
+                _Signature.of(snapshot).queueRows)) {
+      _failure = null;
+    }
+
+    final sent = _withFailure(snapshot);
+    _published = _Published(snapshot, _Signature.of(sent));
 
     final current = _published!.signature;
 
@@ -612,12 +850,13 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     if (full ||
         previous == null ||
         previous.signature.queueRows != current.queueRows) {
+      _checkQueueTitle(snapshot.queue);
       queue.add(snapshot.queue);
     }
     if (full || previous == null || !previous.signature.sameItem(current)) {
       mediaItem.add(snapshot.item);
     }
-    playbackState.add(snapshot.state);
+    playbackState.add(sent.state);
 
     if (previous != null &&
         previous.signature.processingState != media.AudioProcessingState.idle &&
