@@ -185,6 +185,13 @@ final class VoiceAllSongs extends VoiceTarget {
 /// punctuation and a leading "the" are ignored.
 ///
 /// * **Empty request**: recent listening, else the whole library.
+/// * **Typed free query**: "album X", "the album X", "X album",
+///   "playlist X", "my X playlist", "song X" or "track X" (with no focus,
+///   or the same focus) looks for that kind of thing named X first (an
+///   album request then songs named X, as album focus does), then reads
+///   the whole query as an unstructured request. It is not read
+///   this way when the whole query is itself the exact name of a song,
+///   album, artist or playlist, so "Song 2" still plays "Song 2".
 /// * **Playlist** (playlist extra or playlist focus): only playlists, by
 ///   name, with a trailing "playlist" and a leading "my" ignored. Same-named
 ///   playlists are tried in library order; an empty one is skipped, and no
@@ -205,18 +212,22 @@ final class VoiceAllSongs extends VoiceTarget {
 ///
 /// 1. **Artist named**: primary artist matches, then credited (co-primary,
 ///    featured or guest), then any other artist.
-/// 2. **Title**: the display title (with its version) is the request, then
+/// 2. **Version asked for**: a version whose title plus version words is
+///    what was asked (in the query or the title extra), as in "Love Story
+///    Taylor's Version" or "Reckless radio edit", comes before the
+///    original and every other song (see [asksForVersion]).
+/// 3. **Title**: the display title (with its version) is the request, then
 ///    the stored title is, then the title starts with it, then every word
 ///    appears in title, artist or album.
-/// 3. **Original before versions**: a Remix, Live, Acoustic, Sped Up or
+/// 4. **Original before versions**: a Remix, Live, Acoustic, Sped Up or
 ///    other version (see [isVersion]) comes after the original unless the
 ///    request names that version.
-/// 4. **Most recently played** (Sonus's Recent list, the newest 50 songs);
+/// 5. **Most recently played** (Sonus's Recent list, the newest 50 songs);
 ///    Sonus has no play-count signal in the media browser.
-/// 5. **Library order**, which is stable.
+/// 6. **Library order**, which is stable.
 ///
 /// A result is ambiguous when its top two songs were only told apart by
-/// rules 4 or 5, or several same-named albums, artists or playlists fit.
+/// rules 5 or 6, or several same-named albums, artists or playlists fit.
 abstract final class VoiceRequestResolver {
   /// Songs offered per request.
   static const int songLimit = 50;
@@ -228,6 +239,12 @@ abstract final class VoiceRequestResolver {
 
     final query = request.query;
     final focus = request.focus;
+
+    final typed = _typedTargets(request, index);
+    if (typed != null) {
+      return [...typed, ..._freeQuery(query, request.artist, index)];
+    }
+
     final playlistName = request.playlist.isNotEmpty
         ? request.playlist
         : focus == VoiceFocus.playlist
@@ -258,7 +275,7 @@ abstract final class VoiceRequestResolver {
 
     if (title.isNotEmpty) {
       return [
-        ..._songs(title, artist, index),
+        ..._songs(title, artist, index, asked: query),
         if (focus != VoiceFocus.song) ...[
           ..._albums(album, artist, index),
           ..._artists(artist, index),
@@ -312,6 +329,110 @@ abstract final class VoiceRequestResolver {
     ];
   }
 
+  /// The targets for a free query that says what kind of thing it wants,
+  /// as in "the album locket" or "playlist Road Trip", or null when it does
+  /// not, or when the whole query is already the exact name of something.
+  static List<VoiceTarget>? _typedTargets(
+    VoiceRequest request,
+    VoiceLibraryIndex index,
+  ) {
+    if (request.title.isNotEmpty ||
+        request.album.isNotEmpty ||
+        request.playlist.isNotEmpty ||
+        request.genre.isNotEmpty) {
+      return null;
+    }
+
+    final typed = typedQuery(request.query);
+    if (typed == null) return null;
+
+    final (focus, name) = typed;
+    if (request.focus != VoiceFocus.any && request.focus != focus) return null;
+    if (_namesExactly(request.query, index)) return null;
+
+    final artist = request.artist;
+    final split = artist.isEmpty ? _splitBy(name) : null;
+
+    switch (focus) {
+      case VoiceFocus.album:
+        return [
+          ..._albums(name, artist, index),
+          if (split != null) ..._albums(split.$1, split.$2, index),
+          // As an album focus does: songs of that name, if no album plays.
+          ..._songs(name, artist, index),
+        ];
+      case VoiceFocus.playlist:
+        return _playlists(name, index);
+      case VoiceFocus.song:
+      case VoiceFocus.any:
+      case VoiceFocus.artist:
+      case VoiceFocus.genre:
+        if (_songs(name, artist, index, exactOnly: true).isNotEmpty) {
+          return _songs(name, artist, index);
+        }
+        return [
+          if (split != null)
+            ..._songs(split.$1, split.$2, index, exactOnly: true),
+          ..._songs(name, artist, index),
+        ];
+    }
+  }
+
+  /// The kind of thing a free query names, and the name: "the album
+  /// locket" is (album, "locket"), "my Gym playlist" is (playlist,
+  /// "my gym") and "song Angel" is (song, "angel"). Null for any other
+  /// query. A trailing "song" is not read, since many titles end in it.
+  static (VoiceFocus, String)? typedQuery(String query) {
+    final words = voiceWords(query);
+    if (words.length < 2) return null;
+
+    for (final (focus, word) in const [
+      (VoiceFocus.album, 'album'),
+      (VoiceFocus.playlist, 'playlist'),
+      (VoiceFocus.song, 'song'),
+      (VoiceFocus.song, 'track'),
+    ]) {
+      for (final lead in [
+        [word],
+        ['the', word],
+        if (focus == VoiceFocus.playlist) ['my', word],
+      ]) {
+        if (words.length > lead.length && _startsWith(words, lead)) {
+          return (focus, words.skip(lead.length).join(' '));
+        }
+      }
+      if (focus != VoiceFocus.song && words.last == word) {
+        return (focus, words.take(words.length - 1).join(' '));
+      }
+    }
+    return null;
+  }
+
+  static bool _startsWith(List<String> words, List<String> lead) {
+    for (final (i, word) in lead.indexed) {
+      if (words[i] != word) return false;
+    }
+    return true;
+  }
+
+  /// Whether [query] as a whole is the exact name of a song, album, artist
+  /// or playlist.
+  static bool _namesExactly(String query, VoiceLibraryIndex index) {
+    final wanted = voiceKey(query);
+    return index.tracks.any(
+          (track) =>
+              voiceKey(track.displayTitle) == wanted ||
+              voiceKey(track.title) == wanted,
+        ) ||
+        index.albums.any(
+          (album) =>
+              voiceKey(album.title) == wanted ||
+              voiceKey(album.displayTitle) == wanted,
+        ) ||
+        index.artists.any((artist) => voiceKey(artist.name) == wanted) ||
+        index.playlists.any((playlist) => voiceKey(playlist.name) == wanted);
+  }
+
   /// "locket by Madison Beer" as ("locket", "Madison Beer").
   static (String, String)? _splitBy(String query) {
     final at = query.toLowerCase().lastIndexOf(' by ');
@@ -327,11 +448,13 @@ abstract final class VoiceRequestResolver {
     String artist,
     VoiceLibraryIndex index, {
     bool exactOnly = false,
+    String asked = '',
   }) {
     final wanted = voiceKey(phrase);
     if (wanted.isEmpty) return const [];
 
     final words = wanted.split(' ');
+    final askedWords = voiceKey(asked).split(' ');
     final artistKey = voiceKey(artist);
     final recency = {
       for (final (rank, id) in index.recentSongIds.indexed) id: rank,
@@ -339,13 +462,20 @@ abstract final class VoiceRequestResolver {
     final ranked = <(_SongRank, LibraryTrack)>[];
 
     for (final (position, track) in index.tracks.indexed) {
+      // A version asked for by name matches as exactly as its title would,
+      // however the request words are ordered ("radio edit of Reckless").
+      final askedFor =
+          asksForVersion(track, words) || asksForVersion(track, askedWords);
       final titleRank = _titleRank(track, wanted, words);
-      if (titleRank == null || (exactOnly && titleRank > 1)) continue;
+      if (!askedFor && (titleRank == null || (exactOnly && titleRank > 1))) {
+        continue;
+      }
 
       ranked.add((
         _SongRank(
           artist: _artistRank(track, artistKey),
-          title: titleRank,
+          askedVersion: askedFor ? 0 : 1,
+          title: titleRank ?? 3,
           version: isVersion(track) && !_namesVersion(track, words) ? 1 : 0,
           recency: recency[track.songId] ?? index.recentSongIds.length,
           position: position,
@@ -438,20 +568,87 @@ abstract final class VoiceRequestResolver {
 
   /// Whether [word] sits in a bracketed part of [title] or after " - ".
   static bool _inQualifier(String title, String word) {
-    final segments = [
-      for (final match in RegExp(r'[\(\[]([^\)\]]*)[\)\]]').allMatches(title))
-        match.group(1) ?? '',
-      if (title.contains(' - ')) title.substring(title.indexOf(' - ') + 3),
-    ];
-    return segments.any(
-      (segment) => voiceKey(segment).split(' ').contains(word),
-    );
+    return _qualifierSegments(
+      title,
+    ).any((segment) => voiceKey(segment).split(' ').contains(word));
   }
+
+  static final RegExp _bracketed = RegExp(r'[\(\[]([^\)\]]*)[\)\]]');
+
+  /// The bracketed parts of [title], and whatever follows a " - ".
+  static List<String> _qualifierSegments(String title) => [
+    for (final match in _bracketed.allMatches(title)) match.group(1) ?? '',
+    if (title.contains(' - ')) title.substring(title.indexOf(' - ') + 3),
+  ];
 
   static bool _namesVersion(LibraryTrack track, List<String> words) {
     final version = _versionWords(track);
     return words.any(version.contains);
   }
+
+  /// Whether [words] (a request, folded by [voiceKey]) ask for [track] as a
+  /// version by name: every word of its base title, at least one word of
+  /// its version, and nothing else but "version", "of", "the" or "a", in
+  /// any order. "Love Story Taylor's Version", "radio edit of Reckless"
+  /// and "Reckless sped up" qualify; "Reckless" alone does not. A word the
+  /// base title already has, as "live" in "Live Forever (Live)", names the
+  /// version only when it is said once more.
+  static bool asksForVersion(LibraryTrack track, List<String> words) {
+    final version = _qualifierWords(track);
+    if (version.isEmpty) return false;
+
+    final base = voiceWords(_baseTitle(track.title));
+    if (base.isEmpty) return false;
+
+    final unmatched = <String, int>{};
+    for (final word in base) {
+      unmatched[word] = (unmatched[word] ?? 0) + 1;
+    }
+
+    var named = false;
+    for (final word in words) {
+      final left = unmatched[word] ?? 0;
+      if (left > 0) {
+        unmatched[word] = left - 1;
+      } else if (_fillerWords.contains(word)) {
+        continue;
+      } else if (version.contains(word)) {
+        named = true;
+      } else {
+        return false;
+      }
+    }
+    // A leading "the" of the title may go unsaid, as voiceKey drops it.
+    unmatched.remove('the');
+    return named && unmatched.values.every((left) => left == 0);
+  }
+
+  /// Every word of [track]'s version: its label, its characteristics and
+  /// any bracketed or " - " part of its title that holds a version word,
+  /// so "Taylor's Version" gives "taylors" and "version".
+  static Set<String> _qualifierWords(LibraryTrack track) {
+    if (!isVersion(track)) return const {};
+
+    return {
+      ...voiceWords(track.versionLabel ?? ''),
+      for (final characteristic in track.versionCharacteristics)
+        if (characteristic != SongVersionCharacteristic.remaster)
+          ...voiceWords(songVersionCharacteristicLabel(characteristic)),
+      for (final segment in _qualifierSegments(track.title))
+        if (voiceWords(segment).any(_versionVocabulary.contains))
+          ...voiceWords(segment),
+    }..removeAll(_notVersionWords);
+  }
+
+  /// [title] without its bracketed parts and anything after " - ".
+  static String _baseTitle(String title) {
+    final dash = title.indexOf(' - ');
+    final head = dash == -1 ? title : title.substring(0, dash);
+    return head.replaceAll(_bracketed, ' ');
+  }
+
+  /// Words a request may add around a version without changing it.
+  static const Set<String> _fillerWords = {'version', 'of', 'the', 'a'};
 
   /// Words that mark a version in a stored title, as in "Song (Sped Up)".
   static const Set<String> _versionVocabulary = {
@@ -573,6 +770,7 @@ abstract final class VoiceRequestResolver {
 class _SongRank implements Comparable<_SongRank> {
   const _SongRank({
     required this.artist,
+    required this.askedVersion,
     required this.title,
     required this.version,
     required this.recency,
@@ -580,6 +778,7 @@ class _SongRank implements Comparable<_SongRank> {
   });
 
   final int artist;
+  final int askedVersion;
   final int title;
   final int version;
   final int recency;
@@ -588,6 +787,7 @@ class _SongRank implements Comparable<_SongRank> {
   /// Equally good apart from the recency and library-order tie-breaks.
   bool sameMatchAs(_SongRank other) =>
       other.artist == artist &&
+      other.askedVersion == askedVersion &&
       other.title == title &&
       other.version == version;
 
@@ -595,6 +795,7 @@ class _SongRank implements Comparable<_SongRank> {
   int compareTo(_SongRank other) {
     for (final (a, b) in [
       (artist, other.artist),
+      (askedVersion, other.askedVersion),
       (title, other.title),
       (version, other.version),
       (recency, other.recency),

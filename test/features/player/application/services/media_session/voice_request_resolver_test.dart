@@ -479,4 +479,361 @@ void main() {
       'word',
     ]);
   });
+
+  group('explicitly requested versions win over the original', () {
+    // The original is listed last, so library order never helps it.
+    final index = VoiceLibraryIndex(
+      tracks: [
+        song('tv', "Love Story (Taylor's Version)"),
+        song(
+          'radio',
+          'Love Story',
+          characteristics: const [SongVersionCharacteristic.radioEdit],
+        ),
+        song('live', 'Love Story', versionLabel: 'Live'),
+        song('remix', 'Love Story', versionLabel: 'Remix'),
+        song(
+          'acoustic',
+          'Love Story',
+          characteristics: const [SongVersionCharacteristic.acoustic],
+        ),
+        song('sped', 'Love Story (Sped Up)'),
+        song('original', 'Love Story'),
+      ],
+    );
+
+    const asked = {
+      'tv': "Taylor's Version",
+      'radio': 'Radio Edit',
+      'live': 'Live',
+      'remix': 'Remix',
+      'acoustic': 'Acoustic',
+      'sped': 'Sped Up',
+    };
+
+    for (final MapEntry(key: id, value: label) in asked.entries) {
+      test('"$label" in the query plays that version', () {
+        final targets = plan(VoiceRequest(query: 'love story $label'), index);
+        expect(songIds(targets).first, id);
+        expect(targets.first.ambiguous, isFalse);
+      });
+
+      test('"$label" wins even when the title extra leaves it out', () {
+        // The title extra alone matches the original best; the query says
+        // which version was asked for.
+        final targets = plan(
+          VoiceRequest(title: 'Love Story', query: 'love story $label'),
+          index,
+        );
+        expect(songIds(targets).first, id);
+      });
+    }
+
+    test('"version of" phrasing is understood', () {
+      expect(
+        songIds(
+          plan(const VoiceRequest(query: 'radio edit of love story'), index),
+        ).first,
+        'radio',
+      );
+      expect(
+        songIds(
+          plan(
+            const VoiceRequest(query: 'the acoustic version of love story'),
+            index,
+          ),
+        ).first,
+        'acoustic',
+      );
+    });
+
+    test('with no version named, the original plays', () {
+      expect(
+        songIds(plan(const VoiceRequest(query: 'love story'), index)).first,
+        'original',
+      );
+      expect(
+        songIds(plan(const VoiceRequest(title: 'Love Story'), index)).first,
+        'original',
+      );
+    });
+
+    test('with no original in the library, a version plays', () {
+      final versionsOnly = VoiceLibraryIndex(
+        tracks: [index.tracks[2], index.tracks[0]],
+      );
+
+      final ids = songIds(
+        plan(const VoiceRequest(query: 'love story'), versionsOnly),
+      );
+      expect(ids, ['live', 'tv']);
+    });
+
+    test('a version word the title already has is not a request', () {
+      final live = VoiceLibraryIndex(
+        tracks: [song('lv', 'Live Forever (Live)'), song('o', 'Live Forever')],
+      );
+
+      expect(
+        songIds(
+          plan(
+            const VoiceRequest(title: 'Live Forever', query: 'live forever'),
+            live,
+          ),
+        ).first,
+        'o',
+      );
+      expect(
+        songIds(
+          plan(const VoiceRequest(query: 'live forever live'), live),
+        ).first,
+        'lv',
+      );
+    });
+
+    test('a version asked for beats an original matching only by album', () {
+      final loose = VoiceLibraryIndex(
+        tracks: [
+          song('original', 'Reckless Tour', album: 'Live Tour'),
+          song('live', 'Reckless Tour', versionLabel: 'Live'),
+        ],
+      );
+
+      expect(
+        songIds(
+          plan(
+            const VoiceRequest(
+              title: 'Reckless Tour',
+              query: 'reckless tour live',
+            ),
+            loose,
+          ),
+        ).first,
+        'live',
+      );
+    });
+
+    test('asking for a version needs its whole title and a version word', () {
+      final tv = index.tracks[0];
+      List<String> words(String phrase) => voiceKey(phrase).split(' ');
+
+      expect(
+        VoiceRequestResolver.asksForVersion(
+          tv,
+          words("love story taylor's version"),
+        ),
+        isTrue,
+      );
+      expect(
+        VoiceRequestResolver.asksForVersion(tv, words('love story')),
+        isFalse,
+      );
+      expect(
+        VoiceRequestResolver.asksForVersion(tv, words('story taylors version')),
+        isFalse,
+      );
+      expect(
+        VoiceRequestResolver.asksForVersion(
+          tv,
+          words('love story live version'),
+        ),
+        isFalse,
+      );
+      expect(
+        VoiceRequestResolver.asksForVersion(
+          index.tracks.last,
+          words('love story live'),
+        ),
+        isFalse,
+        reason: 'the original is not a version',
+      );
+    });
+  });
+
+  group('same title by different artists, title extra', () {
+    final index = VoiceLibraryIndex(
+      tracks: [
+        song('a1', 'Angel', artist: 'Artist One'),
+        song('a2', 'Angel', artist: 'Artist Two'),
+      ],
+    );
+
+    test('without the artist: ambiguous, library order', () {
+      final targets = plan(const VoiceRequest(title: 'Angel'), index);
+      expect(songIds(targets), ['a1', 'a2']);
+      expect(targets.first.ambiguous, isTrue);
+    });
+
+    test('with the artist: that artist, not ambiguous', () {
+      final targets = plan(
+        const VoiceRequest(title: 'Angel', artist: 'artist one'),
+        index,
+      );
+      expect(songIds(targets), ['a1', 'a2']);
+      expect(targets.first.ambiguous, isFalse);
+    });
+
+    test('"song … by …" is understood', () {
+      final targets = plan(
+        const VoiceRequest(query: 'the song angel by artist two'),
+        index,
+      );
+      expect(songIds(targets).first, 'a2');
+    });
+  });
+
+  group('song, album and playlist with the same name', () {
+    final index = VoiceLibraryIndex(
+      tracks: [song('s', 'Locket'), song('x', 'Other')],
+      albums: [album('al', 'locket')],
+      playlists: const [
+        MediaBrowsePlaylist(id: 'pl', name: 'Locket', trackCount: 2),
+      ],
+    );
+
+    VoiceTarget first(VoiceRequest request) => plan(request, index).first;
+
+    test('unstructured: the song', () {
+      expect(first(const VoiceRequest(query: 'locket')), isA<VoiceSongs>());
+    });
+
+    test('each focus picks its own kind', () {
+      expect(
+        first(const VoiceRequest(query: 'locket', focus: VoiceFocus.song)),
+        isA<VoiceSongs>(),
+      );
+      expect(
+        first(const VoiceRequest(query: 'locket', focus: VoiceFocus.album)),
+        isA<VoiceAlbum>(),
+      );
+      expect(
+        first(const VoiceRequest(query: 'locket', focus: VoiceFocus.playlist)),
+        isA<VoicePlaylist>(),
+      );
+    });
+
+    for (final phrase in [
+      'the album locket',
+      'album locket',
+      'locket album',
+      'the locket album',
+    ]) {
+      test('"$phrase" plays the album', () {
+        final target = first(VoiceRequest(query: phrase));
+        expect((target as VoiceAlbum).album.albumId, 'al');
+        expect(
+          (first(VoiceRequest(query: phrase, focus: VoiceFocus.album))
+                  as VoiceAlbum)
+              .album
+              .albumId,
+          'al',
+        );
+      });
+    }
+
+    for (final phrase in [
+      'playlist locket',
+      'the playlist locket',
+      'my playlist locket',
+      'locket playlist',
+      'my locket playlist',
+    ]) {
+      test('"$phrase" plays the playlist', () {
+        final target = first(VoiceRequest(query: phrase));
+        expect((target as VoicePlaylist).playlist.id, 'pl');
+        expect(
+          (first(VoiceRequest(query: phrase, focus: VoiceFocus.playlist))
+                  as VoicePlaylist)
+              .playlist
+              .id,
+          'pl',
+        );
+      });
+    }
+
+    for (final phrase in ['song locket', 'the song locket', 'track locket']) {
+      test('"$phrase" plays the song', () {
+        expect(songIds(plan(VoiceRequest(query: phrase), index)).first, 's');
+        expect(
+          songIds(
+            plan(VoiceRequest(query: phrase, focus: VoiceFocus.song), index),
+          ).first,
+          's',
+        );
+      });
+    }
+
+    test('a typed phrase is not read against a different focus', () {
+      expect(
+        plan(
+          const VoiceRequest(query: 'album locket', focus: VoiceFocus.song),
+          index,
+        ).whereType<VoiceAlbum>(),
+        isEmpty,
+      );
+    });
+
+    test('a query that is itself an exact name is not read as typed', () {
+      final names = VoiceLibraryIndex(
+        tracks: [song('blur', 'Song 2'), song('two', '2')],
+        albums: [album('w', 'White Album'), album('x', 'White')],
+      );
+
+      expect(songIds(plan(const VoiceRequest(query: 'song 2'), names)), [
+        'blur',
+      ]);
+      expect(
+        (plan(const VoiceRequest(query: 'white album'), names).first
+                as VoiceAlbum)
+            .album
+            .albumId,
+        'w',
+      );
+    });
+
+    test('"album X" with no such album plays songs named X', () {
+      final noAlbum = VoiceLibraryIndex(tracks: index.tracks);
+      expect(
+        songIds(plan(const VoiceRequest(query: 'album locket'), noAlbum)).first,
+        's',
+      );
+    });
+
+    test('"the album X by Y" picks that artist\'s album', () {
+      final albums = VoiceLibraryIndex(
+        albums: [
+          album('a1', 'Greatest Hits', artist: 'One'),
+          album('a2', 'Greatest Hits', artist: 'Two'),
+        ],
+      );
+
+      final targets = plan(
+        const VoiceRequest(query: 'the album greatest hits by two'),
+        albums,
+      );
+      expect((targets.first as VoiceAlbum).album.albumId, 'a2');
+    });
+
+    test('typed phrases are read as documented', () {
+      expect(VoiceRequestResolver.typedQuery('the album Locket'), (
+        VoiceFocus.album,
+        'locket',
+      ));
+      expect(VoiceRequestResolver.typedQuery('my Gym playlist'), (
+        VoiceFocus.playlist,
+        'my gym',
+      ));
+      expect(VoiceRequestResolver.typedQuery('track Angel'), (
+        VoiceFocus.song,
+        'angel',
+      ));
+      expect(
+        VoiceRequestResolver.typedQuery('Love Song'),
+        isNull,
+        reason: 'a trailing "song" is part of many titles',
+      );
+      expect(VoiceRequestResolver.typedQuery('album'), isNull);
+      expect(VoiceRequestResolver.typedQuery('locket'), isNull);
+    });
+  });
 }

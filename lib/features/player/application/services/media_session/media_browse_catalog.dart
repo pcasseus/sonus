@@ -161,10 +161,10 @@ class MediaBrowseCatalog {
   /// Beer", matched by [VoiceRequestResolver]. Each of its targets is
   /// tried in order and the first with playable songs is played.
   Future<VoiceResolution> resolveVoiceRequest(VoiceRequest request) async {
-    final plan = VoiceRequestResolver.plan(
-      request,
-      request.isEmpty ? const VoiceLibraryIndex() : await _voiceIndex(),
-    );
+    final index = request.isEmpty
+        ? const VoiceLibraryIndex()
+        : await _voiceIndex();
+    final plan = VoiceRequestResolver.plan(request, index);
 
     for (final target in plan) {
       final tracks = await _voiceTargetTracks(target);
@@ -178,7 +178,8 @@ class MediaBrowseCatalog {
 
     return VoiceNotFound(
       request.spoken,
-      request.isEmpty
+      // Nothing in the library can be played, whatever was asked for.
+      request.isEmpty || index.tracks.isEmpty
           ? VoiceNotFoundReason.nothingToPlay
           : plan.isEmpty
           ? VoiceNotFoundReason.noMatch
@@ -230,6 +231,9 @@ class MediaBrowseCatalog {
     }
   }
 
+  /// The queue title names the real list played: the album, artist,
+  /// playlist or genre a request resolved to, whatever words were used.
+  /// Only a queue of matching songs is a search, titled "Search: …".
   static String _voiceTargetTitle(VoiceTarget target, VoiceRequest request) =>
       switch (target) {
         VoiceSongs() => MediaBrowseLabels.searchTitle(request.spoken),
@@ -458,7 +462,7 @@ class VoiceAmbiguous extends VoiceResolved {
 }
 
 enum VoiceNotFoundReason {
-  /// An empty request, and nothing playable in the library.
+  /// Nothing in the library can be played (for any request, empty or not).
   nothingToPlay,
 
   /// Nothing in the library has that name.

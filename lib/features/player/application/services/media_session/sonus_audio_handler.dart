@@ -405,12 +405,22 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   static const int notFoundErrorCode = 0; // ERROR_CODE_UNKNOWN_ERROR
   static const int notReadyErrorCode = 1; // ERROR_CODE_APP_ERROR
 
+  /// The library is still loading.
   static const String notReadyMessage =
       'Sonus is still starting. Try again in a moment.';
 
-  static String notFoundMessage(String spoken) => spoken.isEmpty
-      ? 'Sonus has nothing to play yet.'
-      : 'Sonus couldn\'t find "$spoken".';
+  /// Nothing in the library can be played.
+  static const String nothingToPlayMessage = 'Sonus has nothing to play yet.';
+
+  /// The music asked for is not in the library, quoting the request.
+  static String notFoundMessage(String spoken) =>
+      spoken.isEmpty ? nothingToPlayMessage : 'Sonus couldn\'t find "$spoken".';
+
+  /// What the car says for [notFound].
+  static String voiceFailureMessage(VoiceNotFound notFound) =>
+      notFound.reason == VoiceNotFoundReason.nothingToPlay
+      ? nothingToPlayMessage
+      : notFoundMessage(notFound.spoken);
 
   /// The saved session's current song, as the item Android's resume card
   /// shows, or null when nothing is saved.
@@ -525,12 +535,12 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     }
 
     switch (resolution) {
-      case VoiceNotFound(:final spoken, :final reason):
+      case VoiceNotFound(:final reason):
         _log(
           'Media command "$command" found nothing to play. '
           'reason=${reason.name}',
         );
-        _reportFailure(notFoundErrorCode, notFoundMessage(spoken));
+        _reportFailure(notFoundErrorCode, voiceFailureMessage(resolution));
       case VoiceResolved():
         if (resolution is VoiceAmbiguous) {
           _log('Media command "$command" was ambiguous; the best match plays.');

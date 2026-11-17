@@ -10,7 +10,8 @@ import 'package:sonus_next/features/player/application/services/media_session/so
 import 'package:sonus_next/features/player/application/services/media_session/voice_request_resolver.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 
-import 'media_browse_catalog_test.dart' show FakeBrowseLibrary, libraryTrack;
+import 'media_browse_catalog_test.dart'
+    show FakeBrowseLibrary, libraryAlbum, libraryTrack;
 import 'media_session_test_support.dart';
 
 /// App Update 1.3: spoken requests from Android Auto and the Assistant.
@@ -364,6 +365,107 @@ void main() {
       expect(engine.commands, isEmpty);
       expect(logs.map((log) => log.$1), everyElement(contains('unavailable')));
     });
+  });
+
+  group('what the car says when a request cannot play', () {
+    test('the exact wording of each failure', () {
+      expect(
+        SonusAudioHandler.notReadyMessage,
+        'Sonus is still starting. Try again in a moment.',
+      );
+      expect(
+        SonusAudioHandler.nothingToPlayMessage,
+        'Sonus has nothing to play yet.',
+      );
+      expect(
+        SonusAudioHandler.notFoundMessage('locket by Madison Beer'),
+        'Sonus couldn\'t find "locket by Madison Beer".',
+      );
+    });
+
+    test('missing music quotes the request', () async {
+      attach();
+      await handler.playFromSearch('locket by madison beer');
+
+      expect(
+        handler.playbackState.value.errorMessage,
+        'Sonus couldn\'t find "locket by madison beer".',
+      );
+      expect(
+        handler.playbackState.value.errorCode,
+        SonusAudioHandler.notFoundErrorCode,
+      );
+    });
+
+    test('an empty playable library has nothing to play, '
+        'whatever was asked', () async {
+      library
+        ..tracks = [libraryTrack('gone', available: false)]
+        ..playlistTracksById.clear();
+      attach();
+
+      for (final (query, extras) in [
+        ('', null),
+        ('angel', null),
+        ('', {VoiceRequestKeys.playlist: 'Road Trip'}),
+      ]) {
+        await handler.playFromSearch(query, extras);
+        expect(
+          handler.playbackState.value.errorMessage,
+          'Sonus has nothing to play yet.',
+          reason: query,
+        );
+        expect(
+          handler.playbackState.value.errorCode,
+          SonusAudioHandler.notFoundErrorCode,
+        );
+      }
+      expect(engine.loads, isEmpty);
+    });
+
+    test('a library still starting says so', () async {
+      await handler.playFromSearch('', {VoiceRequestKeys.playlist: 'Gym'});
+
+      expect(
+        handler.playbackState.value.errorMessage,
+        'Sonus is still starting. Try again in a moment.',
+      );
+      expect(
+        handler.playbackState.value.errorCode,
+        SonusAudioHandler.notReadyErrorCode,
+      );
+    });
+  });
+
+  group('voice queues keep their songs and order', () {
+    setUp(attach);
+
+    test(
+      'a playlist, an album and a search queue the same IDs as browsing',
+      () async {
+        library
+          ..albumList = [libraryAlbum('album-1', 'Locket')]
+          ..albumTracksById['album-1'] = [libraryTrack('a'), libraryTrack('b')];
+
+        await handler.playFromSearch('playlist road trip');
+        expect(engine.loads.last.$1, ['b', 'a', 'b']);
+        expect(engine.loads.last.$2, 0);
+        expect(handler.queueTitle.value, 'Road Trip');
+
+        await handler.playFromSearch('the album locket');
+        expect(engine.loads.last.$1, ['a', 'b']);
+        expect(handler.queueTitle.value, 'Locket');
+
+        await handler.playFromSearch('song angel');
+        expect(engine.loads.last.$1, ['angel']);
+        expect(handler.queueTitle.value, 'Search: song angel');
+
+        await handler.playFromMediaId('sonus:playlist:p1/song:a');
+        expect(engine.loads.last.$1, ['b', 'a', 'b']);
+        expect(engine.loads.last.$2, 1);
+        expect(handler.queueTitle.value, 'Road Trip');
+      },
+    );
   });
 }
 
