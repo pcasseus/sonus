@@ -402,12 +402,20 @@ class SonusAudioHandler extends media.BaseAudioHandler {
 
   /// Error codes for a voice request that fails, as PlaybackStateCompat
   /// defines them. Android Auto shows the message and the Assistant says it.
+  /// Nothing matched is not a fault in Sonus; still starting and a library
+  /// that cannot be read are.
   static const int notFoundErrorCode = 0; // ERROR_CODE_UNKNOWN_ERROR
   static const int notReadyErrorCode = 1; // ERROR_CODE_APP_ERROR
+  static const int libraryUnreadableErrorCode = 1; // ERROR_CODE_APP_ERROR
 
   /// The library is still loading.
   static const String notReadyMessage =
       'Sonus is still starting. Try again in a moment.';
+
+  /// The library could not be read, so Sonus cannot tell whether the music
+  /// asked for is there.
+  static const String libraryUnreadableMessage =
+      'Sonus couldn\'t access your music library.';
 
   /// Nothing in the library can be played.
   static const String nothingToPlayMessage = 'Sonus has nothing to play yet.';
@@ -492,9 +500,9 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// never lets an older, slower lookup replace what was asked last.
   int _voiceRequests = 0;
 
-  /// A spoken request. When nothing matches, or Sonus is not ready, an
-  /// error is published for the car or Assistant to say, and whatever was
-  /// playing carries on.
+  /// A spoken request. When nothing matches, Sonus is not ready, or the
+  /// library cannot be read, an error is published for the car or
+  /// Assistant to say, and whatever was playing carries on.
   Future<void> _playSearched(
     String command,
     String query,
@@ -524,7 +532,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
         level: 900,
       );
       if (isLatest()) {
-        _reportFailure(notReadyErrorCode, notFoundMessage(request.spoken));
+        _reportFailure(libraryUnreadableErrorCode, libraryUnreadableMessage);
       }
       return;
     }

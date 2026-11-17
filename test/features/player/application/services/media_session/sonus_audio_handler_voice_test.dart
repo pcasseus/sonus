@@ -193,16 +193,75 @@ void main() {
     expect(engine.loads, isEmpty);
   });
 
-  test('a library that cannot be read is reported, never thrown', () async {
-    handler
-      ..attach(coordinator)
-      ..attachCatalog(MediaBrowseCatalog(library: _ThrowingLibrary()));
+  group('a library that cannot be read', () {
+    late _ThrowingLibrary unreadable;
 
-    await handler.playFromSearch('angel');
+    setUp(() {
+      unreadable = _ThrowingLibrary();
+      handler
+        ..attach(coordinator)
+        ..attachCatalog(MediaBrowseCatalog(library: unreadable));
+    });
 
-    expect(logs.single.$2, 900);
-    expect(handler.playbackState.value.errorMessage, isNotNull);
-    expect(engine.loads, isEmpty);
+    test('is reported, never thrown', () async {
+      await handler.playFromSearch('angel');
+
+      expect(logs.single.$2, 900);
+      expect(engine.loads, isEmpty);
+    });
+
+    test('says the library could not be accessed, as an app error', () async {
+      await handler.playFromSearch('locket by madison beer');
+
+      final state = handler.playbackState.value;
+      expect(state.errorMessage, "Sonus couldn't access your music library.");
+      expect(state.errorCode, SonusAudioHandler.libraryUnreadableErrorCode);
+      expect(state.errorCode, 1, reason: 'ERROR_CODE_APP_ERROR');
+      expect(state.processingState, media.AudioProcessingState.error);
+    });
+
+    test('is never reported as music not found', () async {
+      for (final (query, extras) in [
+        ('angel', null),
+        ('', {VoiceRequestKeys.playlist: 'Road Trip'}),
+        ('', {VoiceRequestKeys.artist: 'Nobody'}),
+      ]) {
+        await handler.playFromSearch(query, extras);
+
+        final state = handler.playbackState.value;
+        expect(state.errorMessage, SonusAudioHandler.libraryUnreadableMessage);
+        expect(state.errorMessage, isNot(contains("couldn't find")));
+        expect(state.errorCode, isNot(SonusAudioHandler.notFoundErrorCode));
+      }
+    });
+
+    test('keeps the current song playing', () async {
+      await emit(queuedState(index: 1));
+
+      await handler.playFromSearch('angel');
+
+      final state = handler.playbackState.value;
+      expect(engine.commands, isEmpty, reason: 'nothing was stopped');
+      expect(engine.loads, isEmpty);
+      expect(state.processingState, media.AudioProcessingState.ready);
+      expect(state.playing, isTrue);
+      expect(state.queueIndex, 1);
+      expect(state.errorCode, SonusAudioHandler.libraryUnreadableErrorCode);
+      expect(state.errorMessage, SonusAudioHandler.libraryUnreadableMessage);
+      expect(handler.mediaItem.value!.id, 'b');
+    });
+
+    test('is cleared once the library can be read again', () async {
+      await handler.playFromSearch('angel');
+      expect(handler.playbackState.value.errorMessage, isNotNull);
+
+      unreadable.broken = false;
+      await handler.playFromSearch('angel');
+
+      expect(engine.loads.single.$1.first, 'angel');
+      expect(handler.playbackState.value.errorMessage, isNull);
+      expect(handler.playbackState.value.errorCode, isNull);
+    });
   });
 
   group('repeated requests', () {
@@ -381,6 +440,16 @@ void main() {
         SonusAudioHandler.notFoundMessage('locket by Madison Beer'),
         'Sonus couldn\'t find "locket by Madison Beer".',
       );
+      expect(
+        SonusAudioHandler.libraryUnreadableMessage,
+        "Sonus couldn't access your music library.",
+      );
+    });
+
+    test('the error code of each failure', () {
+      expect(SonusAudioHandler.notReadyErrorCode, 1); // ERROR_CODE_APP_ERROR
+      expect(SonusAudioHandler.libraryUnreadableErrorCode, 1);
+      expect(SonusAudioHandler.notFoundErrorCode, 0); // UNKNOWN_ERROR
     });
 
     test('missing music quotes the request', () async {
@@ -469,10 +538,20 @@ void main() {
   });
 }
 
+/// Fails every read of the songs while [broken], as a closed database
+/// would.
 class _ThrowingLibrary extends FakeBrowseLibrary {
+  _ThrowingLibrary() {
+    tracks = [libraryTrack('angel', title: 'Angel')];
+  }
+
+  bool broken = true;
+
   @override
-  Future<List<LibraryTrack>> allTracks() async =>
-      throw StateError('database closed');
+  Future<List<LibraryTrack>> allTracks() async {
+    if (broken) throw StateError('database closed');
+    return tracks;
+  }
 }
 
 /// Holds the first read of every song until [release], so a request can
