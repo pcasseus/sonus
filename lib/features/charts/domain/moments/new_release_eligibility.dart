@@ -10,7 +10,8 @@ import 'chart_moment_scope.dart';
 /// New-release debuts (App Update 1.3): a song chart debut told as a new
 /// Single's or a new album or EP track's debut.
 ///
-/// SWITCHED OFF until approved. The editorial desk re-words a debut story
+/// Approved 2026-11-16 for prospective activation. The editorial desk
+/// re-words a debut story
 /// with these rules only while [generationApproved] (and the headlines'
 /// own approval) hold and a prospective start ([NewReleaseDebutStart]) has
 /// been recorded once, on the first run of an approved build, so no chart
@@ -18,8 +19,9 @@ import 'chart_moment_scope.dart';
 /// new is stored: the story is chosen from the stored debut events
 /// themselves each time the feed is composed ([firstQualifying]).
 abstract final class NewReleaseDebutActivation {
-  /// Fail-closed: no new-release debut is told while this is false.
-  static const bool generationApproved = false;
+  /// Approved 2026-11-16 (prospective activation). Setting this to false
+  /// switches the family off again; nothing stored depends on it.
+  static const bool generationApproved = true;
 }
 
 /// Where new-release debuts would start on an install: the first run of a

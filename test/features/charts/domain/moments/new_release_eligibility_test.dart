@@ -479,8 +479,13 @@ void main() {
       );
       expect(first.keys, ['song-dead']);
       expect(first['song-dead']!.weekStartUtc, DateTime.utc(2026, 11, 23));
+      // Switched off, nothing qualifies.
       expect(
-        NewReleaseEligibility.firstQualifying(events, start: start),
+        NewReleaseEligibility.firstQualifying(
+          events,
+          start: start,
+          approved: false,
+        ),
         isEmpty,
       );
     });
@@ -507,14 +512,17 @@ void main() {
     });
   });
 
-  group('activation (switched off, prospective)', () {
+  group('activation (approved 2026-11-16, prospective)', () {
     final from = DateTime.utc(2026, 12, 1, 12);
     final start = NewReleaseDebutStart(from);
 
-    test('generation is switched off in this build', () {
-      expect(NewReleaseDebutActivation.generationApproved, isFalse);
+    test('generation is approved in this build, and off means off', () {
+      expect(NewReleaseDebutActivation.generationApproved, isTrue);
       expect(
-        start.applies(debutEvent(weekStartUtc: DateTime.utc(2027))),
+        start.applies(
+          debutEvent(weekStartUtc: DateTime.utc(2027)),
+          approved: false,
+        ),
         isFalse,
       );
       expect(

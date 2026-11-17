@@ -127,10 +127,14 @@ void main() {
     );
   });
 
-  test('the default approval is off', () async {
+  test('the default approval is on (approved 2026-11-16)', () async {
     final defaults = await _load(events, approved: null);
-    expect(defaults.historyReads, isEmpty);
-    expect(defaults.controller.momentStories.where(isNewRelease), isEmpty);
+    final approved = await _load(events, approved: true);
+    expect(defaults.historyReads, approved.historyReads);
+    expect(
+      [for (final s in defaults.controller.momentStories) (s.id, s.headline)],
+      [for (final s in approved.controller.momentStories) (s.id, s.headline)],
+    );
   });
 
   test('approved but no recorded start: nothing is read or told', () async {

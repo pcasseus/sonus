@@ -4,7 +4,8 @@ import '../widgets/chart_extended_divider.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
 
-/// Proposed headlines for new-release debuts (App Update 1.3). DRAFT:
+/// Headlines for new-release debuts (App Update 1.3), approved on
+/// 2026-11-16. Formerly a DRAFT:
 /// [approved] is false and nothing calls this from the editorial desk, so
 /// no story is told with these words until they are approved.
 ///
@@ -13,8 +14,9 @@ import 'moment_family.dart';
 /// "studio" classification, a certification or a gendered pronoun: Sonus
 /// cannot prove them.
 abstract final class NewReleaseDebutHeadlines {
-  /// Fail-closed: the wording below is a proposal awaiting approval.
-  static const bool approved = false;
+  /// The wording below was approved on 2026-11-16 ("from the new album",
+  /// "from the new EP", no ordinals).
+  static const bool approved = true;
 
   /// The debut stories a new-release headline would re-word in place
   /// (same story id, same family), so it is never a second story.

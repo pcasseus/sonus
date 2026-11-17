@@ -192,9 +192,10 @@ void main() {
       );
     });
 
-    test('drafts only: unapproved and outside the approved families', () {
-      expect(NewReleaseDebutHeadlines.approved, isFalse);
-      expect(NewReleaseDebutActivation.generationApproved, isFalse);
+    test('approved wording, re-wording only the approved debut families', () {
+      // Approved 2026-11-16.
+      expect(NewReleaseDebutHeadlines.approved, isTrue);
+      expect(NewReleaseDebutActivation.generationApproved, isTrue);
       // It re-words the existing debut stories, never adds a family.
       expect(NewReleaseDebutHeadlines.replacesFamilies, {
         MomentFamily.songDebutNumberOne,

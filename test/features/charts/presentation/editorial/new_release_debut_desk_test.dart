@@ -516,15 +516,33 @@ void main() {
     });
   });
 
-  group('switched off', () {
-    test('the build keeps both approvals off', () {
-      expect(NewReleaseDebutActivation.generationApproved, isFalse);
-      expect(NewReleaseDebutHeadlines.approved, isFalse);
-      final desk = NewReleaseDebutDesk(
-        start: NewReleaseDebutStart(start),
-        lookups: newSingle,
+  group('approval', () {
+    test('the build is approved (2026-11-16); off means inactive', () {
+      expect(NewReleaseDebutActivation.generationApproved, isTrue);
+      expect(NewReleaseDebutHeadlines.approved, isTrue);
+      expect(
+        NewReleaseDebutDesk(
+          start: NewReleaseDebutStart(start),
+          lookups: newSingle,
+        ).active,
+        isTrue,
       );
-      expect(desk.active, isFalse);
+      expect(
+        NewReleaseDebutDesk(
+          start: NewReleaseDebutStart(start),
+          lookups: newSingle,
+          generationApproved: false,
+        ).active,
+        isFalse,
+      );
+      expect(
+        NewReleaseDebutDesk(
+          start: NewReleaseDebutStart(start),
+          lookups: newSingle,
+          headlinesApproved: false,
+        ).active,
+        isFalse,
+      );
     });
 
     test('with approval off the composed feed is exactly as without the '
@@ -536,21 +554,12 @@ void main() {
       ];
       final off = compose(events, approved: false);
       final without = compose(events, attach: false);
-      final defaults = MomentEditorialDesk(
-        lookups: FakeLookups(),
-        rules: rules,
-        newReleases: NewReleaseDebutDesk(
-          start: NewReleaseDebutStart(start),
-          lookups: newSingle,
-        ),
-      ).compose(_items(events));
 
       List<(String, String, String, String?)> view(List<MomentStory> s) => [
         for (final story in s)
           (story.id, story.variantId, story.headline, story.body),
       ];
       expect(view(off), view(without));
-      expect(view(defaults), view(without));
       expect(off.where(isNewRelease), isEmpty);
     });
   });

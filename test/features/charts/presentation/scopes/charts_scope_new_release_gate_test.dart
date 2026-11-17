@@ -40,9 +40,9 @@ final _earlier = {
 };
 
 void main() {
-  test('this build keeps new-release debuts switched off', () {
-    expect(NewReleaseDebutActivation.generationApproved, isFalse);
-    expect(NewReleaseDebutHeadlines.approved, isFalse);
+  test('this build has new-release debuts approved (2026-11-16)', () {
+    expect(NewReleaseDebutActivation.generationApproved, isTrue);
+    expect(NewReleaseDebutHeadlines.approved, isTrue);
     expect(_key, 'charts.moments.new_release_debuts_1_3_from_utc');
   });
 
@@ -50,6 +50,7 @@ void main() {
     final preferences = _Preferences()..values.addAll(_earlier);
     final activation = deviceMomentRulesActivation(
       SharedPreferencesMomentRulesActivationStore(preferences),
+      newReleaseDebutsApproved: false,
     );
 
     final rules = await activation.rules();
