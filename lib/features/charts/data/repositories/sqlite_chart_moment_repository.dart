@@ -1,6 +1,7 @@
 import '../../../../core/database/app_database.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event.dart';
+import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../daos/chart_moment_event_dao.dart';
@@ -95,6 +96,23 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
       limit: limit,
     );
 
+    return List.unmodifiable(
+      rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+    );
+  }
+
+  /// Every stored Weekly and Career song chart debut since [fromUtc]
+  /// (App Update 1.3 new-release debuts): read-only, from the stored
+  /// events themselves, so no new storage is needed.
+  Future<List<ChartMomentEvent>> getSongDebutsSince(DateTime fromUtc) async {
+    final db = await database.database;
+    final rows = await ChartMomentEventDao(db).findSince(
+      // Stored the way the mapper writes it, so the text order matches.
+      fromOccurredAt: fromUtc.toUtc().toIso8601String(),
+      chartType: ChartType.songs.name,
+      eventType: ChartMomentEventType.debut.name,
+      scopes: [ChartMomentScope.finalized.name, ChartMomentScope.allTime.name],
+    );
     return List.unmodifiable(
       rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
     );

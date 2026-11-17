@@ -94,4 +94,24 @@ class ChartMomentEventDao {
       limit: limit,
     );
   }
+
+  /// Moments of [chartType] and [eventType] in one of [scopes] that
+  /// occurred at or after [fromOccurredAt], oldest first (App Update 1.3
+  /// new-release debuts). Reads the occurred-time index; parameterized.
+  Future<List<Map<String, Object?>>> findSince({
+    required String fromOccurredAt,
+    required String chartType,
+    required String eventType,
+    required List<String> scopes,
+  }) {
+    final placeholders = List.filled(scopes.length, '?').join(', ');
+    return db.query(
+      DatabaseTables.chartMomentEvents,
+      where:
+          'occurred_at >= ? AND chart_type = ? AND event_type = ? '
+          'AND scope IN ($placeholders)',
+      whereArgs: [fromOccurredAt, chartType, eventType, ...scopes],
+      orderBy: 'occurred_at ASC, id ASC',
+    );
+  }
 }

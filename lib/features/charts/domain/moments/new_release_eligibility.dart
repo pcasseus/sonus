@@ -7,15 +7,16 @@ import 'chart_moment_event.dart';
 import 'chart_moment_event_type.dart';
 import 'chart_moment_scope.dart';
 
-/// New-release debuts (App Update 1.3, proposed): a song chart debut told
-/// as a new Single's or a new album track's debut.
+/// New-release debuts (App Update 1.3): a song chart debut told as a new
+/// Single's or a new album or EP track's debut.
 ///
-/// SWITCHED OFF. Nothing here is wired into the editorial desk, the
-/// planner or the feed; nothing is recorded or stored. Telling these
-/// stories needs the wording approved ([generationApproved]) and a
-/// prospective start ([NewReleaseDebutStart]) recorded once on the first
-/// run of an approved build, so no chart event from before it is ever
-/// re-told as a new-release debut.
+/// SWITCHED OFF until approved. The editorial desk re-words a debut story
+/// with these rules only while [generationApproved] (and the headlines'
+/// own approval) hold and a prospective start ([NewReleaseDebutStart]) has
+/// been recorded once, on the first run of an approved build, so no chart
+/// event from before it is ever re-told as a new-release debut. Nothing
+/// new is stored: the story is chosen from the stored debut events
+/// themselves each time the feed is composed ([firstQualifying]).
 abstract final class NewReleaseDebutActivation {
   /// Fail-closed: no new-release debut is told while this is false.
   static const bool generationApproved = false;
@@ -230,7 +231,8 @@ class NewReleaseDebut {
 
   bool get bubblingUnder => rank > ChartRankingEngine.officialChartLimit;
 
-  /// Once per song per chart; see [NewReleaseEligibility.storyKey].
+  /// Once per song across the weekly and career charts; see
+  /// [NewReleaseEligibility.storyKey].
   String get storyKey => NewReleaseEligibility.storyKey(event);
 }
 
@@ -260,11 +262,74 @@ abstract final class NewReleaseEligibility {
   static bool isNew(ReleaseDate? date) =>
       date != null && date.instant.isAfter(cutoffDay);
 
-  /// The dedup key: one new-release story per song per chart (weekly or
-  /// career), whatever the week.
+  /// The dedup key: one new-release story per song across the weekly and
+  /// career charts together, whatever the week (user decision 2026-11-16).
   static String storyKey(ChartMomentEvent event) =>
-      'new-release-debut:${event.chartType.name}:${event.scope.name}:'
-      '${event.entity.entityId}';
+      'new-release-debut:${event.chartType.name}:${event.entity.entityId}';
+
+  /// When a chart debut really happened, for choosing a song's first one:
+  /// a weekly debut when its chart week closed (its end), whenever the
+  /// device finalized it; a career debut at the play that made it.
+  static DateTime effectiveAt(ChartMomentEvent event) => switch (event.scope) {
+    ChartMomentScope.finalized => event.weekEndUtc,
+    ChartMomentScope.allTime || ChartMomentScope.live => event.occurredAt,
+  }.toUtc();
+
+  /// Chronological order for new-release debuts: by [effectiveAt]; at the
+  /// same instant the Weekly chart's comes first; then by key, so the same
+  /// events always give the same order.
+  static int compareChronology(ChartMomentEvent a, ChartMomentEvent b) {
+    final byTime = effectiveAt(a).compareTo(effectiveAt(b));
+    if (byTime != 0) return byTime;
+    final aWeekly = a.scope == ChartMomentScope.finalized;
+    final bWeekly = b.scope == ChartMomentScope.finalized;
+    if (aWeekly != bWeekly) return aWeekly ? -1 : 1;
+    return a.deduplicationKey.compareTo(b.deduplicationKey);
+  }
+
+  /// Whether [event] itself could be a new-release debut, before the
+  /// song's release facts: a genuine Weekly or Career song chart debut at
+  /// #1–200, from [start] on.
+  static bool isCandidate(
+    ChartMomentEvent event, {
+    required NewReleaseDebutStart start,
+    bool approved = NewReleaseDebutActivation.generationApproved,
+  }) =>
+      event.eventType == ChartMomentEventType.debut &&
+      event.chartType == ChartType.songs &&
+      event.scope != ChartMomentScope.live &&
+      event.currentRank != null &&
+      event.currentRank! >= 1 &&
+      event.currentRank! <= ChartRankingEngine.extendedStandingsLimit &&
+      event.previousRank == null &&
+      event.previousPeakRank == null &&
+      start.applies(event, approved: approved);
+
+  /// The one debut of each song that may be told as a new release: its
+  /// first candidate ([isCandidate]) by [compareChronology], across the
+  /// Weekly and Career charts, keyed by song id. Every other debut of the
+  /// song keeps its ordinary story.
+  ///
+  /// Pure and deterministic over [events] (duplicates by deduplication key
+  /// are ignored), so the same stored events always choose the same debut,
+  /// across restarts and however the feed is paged, provided [events]
+  /// holds every stored debut since the start.
+  static Map<String, ChartMomentEvent> firstQualifying(
+    Iterable<ChartMomentEvent> events, {
+    required NewReleaseDebutStart start,
+    bool approved = NewReleaseDebutActivation.generationApproved,
+  }) {
+    final first = <String, ChartMomentEvent>{};
+    for (final event in events) {
+      if (!isCandidate(event, start: start, approved: approved)) continue;
+      final songId = event.entity.entityId;
+      final known = first[songId];
+      if (known == null || compareChronology(event, known) < 0) {
+        first[songId] = event;
+      }
+    }
+    return first;
+  }
 
   /// Whether [event] with [song]'s release facts is a new-release debut.
   static NewReleaseDecision evaluate(
@@ -282,17 +347,15 @@ abstract final class NewReleaseEligibility {
         : _albumTrack(event, rank, song.album);
   }
 
-  /// Keeps the first debut of each [NewReleaseDebut.storyKey], by time
-  /// then key, and drops any whose key is in [alreadyTold].
+  /// Keeps the first debut of each [NewReleaseDebut.storyKey] (one per
+  /// song across both charts), by [compareChronology], and drops any whose
+  /// key is in [alreadyTold].
   static List<NewReleaseDebut> deduplicate(
     Iterable<NewReleaseDebut> debuts, {
     Set<String> alreadyTold = const {},
   }) {
     final ordered = debuts.toList()
-      ..sort((a, b) {
-        final byTime = a.event.occurredAt.compareTo(b.event.occurredAt);
-        return byTime != 0 ? byTime : a.storyKey.compareTo(b.storyKey);
-      });
+      ..sort((a, b) => compareChronology(a.event, b.event));
     final seen = {...alreadyTold};
     return [
       for (final debut in ordered)

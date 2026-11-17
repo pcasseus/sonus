@@ -15,7 +15,8 @@ class SharedPreferencesMomentRulesActivationStore
         MomentDevicePolishStore,
         MomentChronicleStore,
         MomentDominanceStore,
-        MomentJointControlStore {
+        MomentJointControlStore,
+        MomentNewReleaseDebutStore {
   SharedPreferencesMomentRulesActivationStore([
     SharedPreferencesAsync? preferences,
   ]) : _preferences = preferences;
@@ -38,6 +39,10 @@ class SharedPreferencesMomentRulesActivationStore
   /// Where App Update 1.2 joint chart control Moments started (REF-19).
   static const String jointControlKey =
       'charts.moments.joint_control_1_2_from_utc';
+
+  /// Where App Update 1.3 new-release debut stories started.
+  static const String newReleaseDebutsKey =
+      'charts.moments.new_release_debuts_1_3_from_utc';
 
   SharedPreferencesAsync? _preferences;
 
@@ -88,4 +93,12 @@ class SharedPreferencesMomentRulesActivationStore
   @override
   Future<void> writeJointControlStart(String fromUtc) =>
       _platform.setString(jointControlKey, fromUtc);
+
+  @override
+  Future<String?> readNewReleaseDebutsStart() =>
+      _platform.getString(newReleaseDebutsKey);
+
+  @override
+  Future<void> writeNewReleaseDebutsStart(String fromUtc) =>
+      _platform.setString(newReleaseDebutsKey, fromUtc);
 }

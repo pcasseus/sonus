@@ -493,4 +493,59 @@ void main() {
       contains('idx_chart_moment_events_occurred'),
     );
   });
+
+  // App Update 1.3 new-release debuts: every stored Weekly and Career song
+  // debut since the start, read from the stored events themselves.
+  test('song debuts since a start: weekly and career song debuts only, '
+      'oldest first', () async {
+    final start = DateTime.utc(2026, 9, 28, 12);
+    ChartMomentEvent debut(
+      String id,
+      DateTime at, {
+      ChartMomentScope scope = ChartMomentScope.finalized,
+      ChartMomentEventType type = ChartMomentEventType.debut,
+      ChartType chartType = ChartType.songs,
+    }) => createEvent(
+      id: id,
+      deduplicationKey: id,
+      sourceId: 'source-$id',
+      occurredAt: at,
+      eventType: type,
+      scope: scope,
+      chartType: chartType,
+    );
+
+    await repository.saveAll([
+      debut('before', start.subtract(const Duration(seconds: 1))),
+      debut('weekly', start.add(const Duration(hours: 5))),
+      debut('career', start, scope: ChartMomentScope.allTime),
+      debut(
+        'live',
+        start.add(const Duration(hours: 1)),
+        scope: ChartMomentScope.live,
+      ),
+      debut(
+        'album',
+        start.add(const Duration(hours: 2)),
+        chartType: ChartType.albums,
+      ),
+      debut(
+        'reentry',
+        start.add(const Duration(hours: 3)),
+        type: ChartMomentEventType.reentry,
+      ),
+    ]);
+
+    final debuts = await repository.getSongDebutsSince(start);
+    expect(debuts.map((event) => event.id), ['career', 'weekly']);
+
+    final db = await database.database;
+    final plan = await db.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT * FROM chart_moment_events '
+      'WHERE occurred_at >= ? AND chart_type = ? AND event_type = ? '
+      'AND scope IN (?, ?) ORDER BY occurred_at ASC, id ASC',
+      [start.toIso8601String(), 'songs', 'debut', 'finalized', 'allTime'],
+    );
+    expect(plan.map((row) => row['detail']).join(' '), contains('USING INDEX'));
+  });
 }

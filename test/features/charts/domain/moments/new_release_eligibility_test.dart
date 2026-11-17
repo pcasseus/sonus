@@ -415,7 +415,9 @@ void main() {
     NewReleaseDebut debut(ChartMomentEvent event) =>
         NewReleaseEligibility.evaluate(event, single('2026-11-01')).debut!;
 
-    test('one story per song per chart, the first debut kept', () {
+    // User decision 2026-11-16: one new-release story per song across the
+    // Weekly and Career charts (it used to be one per chart).
+    test('one story per song across both charts, the first debut kept', () {
       final first = debut(debutEvent());
       final repeat = debut(
         debutEvent(weekStartUtc: DateTime.utc(2026, 11, 23), rank: 9),
@@ -428,9 +430,59 @@ void main() {
       );
 
       final kept = NewReleaseEligibility.deduplicate([repeat, career, first]);
-      expect(kept, [first, career]);
-      expect(first.storyKey, 'new-release-debut:songs:finalized:song-dead');
-      expect(career.storyKey, 'new-release-debut:songs:allTime:song-dead');
+      expect(kept, [first]);
+      expect(first.storyKey, 'new-release-debut:songs:song-dead');
+      expect(career.storyKey, first.storyKey);
+    });
+
+    test('a career debut before the weekly chart closes is first', () {
+      // The weekly week closes on 2026-11-23; the career debut was earlier.
+      final weekly = debut(debutEvent());
+      final career = debut(
+        debutEvent(
+          scope: ChartMomentScope.allTime,
+          occurredAt: DateTime.utc(2026, 11, 20),
+        ),
+      );
+      expect(NewReleaseEligibility.deduplicate([weekly, career]), [career]);
+    });
+
+    test('at the same effective time the Weekly chart is first', () {
+      final weekly = debut(debutEvent());
+      final career = debut(
+        debutEvent(
+          scope: ChartMomentScope.allTime,
+          occurredAt: DateTime.utc(2026, 11, 23),
+        ),
+      );
+      expect(NewReleaseEligibility.deduplicate([career, weekly]), [weekly]);
+    });
+
+    test('firstQualifying skips re-entries, live and pre-start debuts', () {
+      final start = NewReleaseDebutStart(DateTime.utc(2026, 11, 16));
+      final events = [
+        debutEvent(type: ChartMomentEventType.reentry),
+        debutEvent(
+          scope: ChartMomentScope.live,
+          weekStartUtc: DateTime.utc(2026, 11, 16),
+        ),
+        debutEvent(
+          scope: ChartMomentScope.allTime,
+          occurredAt: DateTime.utc(2026, 11, 15),
+        ),
+        debutEvent(weekStartUtc: DateTime.utc(2026, 11, 23)),
+      ];
+      final first = NewReleaseEligibility.firstQualifying(
+        events,
+        start: start,
+        approved: true,
+      );
+      expect(first.keys, ['song-dead']);
+      expect(first['song-dead']!.weekStartUtc, DateTime.utc(2026, 11, 23));
+      expect(
+        NewReleaseEligibility.firstQualifying(events, start: start),
+        isEmpty,
+      );
     });
 
     test('a debut already told is never told again', () {

@@ -17,6 +17,7 @@ import '../../../library/domain/entities/song_single_presentation.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
+import '../../application/models/new_release_library_facts.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../application/services/chart_moment_feed_pager.dart';
@@ -29,9 +30,11 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
+import '../../domain/moments/new_release_eligibility.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_category.dart';
 import '../models/chart_rank_trend.dart';
@@ -40,6 +43,8 @@ import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
 import '../editorial/moment_family.dart';
 import '../editorial/moment_publisher.dart';
+import '../editorial/new_release_debut_desk.dart';
+import '../editorial/new_release_debut_headlines.dart';
 import '../models/chart_album_presentation.dart';
 import '../models/chart_longevity.dart';
 import '../models/moment_edition_resolver.dart';
@@ -77,6 +82,16 @@ enum ChartBoard { top100, extended }
 
 /// Which Moments rules this run uses (SN-50 R2).
 typedef MomentRulesLoader = Future<ChartMomentRules> Function();
+
+/// Release kinds and live flags, for new-release debuts (App Update 1.3).
+typedef NewReleaseClassificationsLoader =
+    Future<NewReleaseClassifications> Function();
+
+/// Every stored song chart debut since [fromUtc], beyond the loaded feed
+/// pages, so a song's first new-release debut is chosen the same way
+/// however much of the feed is loaded (App Update 1.3).
+typedef NewReleaseDebutHistoryLoader =
+    Future<List<ChartMomentEvent>> Function(DateTime fromUtc);
 
 /// Where a Moment's release link opens.
 class MomentReleaseTarget {
@@ -121,7 +136,15 @@ class ChartsController extends ChangeNotifier {
     int momentPageSize = ChartMomentFeedPager.defaultPageSize,
     Future<Set<String>> Function()? recalculatedWeeks,
     SinglePresentationsLoader? singlePresentations,
+    NewReleaseClassificationsLoader? newReleaseClassifications,
+    NewReleaseDebutHistoryLoader? newReleaseDebutHistory,
+    bool newReleaseDebutsApproved =
+        NewReleaseDebutActivation.generationApproved &&
+        NewReleaseDebutHeadlines.approved,
   }) : _allTimeCharts = allTimeCharts,
+       _loadNewReleaseClassifications = newReleaseClassifications,
+       _loadNewReleaseDebutHistory = newReleaseDebutHistory,
+       _newReleaseDebutsApproved = newReleaseDebutsApproved,
        _loadSinglePresentations = singlePresentations,
        _loadRecalculatedWeeks = recalculatedWeeks,
        _finalization = finalization,
@@ -177,6 +200,14 @@ class ChartsController extends ChangeNotifier {
   /// ([SingleCoverPolicy]).
   final SinglePresentationsLoader? _loadSinglePresentations;
   Map<String, SongSinglePresentation> _singles = const {};
+
+  /// App Update 1.3 new-release debuts: read only while approved and
+  /// started (ChartMomentRules.newReleaseDebutsFromUtc); otherwise null
+  /// and no story changes.
+  final NewReleaseClassificationsLoader? _loadNewReleaseClassifications;
+  final NewReleaseDebutHistoryLoader? _loadNewReleaseDebutHistory;
+  final bool _newReleaseDebutsApproved;
+  _NewReleaseInputs? _newReleaseInputs;
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -342,10 +373,22 @@ class ChartsController extends ChangeNotifier {
       _momentStories ??= _composeMomentStories();
 
   List<MomentStory> _composeMomentStories() {
+    final newRelease = _newReleaseInputs;
     final stories =
         MomentEditorialDesk(
           lookups: momentLookups,
           rules: _momentRules,
+          newReleases: newRelease == null
+              ? null
+              : NewReleaseDebutDesk(
+                  start: NewReleaseDebutStart(
+                    _momentRules.newReleaseDebutsFromUtc,
+                  ),
+                  lookups: newRelease,
+                  storedDebuts: newRelease.storedDebuts,
+                  generationApproved: _newReleaseDebutsApproved,
+                  headlinesApproved: _newReleaseDebutsApproved,
+                ),
         ).compose([
           for (final item in _momentFeedItems)
             if (!_offReleaseChart(item)) item,
@@ -1199,6 +1242,56 @@ class ChartsController extends ChangeNotifier {
     }
   }
 
+  /// What new-release debuts need this load (App Update 1.3), or null:
+  /// not approved, not started, no loader, or a failed read (fails closed,
+  /// logged): every story then keeps its ordinary wording.
+  Future<_NewReleaseInputs?> _readNewReleaseInputs(
+    ChartMomentRules rules, {
+    required List<LibraryTrack> tracks,
+    required List<LibraryAlbum> albums,
+    required Map<String, ReleaseFormat?> formats,
+    required List<LibraryReleaseEdition> editions,
+    required Map<String, SongSinglePresentation> singles,
+  }) async {
+    final from = rules.newReleaseDebutsFromUtc;
+    final classify = _loadNewReleaseClassifications;
+    final history = _loadNewReleaseDebutHistory;
+    if (!_newReleaseDebutsApproved ||
+        from == null ||
+        classify == null ||
+        history == null) {
+      return null;
+    }
+    try {
+      final classifications = await classify();
+      final storedDebuts = await history(from);
+      final albumsById = {for (final album in albums) album.albumId: album};
+      return _NewReleaseInputs(
+        facts: NewReleaseLibraryFacts.of(
+          tracks: tracks,
+          albumsById: albumsById,
+          formatOf: (albumId) => formats.containsKey(albumId)
+              ? formats[albumId]
+              : ReleaseFormat.album,
+          editions: editions,
+          singles: singles,
+          classifications: classifications,
+        ),
+        storedDebuts: storedDebuts,
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'New-release debut facts could not be read (${error.runtimeType}); '
+        'debut stories keep their ordinary wording',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
   /// Fails open: without formats every release reads as an Album.
   Future<Map<String, ReleaseFormat?>> _readReleaseFormats() async {
     try {
@@ -1511,6 +1604,15 @@ class ChartsController extends ChangeNotifier {
           ? await _readSinglePresentations()
           : const <String, SongSinglePresentation>{};
 
+      final newReleaseInputs = await _readNewReleaseInputs(
+        momentRules,
+        tracks: tracks,
+        albums: albums,
+        formats: formats,
+        editions: editions,
+        singles: singles,
+      );
+
       var momentFeedItems = _momentFeedItems;
       var momentPager = _momentPager;
       Object? momentFeedError = allTimeMomentsError;
@@ -1562,6 +1664,7 @@ class ChartsController extends ChangeNotifier {
       _releaseFormats = formats;
 
       _momentRules = momentRules;
+      _newReleaseInputs = newReleaseInputs;
       _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
         momentFeedItems,
       );
@@ -1695,6 +1798,17 @@ class ChartsController extends ChangeNotifier {
       entries: List.unmodifiable(source.entries.take(_effectiveSize.limit)),
     );
   }
+}
+
+/// The library facts and stored debuts new-release debuts were read with.
+class _NewReleaseInputs implements NewReleaseLookups {
+  _NewReleaseInputs({required this.facts, required this.storedDebuts});
+
+  final Map<String, NewReleaseSongFacts> facts;
+  final List<ChartMomentEvent> storedDebuts;
+
+  @override
+  NewReleaseSongFacts? newReleaseFactsOf(String songId) => facts[songId];
 }
 
 /// Library lookups for Moments, from what the controller has loaded.

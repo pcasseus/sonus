@@ -19,6 +19,7 @@ class ChartMomentRules {
     this.catalogStarts = const [],
     this.devicePolishFromUtc,
     this.chronicleFromUtc,
+    this.newReleaseDebutsFromUtc,
   });
 
   /// No activation: every Moment follows the earlier rules.
@@ -54,6 +55,26 @@ class ChartMomentRules {
   /// they were first published as: nothing is re-told or backfilled.
   final DateTime? chronicleFromUtc;
 
+  /// Where App Update 1.3 new-release debut stories start on this install:
+  /// the first run of a build whose new-release wording is approved,
+  /// recorded once and never moved (MomentRulesActivation). Null: none are
+  /// told. Weekly debuts follow it from the chart week starting at or after
+  /// it, career debuts from the play's own instant (NewReleaseDebutStart),
+  /// so no earlier story is re-told.
+  final DateTime? newReleaseDebutsFromUtc;
+
+  /// These rules with new-release debuts starting at [fromUtc].
+  ChartMomentRules withNewReleaseDebuts(DateTime? fromUtc) =>
+      fromUtc == newReleaseDebutsFromUtc
+      ? this
+      : ChartMomentRules(
+          activatedAtUtc: activatedAtUtc,
+          catalogStarts: catalogStarts,
+          devicePolishFromUtc: devicePolishFromUtc,
+          chronicleFromUtc: chronicleFromUtc,
+          newReleaseDebutsFromUtc: fromUtc,
+        );
+
   /// Whether a story that happened at [occurredAt] is told by the
   /// chronicle (App Update 1.1).
   bool chronicles(DateTime occurredAt) {
@@ -70,6 +91,7 @@ class ChartMomentRules {
           catalogStarts: catalogStarts,
           devicePolishFromUtc: devicePolishFromUtc,
           chronicleFromUtc: fromUtc,
+          newReleaseDebutsFromUtc: newReleaseDebutsFromUtc,
         );
 
   /// Whether a story that happened at [occurredAt] follows the device
