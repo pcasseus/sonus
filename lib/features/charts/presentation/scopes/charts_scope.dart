@@ -23,6 +23,7 @@ import '../../data/repositories/sqlite_chart_repository.dart';
 import '../../data/repositories/sqlite_new_release_publication_repository.dart';
 import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
 import '../../data/services/sqlite_chart_song_credit_reader.dart';
+import '../../data/services/sqlite_new_release_evidence_reader.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../editorial/moment_family.dart';
@@ -302,6 +303,12 @@ class _ChartsScopeState extends State<ChartsScope> {
       // Published once, then told from the record (user decision
       // 2026-11-16).
       newReleasePublications: SqliteNewReleasePublicationRepository(database),
+      // Proof for a new one (user rules 2026-11-16): read-only.
+      newReleaseEvidence: SqliteNewReleaseEvidenceReader(
+        database,
+        historyOriginUtc: charts.chartHistoryOriginUtc,
+        momentsCutoffUtc: deletionJournal.momentsCutoff,
+      ).read,
     );
 
     _controller = controller;

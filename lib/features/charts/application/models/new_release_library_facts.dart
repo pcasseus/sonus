@@ -39,6 +39,7 @@ abstract final class NewReleaseLibraryFacts {
           type: edition.type,
           releaseDate: edition.releaseDate,
           precision: edition.releaseDatePrecision,
+          writtenAt: edition.updatedAt,
         ),
       );
     }
@@ -63,6 +64,9 @@ abstract final class NewReleaseLibraryFacts {
           isSingle: track.isSingle,
           singleReleaseDate: track.isSingle
               ? singles[track.songId]?.releaseDate
+              : null,
+          singleWrittenAt: track.isSingle
+              ? singles[track.songId]?.updatedAt
               : null,
           album: albumOf(track.albumId),
         ),

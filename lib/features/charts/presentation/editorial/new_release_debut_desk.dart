@@ -49,6 +49,13 @@ class NewReleaseRewording {
 ///   ([NewReleaseDebutHeadlines.replacesFamilies]). Re-entries, movement
 ///   and every other story are untouched.
 /// - Prospective: only debuts from [start] on.
+/// - Proven (user rules 2026-11-16): a new record is composed only for a
+///   song in the library whose release date was written before its debut,
+///   whose first play proves the debut is its first-ever appearance, and
+///   whose debut was recorded on this database, not restored, pulled or
+///   rebuilt ([NewReleaseEligibility.proofProblem] over [evidence]).
+///   Without proof the debut keeps its ordinary story. Stored records are
+///   never re-checked or rewritten.
 ///
 /// [storedDebuts] are the song chart debuts stored since the start (read
 /// beyond the loaded feed pages) and every earlier appearance of those
@@ -60,6 +67,7 @@ class NewReleaseDebutDesk {
     required this.lookups,
     Iterable<ChartMomentEvent> storedDebuts = const [],
     Map<String, NewReleasePublication> publications = const {},
+    this.evidence = NewReleaseEvidence.none,
     DateTime Function()? now,
     this.generationApproved = NewReleaseDebutActivation.generationApproved,
     this.headlinesApproved = NewReleaseDebutHeadlines.approved,
@@ -70,6 +78,10 @@ class NewReleaseDebutDesk {
   final NewReleaseDebutStart start;
   final NewReleaseLookups lookups;
   final List<ChartMomentEvent> _storedDebuts;
+
+  /// What proves a newly composed story; [NewReleaseEvidence.none] proves
+  /// nothing, so only stored records are told.
+  final NewReleaseEvidence evidence;
 
   /// Stored publications by song id.
   final Map<String, NewReleasePublication> _publications;
@@ -124,10 +136,21 @@ class NewReleaseDebutDesk {
       if (first == null || first.deduplicationKey != event.deduplicationKey) {
         continue;
       }
+      // A song missing from the library (deleted, merged away) has no
+      // facts, so nothing new is told about it.
       final facts = lookups.newReleaseFactsOf(songId);
       if (facts == null) return null;
       final debut = NewReleaseEligibility.evaluate(event, facts).debut;
       if (debut == null) return null;
+      if (NewReleaseEligibility.proofProblem(
+            debut,
+            facts,
+            evidence,
+            start: start,
+          ) !=
+          null) {
+        return null;
+      }
       final credited = [
         for (final name in featured)
           if (name.trim().isNotEmpty) name.trim(),

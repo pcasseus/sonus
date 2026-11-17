@@ -129,11 +129,32 @@ enum NewReleaseIneligibility {
 
   /// An edition is dated on or before the cutoff, or may be.
   albumDateNotNew,
+
+  /// Rule 1 (user decision 2026-11-16): the release date was set or edited
+  /// after the song's first chart appearance, or when it was written is
+  /// unknown. A date added afterwards never makes a retroactive story.
+  releaseDateNotProvenBeforeDebut,
+
+  /// Rule 2: the song's chart history before this debut cannot be proven
+  /// complete: its first qualified play is unknown, or came before the
+  /// point from which this database recorded every appearance on both
+  /// charts ([NewReleaseEvidence.coverageFrom]).
+  earlierHistoryUnproven,
+
+  /// Rule 4: the debut was not recorded on this database's own chart
+  /// history: it was stored before that history began (restored from a
+  /// backup, pulled from the cloud archive, or rebuilt), or the debut's
+  /// chart week began before it.
+  notRecordedHere,
 }
 
 /// One edition of the song's release, as the eligibility check reads it.
 class NewReleaseEditionFacts {
-  const NewReleaseEditionFacts({required this.type, this.releaseDate});
+  const NewReleaseEditionFacts({
+    required this.type,
+    this.releaseDate,
+    this.writtenAt,
+  });
 
   /// An edition as stored: a date without a recorded precision is
   /// ambiguous (it may be a partial date saved as a day) and reads as
@@ -142,15 +163,22 @@ class NewReleaseEditionFacts {
     required AlbumEditionType type,
     DateTime? releaseDate,
     ReleaseDatePrecision? precision,
+    DateTime? writtenAt,
   }) => NewReleaseEditionFacts(
     type: type,
     releaseDate: releaseDate == null || precision == null
         ? null
         : ReleaseDate.fromStored(releaseDate, precision),
+    writtenAt: writtenAt,
   );
 
   final AlbumEditionType type;
   final ReleaseDate? releaseDate;
+
+  /// The edition's last write (`album_editions.updated_at`): its release
+  /// date was written at or before it. Any edit moves it, so it is an
+  /// upper bound, never earlier than the date's own write. Null: unknown.
+  final DateTime? writtenAt;
 }
 
 /// The song's release (its album), as stored. Import or date-added times
@@ -190,6 +218,7 @@ class NewReleaseSongFacts {
     required this.songId,
     required this.isSingle,
     this.singleReleaseDate,
+    this.singleWrittenAt,
     this.album,
   });
 
@@ -202,7 +231,61 @@ class NewReleaseSongFacts {
   /// Track Studio. Read only while [isSingle].
   final ReleaseDate? singleReleaseDate;
 
+  /// SongSinglePresentation.updatedAt: the presentation's last write, so
+  /// the Single's date was written at or before it. A cover or chart-cover
+  /// edit moves it too: an upper bound, never earlier than the date's own
+  /// write (there is no separate date timestamp). Null: unknown.
+  final DateTime? singleWrittenAt;
+
   final NewReleaseAlbumFacts? album;
+}
+
+/// What proves a new-release debut is a genuine, first-ever appearance
+/// recorded on this database (App Update 1.3, user rules 2026-11-16). Read
+/// only from stored data; nothing here is written.
+class NewReleaseEvidence {
+  const NewReleaseEvidence({
+    required this.historyOriginUtc,
+    this.momentsCutoffUtc,
+    this.firstPlayAt = const {},
+  });
+
+  /// No evidence: no new-release story can be proven (published records
+  /// are still told).
+  static const NewReleaseEvidence none = NewReleaseEvidence(
+    historyOriginUtc: null,
+  );
+
+  /// When this database's chart history began (`chart_history_origin`):
+  /// its creation, its upgrade to version 46, or its latest restore,
+  /// whichever is latest. A restore moves it to the restore; a phone
+  /// rebuilt from the cloud starts it at its own creation. Null: unknown.
+  final DateTime? historyOriginUtc;
+
+  /// The latest permanent deletion, or merge that moved plays (the
+  /// deletion journal's Moments cutoff, App Update 1.2 D5): weeks before it
+  /// may have been recalculated without Moments and no earlier play
+  /// records a career Moment, so appearances before it may be missing.
+  final DateTime? momentsCutoffUtc;
+
+  /// Each song's first qualified play still stored, by song id. A song
+  /// without one has no proof.
+  final Map<String, DateTime> firstPlayAt;
+
+  /// From when this database holds every Weekly and Career song chart
+  /// appearance: the latest of the new-release start, the chart history
+  /// origin and the Moments cutoff. Null (nothing proven) without a start
+  /// or an origin.
+  DateTime? coverageFrom(NewReleaseDebutStart start) {
+    final from = start.fromUtc;
+    final origin = historyOriginUtc;
+    if (from == null || origin == null) return null;
+    var latest = from.toUtc();
+    for (final at in [origin, ?momentsCutoffUtc]) {
+      if (at.toUtc().isAfter(latest)) latest = at.toUtc();
+    }
+    return latest;
+  }
 }
 
 /// An eligible new-release debut: the facts its headline may state.
@@ -371,6 +454,57 @@ abstract final class NewReleaseEligibility {
     return song.isSingle
         ? _single(event, rank, song)
         : _albumTrack(event, rank, song.album);
+  }
+
+  /// Whether an eligible [debut] (the song's first chart appearance, from
+  /// [firstDebuts]) is proven, or why not (user rules 2026-11-16; every
+  /// check fails closed):
+  ///
+  /// 1. Its release date was written no later than the debut
+  ///    ([effectiveAt]): the Single presentation's, or every edition's,
+  ///    last write. A date set or edited after the debut, or written at an
+  ///    unknown time, tells no story.
+  /// 2. The song's first qualified play is at or after
+  ///    [NewReleaseEvidence.coverageFrom], so it cannot have charted before
+  ///    the point from which both charts' appearances are all recorded
+  ///    here; the debut is then truly its first appearance.
+  /// 3. The debut was recorded here: stored ([ChartMomentEvent.createdAt])
+  ///    and, for a weekly debut, its week begun at or after that point. A
+  ///    debut restored from a backup, pulled from the cloud archive or
+  ///    rebuilt from older plays was stored earlier, or has earlier plays,
+  ///    so it is never told as breaking news.
+  static NewReleaseIneligibility? proofProblem(
+    NewReleaseDebut debut,
+    NewReleaseSongFacts song,
+    NewReleaseEvidence evidence, {
+    required NewReleaseDebutStart start,
+  }) {
+    final debutAt = effectiveAt(debut.event);
+    final written = switch (debut.kind) {
+      NewReleaseDebutKind.single => [song.singleWrittenAt],
+      NewReleaseDebutKind.albumTrack => [
+        for (final edition in song.album?.editions ?? const [])
+          edition.writtenAt,
+      ],
+    };
+    if (written.isEmpty ||
+        written.any((at) => at == null || at.toUtc().isAfter(debutAt))) {
+      return NewReleaseIneligibility.releaseDateNotProvenBeforeDebut;
+    }
+
+    final coverage = evidence.coverageFrom(start);
+    final firstPlay = evidence.firstPlayAt[song.songId];
+    if (coverage == null ||
+        firstPlay == null ||
+        firstPlay.toUtc().isBefore(coverage)) {
+      return NewReleaseIneligibility.earlierHistoryUnproven;
+    }
+
+    if (debut.event.createdAt.toUtc().isBefore(coverage) ||
+        !NewReleaseDebutStart(coverage).applies(debut.event)) {
+      return NewReleaseIneligibility.notRecordedHere;
+    }
+    return null;
   }
 
   /// Keeps the first debut of each [NewReleaseDebut.storyKey] (one per

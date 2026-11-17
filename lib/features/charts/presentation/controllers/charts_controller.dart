@@ -96,6 +96,12 @@ typedef NewReleaseClassificationsLoader =
 typedef NewReleaseDebutHistoryLoader =
     Future<List<ChartMomentEvent>> Function(DateTime fromUtc);
 
+/// What proves a new-release debut for [songIds] (App Update 1.3, user
+/// rules 2026-11-16): the chart history origin, the Moments cutoff and each
+/// song's first qualified play.
+typedef NewReleaseEvidenceLoader =
+    Future<NewReleaseEvidence> Function(Set<String> songIds);
+
 /// Where a Moment's release link opens.
 class MomentReleaseTarget {
   const MomentReleaseTarget({
@@ -142,6 +148,7 @@ class ChartsController extends ChangeNotifier {
     NewReleaseClassificationsLoader? newReleaseClassifications,
     NewReleaseDebutHistoryLoader? newReleaseDebutHistory,
     NewReleasePublicationStore? newReleasePublications,
+    NewReleaseEvidenceLoader? newReleaseEvidence,
     bool newReleaseDebutsApproved =
         NewReleaseDebutActivation.generationApproved &&
         NewReleaseDebutHeadlines.approved,
@@ -149,6 +156,7 @@ class ChartsController extends ChangeNotifier {
        _loadNewReleaseClassifications = newReleaseClassifications,
        _loadNewReleaseDebutHistory = newReleaseDebutHistory,
        _newReleasePublications = newReleasePublications,
+       _loadNewReleaseEvidence = newReleaseEvidence,
        _newReleaseDebutsApproved = newReleaseDebutsApproved,
        _loadSinglePresentations = singlePresentations,
        _loadRecalculatedWeeks = recalculatedWeeks,
@@ -211,6 +219,10 @@ class ChartsController extends ChangeNotifier {
   /// and no story changes.
   final NewReleaseClassificationsLoader? _loadNewReleaseClassifications;
   final NewReleaseDebutHistoryLoader? _loadNewReleaseDebutHistory;
+
+  /// Without it (or when its read fails) nothing new is proven: stored
+  /// records are still told, but no new record is composed.
+  final NewReleaseEvidenceLoader? _loadNewReleaseEvidence;
   final bool _newReleaseDebutsApproved;
   _NewReleaseInputs? _newReleaseInputs;
 
@@ -397,6 +409,7 @@ class ChartsController extends ChangeNotifier {
                   lookups: newRelease,
                   storedDebuts: newRelease.storedDebuts,
                   publications: newRelease.publications,
+                  evidence: newRelease.evidence,
                   now: _now,
                   generationApproved: _newReleaseDebutsApproved,
                   headlinesApproved: _newReleaseDebutsApproved,
@@ -1345,6 +1358,9 @@ class ChartsController extends ChangeNotifier {
       final classifications = await classify();
       final storedDebuts = await history(from);
       final published = await publications.readAll();
+      final evidence = await _readNewReleaseEvidence({
+        for (final event in storedDebuts) event.entity.entityId,
+      });
       final albumsById = {for (final album in albums) album.albumId: album};
       return _NewReleaseInputs(
         facts: NewReleaseLibraryFacts.of(
@@ -1359,6 +1375,7 @@ class ChartsController extends ChangeNotifier {
         ),
         storedDebuts: storedDebuts,
         publications: {...published},
+        evidence: evidence,
         restoreGeneration: restoreGeneration,
       );
     } catch (error, stackTrace) {
@@ -1371,6 +1388,28 @@ class ChartsController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
       return null;
+    }
+  }
+
+  /// Fails closed: without a loader, or when the read fails (logged),
+  /// nothing new is proven.
+  Future<NewReleaseEvidence> _readNewReleaseEvidence(
+    Set<String> songIds,
+  ) async {
+    final load = _loadNewReleaseEvidence;
+    if (load == null || songIds.isEmpty) return NewReleaseEvidence.none;
+    try {
+      return await load(songIds);
+    } catch (error, stackTrace) {
+      developer.log(
+        'New-release debut evidence could not be read '
+        '(${error.runtimeType}); no new debut story is told',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return NewReleaseEvidence.none;
     }
   }
 
@@ -1893,10 +1932,14 @@ class _NewReleaseInputs implements NewReleaseLookups {
     required this.storedDebuts,
     required this.publications,
     required this.restoreGeneration,
+    this.evidence = NewReleaseEvidence.none,
   });
 
   final Map<String, NewReleaseSongFacts> facts;
   final List<ChartMomentEvent> storedDebuts;
+
+  /// What proves a newly composed story (NewReleaseDebutDesk.evidence).
+  final NewReleaseEvidence evidence;
 
   /// Stored publications by song id; grows as stories are first shown.
   final Map<String, NewReleasePublication> publications;

@@ -12,6 +12,7 @@ abstract final class LibraryAlbumEditionRowMapper {
     );
 
     final releaseDate = row['release_date'] as String?;
+    final updatedAt = row['updated_at'];
 
     return LibraryAlbumEdition(
       editionId: row['album_edition_id'] as String,
@@ -27,6 +28,7 @@ abstract final class LibraryAlbumEditionRowMapper {
       artworkId: row['artwork_id'] as String?,
       artworkPath: row['artwork_path'] as String?,
       dateAdded: DateTime.parse(row['created_at'] as String),
+      updatedAt: updatedAt is String ? DateTime.tryParse(updatedAt) : null,
     );
   }
 }

@@ -534,6 +534,8 @@ void main() {
     expect(deluxe.albumId, fixture.album.id);
     expect(deluxe.type, AlbumEditionType.deluxe);
     expect(deluxe.releaseDate, DateTime.utc(2026, 6, 20));
+    // App Update 1.3 new-release debuts: when the edition was last written.
+    expect(deluxe.updatedAt, fixture.deluxeEdition.updatedAt.toUtc());
   });
 
   test('credit links name linked artists only, with their roles', () async {

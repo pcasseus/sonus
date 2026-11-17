@@ -5,6 +5,11 @@
 // story changes.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/schema/chart_schema.dart';
+import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_repository.dart';
+import 'package:sonus_next/features/charts/data/services/sqlite_new_release_evidence_reader.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_deletion_journal_reader.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_new_release_publication_repository.dart';
 import 'package:sonus_next/features/charts/domain/moments/new_release_eligibility.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -141,6 +146,39 @@ void main() {
       [for (final s in defaults.controller.momentStories) (s.id, s.headline)],
       [for (final s in approved.controller.momentStories) (s.id, s.headline)],
     );
+  });
+
+  test('a Single date or album edition written after the debut: no new '
+      'story (rule 1, from the stored write times)', () async {
+    final late = DateTime.utc(2026, 11, 20);
+    for (final library in [
+      _LibraryState(writtenAt: late),
+      _LibraryState(isSingle: false, writtenAt: late),
+    ]) {
+      final loaded = await _load(events, approved: true, library: library);
+      expect(
+        loaded.controller.momentStories.where(isNewRelease),
+        isEmpty,
+        reason: 'single: ${library.isSingle}',
+      );
+    }
+    // Written before the debut: told, as a Single and as an album track.
+    for (final library in const [
+      _LibraryState(),
+      _LibraryState(isSingle: false),
+    ]) {
+      final loaded = await _load(events, approved: true, library: library);
+      expect(loaded.controller.momentStories.where(isNewRelease), hasLength(1));
+    }
+  });
+
+  test('the proof cannot be read: no new story (fails closed)', () async {
+    final loaded = await _load(
+      events,
+      approved: true,
+      evidence: (_) async => throw StateError('unreadable'),
+    );
+    expect(loaded.controller.momentStories.where(isNewRelease), isEmpty);
   });
 
   test('approved but no recorded start: nothing is read or told', () async {
@@ -338,6 +376,128 @@ void main() {
       expect(await told(next), single);
       expect(memory.records.keys, [_dead.entityId]);
     });
+
+    // User rules 2026-11-16, with the proof read from this database by the
+    // real evidence reader.
+    group('proof read from the database', () {
+      late NewReleaseEvidenceLoader evidence;
+      setUp(() {
+        evidence = SqliteNewReleaseEvidenceReader(
+          database,
+          historyOriginUtc: SqliteChartRepository(
+            database,
+          ).chartHistoryOriginUtc,
+          momentsCutoffUtc: SqliteDeletionJournalReader(
+            () async => database.database,
+          ).momentsCutoff,
+        ).read;
+      });
+
+      Future<void> historyBegan(DateTime at) async =>
+          ChartSchema.resetChartHistoryOrigin(await database.database, at);
+
+      Future<void> played(DateTime at) async {
+        final db = await database.database;
+        final stamp = at.toUtc().toIso8601String();
+        await db.insert(DatabaseTables.playbackSessions, {
+          'id': 'session-$stamp',
+          'song_id': _dead.entityId,
+          'artist_id': 'artist-1',
+          'album_id': 'album-1',
+          'album_edition_id': 'edition-1',
+          'song_title': 'Dead',
+          'artist_name': 'Madison Beer',
+          'album_title': 'Locket',
+          'album_edition_title': 'Locket',
+          'started_at': stamp,
+          'created_at': stamp,
+          'updated_at': stamp,
+        });
+        await db.insert(DatabaseTables.qualifiedPlays, {
+          'id': 'play-$stamp',
+          'playback_session_id': 'session-$stamp',
+          'song_id': _dead.entityId,
+          'artist_id': 'artist-1',
+          'album_id': 'album-1',
+          'album_edition_id': 'edition-1',
+          'qualified_at': stamp,
+          'listened_duration_ms': 60000,
+          'track_duration_ms': 180000,
+          'created_at': stamp,
+        });
+      }
+
+      Future<_Loaded> load() => _load(
+        events,
+        approved: true,
+        publications: store,
+        evidence: evidence,
+      );
+
+      test('proven here: told and recorded once', () async {
+        await historyBegan(DateTime.utc(2026, 11, 1));
+        await played(_week1.add(const Duration(days: 2, hours: 9)));
+        expect(await told(await load()), single);
+        expect((await store.readAll()).keys, [_dead.entityId]);
+      });
+
+      test('first played before the start: no special story, nothing '
+          'recorded', () async {
+        await historyBegan(DateTime.utc(2026, 11, 1));
+        await played(DateTime.utc(2026, 11, 3));
+        await played(_week1.add(const Duration(days: 2, hours: 9)));
+        final loaded = await load();
+        expect(loaded.controller.momentStories.where(isNewRelease), isEmpty);
+        await loaded.controller.newReleaseWritesSettled;
+        expect(await store.readAll(), isEmpty);
+      });
+
+      test('a restored database: the older debuts are not published as '
+          'new', () async {
+        await played(_week1.add(const Duration(days: 2, hours: 9)));
+        // The restore starts this database's chart history again.
+        await historyBegan(DateTime.utc(2026, 11, 25, 8));
+        final loaded = await load();
+        expect(loaded.controller.momentStories.where(isNewRelease), isEmpty);
+        await loaded.controller.newReleaseWritesSettled;
+        expect(await store.readAll(), isEmpty);
+      });
+
+      test('a phone rebuilt from the cloud: the archived career debut is '
+          'not breaking news, even when only later plays arrived', () async {
+        await historyBegan(DateTime.utc(2026, 11, 24));
+        await played(DateTime.utc(2026, 11, 24, 12));
+        final loaded = await load();
+        expect(loaded.controller.momentStories.where(isNewRelease), isEmpty);
+        await loaded.controller.newReleaseWritesSettled;
+        expect(await store.readAll(), isEmpty);
+      });
+
+      test('a published record is told unchanged after a later restore and '
+          'deletion', () async {
+        await historyBegan(DateTime.utc(2026, 11, 1));
+        await played(_week1.add(const Duration(days: 2, hours: 9)));
+        expect(await told(await load()), single);
+        final stored = await store.readAll();
+
+        await historyBegan(DateTime.utc(2026, 11, 25, 8));
+        final db = await database.database;
+        await db.insert(DatabaseTables.libraryDeletionJournal, {
+          'id': 'deletion-1',
+          'operation': 'userDeletion',
+          'target_type': 'song',
+          'target_id': 'song-other',
+          'committed_at': DateTime.utc(2026, 11, 25, 9).toIso8601String(),
+        });
+        final later = await load();
+        expect(await told(later), single);
+        expect(
+          storyOf(later.controller, careerDebut)!.newRelease!.recorded,
+          isTrue,
+        );
+        expect(await store.readAll(), stored);
+      });
+    });
   });
 }
 
@@ -367,6 +527,14 @@ ChartMomentEvent _event(
   );
 }
 
+/// Proof for the debuts here (user rules 2026-11-16): the chart history
+/// began before the start and "Dead" was first played at the start.
+Future<NewReleaseEvidence> _proven(Set<String> songIds) async =>
+    NewReleaseEvidence(
+      historyOriginUtc: DateTime.utc(2026, 11, 1),
+      firstPlayAt: {_dead.entityId: _start},
+    );
+
 class _Loaded {
   _Loaded(this.controller);
 
@@ -385,6 +553,7 @@ class _LibraryState {
     this.singleDate = '2026-11-07',
     this.albumDate = '2026-11-07',
     this.featured = const [],
+    this.writtenAt,
   });
 
   final bool isSingle;
@@ -393,6 +562,10 @@ class _LibraryState {
   final String? singleDate;
   final String albumDate;
   final List<String> featured;
+
+  /// When the Single presentation and the edition were last written; null:
+  /// before the debut (2026-11-08).
+  final DateTime? writtenAt;
 }
 
 Future<_Loaded> _load(
@@ -405,6 +578,7 @@ Future<_Loaded> _load(
   _LibraryState library = const _LibraryState(),
   Future<void> Function()? duringRead,
   bool settle = true,
+  NewReleaseEvidenceLoader? evidence,
 }) async {
   late final _Loaded loaded;
   final store = publications ?? MemoryNewReleasePublications();
@@ -463,6 +637,7 @@ Future<_Loaded> _load(
           newReleaseClassifications: classifications,
           newReleaseDebutHistory: history,
           newReleasePublications: store,
+          newReleaseEvidence: evidence ?? _proven,
         )
       : ChartsController(
           allTimeCharts: _EmptyAllTimeCharts(),
@@ -478,6 +653,7 @@ Future<_Loaded> _load(
           newReleaseClassifications: loaders ? classifications : null,
           newReleaseDebutHistory: loaders ? history : null,
           newReleasePublications: loaders ? store : null,
+          newReleaseEvidence: loaders ? evidence ?? _proven : null,
           newReleaseDebutsApproved: approved,
         );
   loaded = _Loaded(controller);
@@ -516,6 +692,7 @@ Future<List<LibraryReleaseEdition>> _editions(_LibraryState library) async => [
       dateAdded: DateTime.utc(2026, 11, 8),
       releaseDate: DateTime.parse('${library.albumDate}T00:00:00Z'),
       releaseDatePrecision: ReleaseDatePrecision.day,
+      updatedAt: library.writtenAt ?? DateTime.utc(2026, 11, 8),
     ),
     trackCount: 1,
   ),
@@ -528,7 +705,7 @@ Future<Map<String, SongSinglePresentation>> _singles(
     songId: _dead.entityId,
     releaseDate: ReleaseDate.tryParse(library.singleDate),
     createdAt: DateTime.utc(2026, 11, 8),
-    updatedAt: DateTime.utc(2026, 11, 8),
+    updatedAt: library.writtenAt ?? DateTime.utc(2026, 11, 8),
   ),
 };
 

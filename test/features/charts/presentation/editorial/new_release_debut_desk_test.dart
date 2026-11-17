@@ -29,6 +29,18 @@ final start = DateTime.utc(2026, 11, 15);
 final week1 = start;
 final week2 = start.add(const Duration(days: 7));
 
+/// When the release dates were last written: before every debut here.
+final written = DateTime.utc(2026, 11, 8);
+
+/// What proves the debuts here (user rules 2026-11-16): this database's
+/// chart history began before the start, and each song was first played
+/// at the start, so every debut from the start on is its first appearance,
+/// recorded here.
+final proven = NewReleaseEvidence(
+  historyOriginUtc: DateTime.utc(2026, 11, 1),
+  firstPlayAt: {dead.entityId: start, eternity.entityId: start},
+);
+
 const dead = ChartEntitySnapshot(
   entityId: 'song-dead',
   title: 'Dead',
@@ -115,6 +127,7 @@ NewReleaseAlbumFacts albumFacts({
     NewReleaseEditionFacts(
       type: AlbumEditionType.standard,
       releaseDate: ReleaseDate.tryParse(date),
+      writtenAt: written,
     ),
   ],
 );
@@ -133,6 +146,7 @@ final newSingle = Facts({
     songId: dead.entityId,
     isSingle: true,
     singleReleaseDate: ReleaseDate.of(2026, 11, 7),
+    singleWrittenAt: written,
   ),
 });
 
@@ -157,6 +171,7 @@ List<MomentStory> compose(
   NewReleaseLookups? facts,
   List<ChartMomentEvent> storedDebuts = const [],
   Map<String, NewReleasePublication> publications = const {},
+  NewReleaseEvidence? evidence,
   bool approved = true,
   bool attach = true,
   ChartMomentRules? withRules,
@@ -172,6 +187,7 @@ List<MomentStory> compose(
             lookups: facts ?? newSingle,
             storedDebuts: storedDebuts,
             publications: publications,
+            evidence: evidence ?? proven,
             now: () => publishedAt,
             generationApproved: approved,
             headlinesApproved: approved,
@@ -469,6 +485,7 @@ void main() {
           songId: dead.entityId,
           isSingle: true,
           singleReleaseDate: ReleaseDate.tryParse(date),
+          singleWrittenAt: written,
           album: albumFacts(date: album),
         ),
       });
