@@ -86,14 +86,16 @@ class ChartMovementIndicator extends StatelessWidget {
     );
 
     final achievement = switch (m.achievement) {
+      // Provisional until the week is finalized, like a live peak (App
+      // Update 1.3: live status is told apart from finalized events).
       ChartAchievement.newEntry => badge(
-        'NEW',
+        m.provisional ? 'NEW · LIVE' : 'NEW',
         Icons.star_rounded,
         colors.chartNew,
         m.highlighted,
       ),
       ChartAchievement.reentry => badge(
-        'RE-ENTRY',
+        m.provisional ? 'RE-ENTRY · LIVE' : 'RE-ENTRY',
         Icons.replay_rounded,
         blue,
         m.highlighted,

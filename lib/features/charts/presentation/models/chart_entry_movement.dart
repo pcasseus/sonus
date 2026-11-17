@@ -263,6 +263,12 @@ class ChartEntryMovement {
     final peak = achievement == ChartAchievement.newPeak
         ? (provisional ? ', provisional new peak' : ', new peak')
         : '';
-    return '$move$percent$peak';
+    // A live NEW or RE-ENTRY is provisional until the week is finalized.
+    final live =
+        provisional &&
+            (kind == ChartMoveKind.debut || kind == ChartMoveKind.reentry)
+        ? ', provisional'
+        : '';
+    return '$move$live$percent$peak';
   }
 }
