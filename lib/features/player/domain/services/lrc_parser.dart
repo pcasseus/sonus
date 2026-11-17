@@ -11,6 +11,20 @@ abstract final class LrcParser {
     caseSensitive: false,
   );
 
+  /// Enhanced ("A2") LRC word timings, `<mm:ss.xx>`, inside a line. Lines
+  /// are timed by line only for now (App Update 1.3, REF-1.3-07), so the
+  /// word timings are removed from the text rather than shown in it.
+  static final RegExp _wordTimePattern = RegExp(r'<\d+:\d{2}(?:[.:]\d{1,3})?>');
+
+  /// The line's text; spacing is tidied only where word timings were.
+  static String _lyricText(String raw) {
+    if (!_wordTimePattern.hasMatch(raw)) return raw.trim();
+    return raw
+        .replaceAll(_wordTimePattern, '')
+        .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+        .trim();
+  }
+
   static List<LyricLine> parse(String source) {
     final lines = <LyricLine>[];
     var offset = Duration.zero;
@@ -31,7 +45,7 @@ abstract final class LrcParser {
         // Some files wrap a long lyric onto untimed lines: they continue
         // the timed line above. Blank lines, tags and other bracketed text
         // are not lyrics, and text before the first timestamp is a header.
-        final continuation = rawLine.trim();
+        final continuation = _lyricText(rawLine);
 
         if (continuation.isNotEmpty && !continuation.startsWith('[')) {
           for (final index in continuing) {
@@ -48,7 +62,7 @@ abstract final class LrcParser {
         continue;
       }
 
-      final text = rawLine.replaceAll(_timestampPattern, '').trim();
+      final text = _lyricText(rawLine.replaceAll(_timestampPattern, ''));
       final added = <int>[];
 
       for (final match in matches) {

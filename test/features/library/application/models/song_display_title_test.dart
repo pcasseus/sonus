@@ -119,4 +119,108 @@ void main() {
       );
     });
   });
+
+  // App Update 1.3 (REF-1.3-01): one display policy for every supported
+  // version value.
+  group('every supported version', () {
+    const expected = {
+      SongVersionCharacteristic.remix: 'Remix',
+      SongVersionCharacteristic.live: 'Live',
+      SongVersionCharacteristic.acoustic: 'Acoustic',
+      SongVersionCharacteristic.demo: 'Demo',
+      SongVersionCharacteristic.instrumental: 'Instrumental',
+      SongVersionCharacteristic.edit: 'Edit',
+      SongVersionCharacteristic.radioEdit: 'Radio Edit',
+      SongVersionCharacteristic.extended: 'Extended',
+      SongVersionCharacteristic.remaster: 'Remaster',
+      SongVersionCharacteristic.alternate: 'Alternate',
+    };
+
+    test('each has a label and reads "Title (Label)"', () {
+      expect(expected.keys.toSet(), SongVersionCharacteristic.values.toSet());
+      for (final entry in expected.entries) {
+        expect(songVersionCharacteristicLabel(entry.key), entry.value);
+        expect(
+          songDisplayTitle(title: 'Paper Boats', characteristics: [entry.key]),
+          'Paper Boats (${entry.value})',
+        );
+      }
+    });
+
+    test('each is left out when the title already says it', () {
+      for (final label in expected.values) {
+        final title = 'Paper Boats ($label)';
+        expect(
+          songDisplayTitle(
+            title: title,
+            characteristics: [
+              expected.entries.firstWhere((e) => e.value == label).key,
+            ],
+          ),
+          title,
+        );
+      }
+    });
+
+    test('a long title with several versions keeps the whole title first, '
+        'each word once', () {
+      const title =
+          'A Very Long Song Title That Keeps On Going Through The Night';
+      final shown = songDisplayTitle(
+        title: title,
+        characteristics: const [
+          SongVersionCharacteristic.remaster,
+          SongVersionCharacteristic.live,
+          SongVersionCharacteristic.extended,
+          SongVersionCharacteristic.remix,
+        ],
+      );
+      expect(shown, startsWith('$title ('));
+      expect(shown.substring(title.length), ' (Live Extended Remaster Remix)');
+    });
+  });
+
+  // App Update 1.3 (REF-1.3-01): the qualifier alone, for a badge beside a
+  // title that stays as recorded.
+  group('songVersionQualifier', () {
+    test('the label, or the characteristics, or nothing', () {
+      expect(songVersionQualifier(title: 'Song'), isNull);
+      expect(
+        songVersionQualifier(title: 'Song', versionLabel: ' 2024 Remaster '),
+        '2024 Remaster',
+      );
+      expect(
+        songVersionQualifier(
+          title: 'Song',
+          characteristics: const [
+            SongVersionCharacteristic.remix,
+            SongVersionCharacteristic.acoustic,
+          ],
+        ),
+        'Acoustic Remix',
+      );
+    });
+
+    test('nothing when the recorded title already says it', () {
+      expect(
+        songVersionQualifier(title: 'Song (Remix)', versionLabel: 'Remix'),
+        isNull,
+      );
+      expect(
+        songVersionQualifier(
+          title: 'Song - Live',
+          characteristics: const [SongVersionCharacteristic.live],
+        ),
+        isNull,
+      );
+    });
+
+    test('songDisplayTitle is the title plus the qualifier', () {
+      const characteristics = [SongVersionCharacteristic.radioEdit];
+      expect(
+        songDisplayTitle(title: 'Song', characteristics: characteristics),
+        'Song (${songVersionQualifier(title: 'Song', characteristics: characteristics)})',
+      );
+    });
+  });
 }

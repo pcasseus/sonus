@@ -54,6 +54,16 @@ abstract interface class MomentJointControlStore {
   Future<void> writeJointControlStart(String fromUtc);
 }
 
+/// Where App Update 1.3 new-release debut stories start: their own start,
+/// recorded on the first run of a build whose new-release wording is
+/// approved, so approving them never reaches back to earlier debuts.
+abstract interface class MomentNewReleaseDebutStore {
+  /// Null until a build carrying them has recorded one.
+  Future<String?> readNewReleaseDebutsStart();
+
+  Future<void> writeNewReleaseDebutsStart(String fromUtc);
+}
+
 /// Decides which Moments rules this run uses (SN-50 R2).
 ///
 /// Only a build compiled with
@@ -77,8 +87,10 @@ class MomentRulesActivation {
     MomentChronicleStore? chronicle,
     MomentDominanceStore? dominance,
     MomentJointControlStore? jointControl,
+    MomentNewReleaseDebutStore? newReleaseDebuts,
     MomentRulesActivationNow? now,
   }) : _store = store,
+       _newReleaseDebuts = newReleaseDebuts,
        _chronicle = chronicle,
        _dominance = dominance,
        _jointControl = jointControl,
@@ -116,6 +128,11 @@ class MomentRulesActivation {
   /// recorded.
   final MomentJointControlStore? _jointControl;
   Future<DateTime?>? _jointControlStart;
+
+  /// Where new-release debut stories start; without it (their wording not
+  /// approved), none are told and nothing is recorded.
+  final MomentNewReleaseDebutStore? _newReleaseDebuts;
+  Future<DateTime?>? _newReleaseDebutsStart;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -133,7 +150,28 @@ class MomentRulesActivation {
     // and so leave that week out.
     await Future.wait([dominanceFrom(), jointControlFrom()]);
     final chronicleFrom = await _chronicleFrom();
-    return (await _rulesWithoutChronicle()).withChronicle(chronicleFrom);
+    final newReleaseFrom = await newReleaseDebutsFrom();
+    return (await _rulesWithoutChronicle())
+        .withChronicle(chronicleFrom)
+        .withNewReleaseDebuts(newReleaseFrom);
+  }
+
+  /// Where new-release debut stories start on this install (App Update
+  /// 1.3), recorded once like [dominanceFrom] on the first run of a build
+  /// whose new-release wording is approved, and never moved. Unreadable or
+  /// unsaved: none this run, and a later run tries again.
+  Future<DateTime?> newReleaseDebutsFrom() {
+    final store = _newReleaseDebuts;
+    if (store == null) return Future.value();
+    return _newReleaseDebutsStart ??=
+        _startOnce(
+          read: store.readNewReleaseDebutsStart,
+          write: store.writeNewReleaseDebutsStart,
+          what: 'new-release debut',
+        ).then((start) {
+          if (start == null) _newReleaseDebutsStart = null;
+          return start;
+        });
   }
 
   /// The chronicle's start on this install, recorded once on the first run

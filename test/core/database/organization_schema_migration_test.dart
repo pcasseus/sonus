@@ -349,7 +349,7 @@ void main() {
         ];
         expect(
           (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-          46,
+          48,
         );
         expect(
           await db.query(

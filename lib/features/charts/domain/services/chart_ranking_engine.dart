@@ -71,6 +71,7 @@ class ChartRankingEngine {
           historicalPeakRank: rankedState.history?.peakRank,
           livePeakRank: rankedState.livePeakRank,
         );
+        final chartedEarlierThisWeek = rankedState.firstChartedAt != null;
 
         rankedState.observeRank(
           rank: rank,
@@ -95,6 +96,7 @@ class ChartRankingEngine {
               previousPeakRank: previousPeakRank,
               currentPeakRank: currentPeakRank,
               previousFinalizedRank: rankedState.history?.previousExtendedRank,
+              chartedEarlierThisWeek: chartedEarlierThisWeek,
               observedAt: event.qualifiedAt.toUtc(),
             ),
           );
@@ -266,9 +268,14 @@ class ChartRankingEngine {
   }
 
   /// Last week's final official rank always decides the arrow; a dip out of
-  /// the Top 100 during the week never overrides it (SN-50 E-Q2). Returning
-  /// within the week makes RE-ENTRY only for an entity with no official
-  /// history that is back in the Top 100.
+  /// the Top 100 during the week never overrides it (SN-50 E-Q2).
+  ///
+  /// RE-ENTRY comes only from finalized chart history (user decision
+  /// 2026-11-16): leaving and returning within the provisional live week is
+  /// never a re-entry, so an entity with no finalized history stays NEW
+  /// however often it crosses the Top 100 line that week.
+  /// [ChartRankedEntity.hasReenteredOfficialChartThisWeek] remains a
+  /// recorded fact and does not decide movement.
   static ChartMovement _movementFor({
     required _MutableChartState state,
     required int currentRank,
@@ -292,8 +299,13 @@ class ChartRankingEngine {
       return ChartMovement.reentry;
     }
 
-    if (currentRank <= officialChartLimit &&
-        state.hasReenteredOfficialChartThisWeek) {
+    // Bubbling Under is its own chart: back in #101–200 after a week away
+    // from the Top 200 is a RE-ENTRY there, never NEW, when an earlier
+    // finalized week had it in the Top 200 (App Update 1.3 movement rules;
+    // history peaks come only from persisted Top 200 rows).
+    if (currentRank > officialChartLimit &&
+        history?.previousExtendedRank == null &&
+        history?.peakRank != null) {
       return ChartMovement.reentry;
     }
 

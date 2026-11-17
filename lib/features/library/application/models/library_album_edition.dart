@@ -14,6 +14,7 @@ class LibraryAlbumEdition {
     this.genre,
     this.artworkId,
     this.artworkPath,
+    this.updatedAt,
   });
 
   final String editionId;
@@ -37,4 +38,8 @@ class LibraryAlbumEdition {
   final String? artworkPath;
 
   final DateTime dateAdded;
+
+  /// The edition row's last write (`updated_at`), when the query reads it
+  /// (App Update 1.3 new-release debuts); null otherwise.
+  final DateTime? updatedAt;
 }

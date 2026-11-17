@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/core/lyrics/sqlite_lyrics_provenance_store.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
@@ -23,8 +24,6 @@ import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
 import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
-import 'package:sonus_next/features/player/data/daos/track_lyrics_dao.dart';
-import 'package:sonus_next/features/player/data/repositories/sqlite_track_lyrics_repository.dart';
 
 import '../../../../support/library_seed.dart';
 
@@ -411,10 +410,7 @@ void main() {
         ),
         lyricsIngestionService: LyricsIngestionService(
           sourceReader: sidecar,
-          trackLyricsRepository: SqliteTrackLyricsRepository(
-            TrackLyricsDao(db),
-            appDatabase: database,
-          ),
+          lyricsWriter: SqliteLyricsProvenanceStore(appDatabase: database),
         ),
       );
     }
@@ -479,7 +475,10 @@ void main() {
       expect(rescan.status, ImportResultStatus.skipped);
       final lyrics = await lyricsOf('song-a');
       expect(lyrics?['synced_text'], '[00:01.00]New line');
-      expect(lyrics?['plain_text'], isNull);
+      expect(lyrics?['synced_source'], 'sidecarLrc');
+      // App Update 1.3 (version 48): a timed sidecar replaces only the
+      // synchronised text; the stored plain text stays.
+      expect(lyrics?['plain_text'], lyricsBefore?['plain_text']);
     });
 
     test(

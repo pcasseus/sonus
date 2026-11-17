@@ -4,6 +4,9 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'library_mutation_coordinator.dart';
 import 'database_migrations.dart';
 import 'schema/album_edition_disc_label_schema.dart';
+import 'schema/new_release_publication_schema.dart';
+import 'schema/song_single_presentation_schema.dart';
+import 'schema/lyrics_provenance_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -29,7 +32,7 @@ class AppDatabase {
        _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 46;
+  static const int databaseVersion = 48;
 
   /// Coordinates normal database transactions with recovery.
   final LibraryMutationCoordinator mutationCoordinator;
@@ -103,6 +106,9 @@ class AppDatabase {
     await DeletionSchema.create(db);
     await DeletedAudioSignatureSchema.create(db);
     await AlbumEditionDiscLabelSchema.create(db);
+    await SongSinglePresentationSchema.create(db);
+    await LyricsProvenanceSchema.addColumns(db);
+    await NewReleasePublicationSchema.create(db);
   }
 
   Future<void> _onUpgrade(

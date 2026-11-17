@@ -51,6 +51,10 @@ class ChartRankedEntity {
   final ChartMovement movement;
 
   final bool hasEnteredOfficialChartThisWeek;
+
+  /// Whether the entity left the Top 100 and came back within this week's
+  /// replay. A provisional fact only: it never makes the entry a RE-ENTRY,
+  /// which comes from finalized history (user decision 2026-11-16).
   final bool hasReenteredOfficialChartThisWeek;
 
   bool get isOfficiallyCharting => rank <= 100;

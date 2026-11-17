@@ -513,6 +513,16 @@ class SqlitePermanentDeletionImpactRepository {
     )) {
       addArtwork(row['artwork_id']);
     }
+    // App Update 1.3: a deleted song's Single cover.
+    if (await _tableExists(DatabaseTables.songSinglePresentations)) {
+      for (final row in await _selectIn(
+        'SELECT artwork_id FROM ${DatabaseTables.songSinglePresentations} '
+        'WHERE song_id',
+        songIds,
+      )) {
+        addArtwork(row['artwork_id']);
+      }
+    }
     for (final row in await _selectIn(
       'SELECT header_artwork_id, top_artists_artwork_id '
       'FROM ${DatabaseTables.artists} WHERE id',
@@ -551,7 +561,11 @@ class SqlitePermanentDeletionImpactRepository {
             'SELECT target_id FROM ${DatabaseTables.artworkCrops} '
             'WHERE source_artwork_id = ? OR output_artwork_id = ?',
             [artworkId, artworkId],
-          )).any((r) => !deletedCropTargets.contains(r['target_id']));
+          )).any((r) => !deletedCropTargets.contains(r['target_id'])) ||
+          // App Update 1.3: a Single cover of a song that stays is in use.
+          (await _singleCoverUsers(
+            artworkId,
+          )).any((songId) => !songIds.contains(songId));
       if (!stillUsed) artworkAssetIds.add(artworkId);
     }
 
@@ -732,6 +746,26 @@ class SqlitePermanentDeletionImpactRepository {
 
   /// Runs `<prefix> IN (?, …)` over [ids] in chunks. [prefix] ends with the
   /// column name.
+  Future<bool> _tableExists(String table) async => (await _db.rawQuery(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+    [table],
+  )).isNotEmpty;
+
+  /// The songs whose Single presentation uses [artworkId] as its cover.
+  Future<List<String>> _singleCoverUsers(String artworkId) async {
+    if (!await _tableExists(DatabaseTables.songSinglePresentations)) {
+      return const [];
+    }
+    return [
+      for (final row in await _db.rawQuery(
+        'SELECT song_id FROM ${DatabaseTables.songSinglePresentations} '
+        'WHERE artwork_id = ?',
+        [artworkId],
+      ))
+        row['song_id']! as String,
+    ];
+  }
+
   Future<List<Map<String, Object?>>> _selectIn(
     String prefix,
     Set<String> ids, {

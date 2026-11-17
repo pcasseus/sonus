@@ -16,6 +16,7 @@ import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
 import 'moment_story_planner.dart';
+import 'new_release_debut_desk.dart';
 import 'refined_headline_catalog.dart';
 import 'moment_visuals.dart';
 
@@ -35,6 +36,7 @@ class MomentStory {
     this.rank,
     this.climb,
     this.updates = const [],
+    this.newRelease,
   });
 
   final ChartMomentFeedItem item;
@@ -69,6 +71,12 @@ class MomentStory {
   /// climb it tells. Empty for every other story.
   final List<MomentStoryUpdate> updates;
 
+  /// App Update 1.3: the new-release debut this story tells, if any. Not
+  /// yet [NewReleaseRewording.recorded] the first time it is composed; the
+  /// controller then stores its publication, which every later telling
+  /// uses.
+  final NewReleaseRewording? newRelease;
+
   /// Updated since it was first published: a developing story with more
   /// than one climb.
   bool get isDeveloping => updates.length > 1;
@@ -101,9 +109,15 @@ class MomentEditorialDesk {
     this.minorStoriesPerDay = 3,
     this.refinedCatalog,
     this.refinedCatalogs,
+    this.newReleases,
   });
 
   final MomentLookups lookups;
+
+  /// App Update 1.3: re-words a song's first qualifying debut story as its
+  /// new-release debut. Null, or not active (unapproved, or no recorded
+  /// start), changes no story.
+  final NewReleaseDebutDesk? newReleases;
 
   /// Which stories follow the SN-50 rules; none without an activation.
   final ChartMomentRules rules;
@@ -136,6 +150,13 @@ class MomentEditorialDesk {
     String? previousVariant;
 
     final told = <String>{};
+
+    // App Update 1.3: each song's one debut to tell as a new release.
+    final newReleases = this.newReleases;
+    final firstDebuts =
+        newReleases?.select(chronological) ??
+        const <String, ChartMomentEvent>{};
+    final newReleaseTold = <String>{};
 
     // SN-50 developing stories: repeated climbs of one entity on one chart
     // in one day are one living story, told at its latest climb.
@@ -236,12 +257,25 @@ class MomentEditorialDesk {
           minorPerDay[day] = count + 1;
         }
 
+        var rewording = newReleases?.rewordingFor(
+          moment.item,
+          moment.family,
+          firstDebuts,
+          featured: moment.item.chartType == ChartType.songs
+              ? lookups.featuredOf(moment.item.entity.entityId)
+              : const [],
+        );
+        if (rewording != null && !newReleaseTold.add(rewording.storyKey)) {
+          rewording = null;
+        }
+
         final story = _write(
           moment.item,
           moment.family,
           facts,
           previousVariant,
           excluded: moment.excludedVariants,
+          rewording: rewording,
         );
         previousVariant = story.variantId;
         stories.add(story);
@@ -409,6 +443,7 @@ class MomentEditorialDesk {
     MomentFacts facts,
     String? previousVariant, {
     Set<String> excluded = const {},
+    NewReleaseRewording? rewording,
   }) {
     final climb = MomentClimb.of(item, family, facts);
     // From the climb wording's start on, a rising song's story under the
@@ -435,8 +470,17 @@ class MomentEditorialDesk {
         : MomentPublisher.pulsePop;
 
     var candidates = [
-      for (final variant in variants)
-        if (variant.publisher == publisher && variant.fits(facts)) variant,
+      // App Update 1.3: a new-release debut has exactly one wording.
+      if (rewording != null)
+        HeadlineVariant(
+          rewording.variantId,
+          publisher,
+          (_) => rewording.headline,
+          requires: const {MomentFact.rank},
+        )
+      else
+        for (final variant in variants)
+          if (variant.publisher == publisher && variant.fits(facts)) variant,
     ];
     // A verified displacement is the story: say who was passed.
     if (facts.rivalTitle != null) {
@@ -477,7 +521,15 @@ class MomentEditorialDesk {
       publisher: variant.publisher,
       variantId: variant.id,
       headline: headline,
-      body: _supportingText(family, facts, variant, storyId: item.id),
+      body: _supportingText(
+        family,
+        facts,
+        variant,
+        storyId: item.id,
+        // A new-release headline already credits the featured artists as
+        // published; today's credits never add to it.
+        creditFeatured: rewording == null,
+      ),
       kicker: _kicker(family, facts),
       status:
           facts.polished &&
@@ -497,6 +549,7 @@ class MomentEditorialDesk {
         _ => facts.rank,
       },
       climb: climb,
+      newRelease: rewording,
       visual: MomentVisuals.select(
         item: item,
         family: family,
@@ -521,6 +574,7 @@ class MomentEditorialDesk {
     MomentFacts facts,
     HeadlineVariant variant, {
     String storyId = '',
+    bool creditFeatured = true,
   }) {
     final used = variant.requires;
     final it = facts.chartType == ChartType.songs
@@ -532,6 +586,7 @@ class MomentEditorialDesk {
     // artists is followed by them, first, so every new story credits them.
     final featuredArtists = facts.featuredArtists;
     final credited =
+        creditFeatured &&
         featuredArtists.isNotEmpty &&
         !variant.build(facts).contains(featuredArtists.first);
     if (credited) {

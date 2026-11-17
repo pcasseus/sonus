@@ -11,6 +11,7 @@ import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../song_stats/presentation/song_stats_navigation.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
+import '../../../library/application/models/song_display_title.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -31,9 +32,10 @@ import '../editorial/moment_publisher.dart';
 import '../models/chart_week_label.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
-import '../widgets/all_time_chart_cards.dart';
+import '../models/chart_entry_text.dart';
 import '../widgets/chart_board_rows.dart';
-import '../widgets/chart_entry_card.dart';
+import '../widgets/chart_entry_details.dart';
+import '../widgets/chart_row_expansion.dart';
 import '../widgets/chart_extended_divider.dart';
 import '../widgets/chart_info_sheet.dart';
 
@@ -78,120 +80,129 @@ class ChartsPage extends StatelessWidget {
         ? 'charts-scroll-${controller.chartType.name}-${controller.board.name}'
         : 'charts-scroll';
 
-    return _ScrollToTopHost(
-      builder: (scroll, rows) => RefreshIndicator(
-        onRefresh: controller.refresh,
-        child: _ChartScrollRail(
-          controller: scroll,
-          enabled: entries.length > 25,
-          child: CustomScrollView(
-            key: PageStorageKey<String>(scrollKey),
+    // One expanded row per chart view (App Update 1.3 Chart Studio).
+    final expansionView = [
+      scrollKey,
+      if (controller.isViewingThisWeek) 'this-week',
+      if (controller.selectedHistoricalSnapshot case final week?)
+        week.weekStartUtc.toIso8601String(),
+    ].join('/');
+
+    return ChartRowExpansionHost(
+      view: expansionView,
+      child: _ScrollToTopHost(
+        builder: (scroll, rows) => RefreshIndicator(
+          onRefresh: controller.refresh,
+          child: _ChartScrollRail(
             controller: scroll,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-                sliver: SliverList.list(
-                  children: [
-                    _ChartsHeader(moments: controller.isShowingMoments),
-                    const SizedBox(height: 18),
-                    _ChartsPresentationSelector(controller: controller),
-                    const SizedBox(height: 20),
-
-                    if (controller.isShowingCharts) ...[
-                      _ChartTypeSelector(controller: controller),
+            enabled: entries.length > 25,
+            child: CustomScrollView(
+              key: PageStorageKey<String>(scrollKey),
+              controller: scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+                  sliver: SliverList.list(
+                    children: [
+                      _ChartsHeader(moments: controller.isShowingMoments),
                       const SizedBox(height: 18),
-                      _WeekNavigator(controller: controller),
-                      const SizedBox(height: 18),
-                      _ChartBoardSelector(controller: controller),
-                      if (controller.board == ChartBoard.top100) ...[
-                        const SizedBox(height: 14),
-                        _ViewSizeSelector(controller: controller),
-                      ],
+                      _ChartsPresentationSelector(controller: controller),
+                      const SizedBox(height: 20),
 
-                      const SizedBox(height: 22),
+                      if (controller.isShowingCharts) ...[
+                        _ChartTypeSelector(controller: controller),
+                        const SizedBox(height: 18),
+                        _WeekNavigator(controller: controller),
+                        const SizedBox(height: 18),
+                        _ChartBoardSelector(controller: controller),
+                        if (controller.board == ChartBoard.top100) ...[
+                          const SizedBox(height: 14),
+                          _ViewSizeSelector(controller: controller),
+                        ],
 
-                      if (controller.hasError && hasChart) ...[
-                        _RefreshErrorBanner(onRetry: controller.refresh),
-                        const SizedBox(height: 16),
-                      ],
+                        const SizedBox(height: 22),
 
-                      if (entries.isEmpty &&
-                          controller.board == ChartBoard.extended)
-                        _ChartsMessage(
-                          key: const ValueKey<String>('charts-board-empty'),
-                          icon: Icons.bubble_chart_outlined,
-                          title: controller.chartType == ChartType.songs
-                              ? 'Nothing is bubbling under yet'
-                              : 'No positions below #100 yet',
-                          message: controller.chartType == ChartType.songs
-                              ? 'Songs ranked #101–200 appear here once more than 100 songs have qualified listens.'
-                              : 'Releases ranked #101–200 appear here once more than 100 releases have qualified listens.',
-                        )
-                      else if (entries.isEmpty)
-                        controller.isViewingThisWeek
-                            ? const _ChartsMessage(
-                                key: ValueKey<String>('charts-empty'),
-                                icon: Icons.leaderboard_outlined,
-                                title: 'No chart entries this week yet',
-                                message:
-                                    'Qualified listens this week will appear here as you listen.',
-                              )
-                            : const _ChartsMessage(
-                                key: ValueKey<String>('charts-empty'),
-                                icon: Icons.leaderboard_outlined,
-                                title: 'No chart entries yet',
-                                message:
-                                    'Every qualified listen counts toward your Sonus Hot 100 career standings.',
-                              )
-                      else ...[
-                        _ChartSummary(
-                          chartType: controller.chartType,
-                          board: controller.board,
-                          positionCount: entries.length,
-                          onJump: () => _jumpToRank(
-                            context,
-                            scroll: scroll,
-                            rows: rows,
-                            entries: entries,
-                          ),
-                          isWeeklyHistory: controller.isViewingHistory,
-                          isThisWeek: controller.isViewingThisWeek,
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-                    ] else
-                      _MomentsFeedHeader(controller: controller),
-                  ],
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-                sliver: controller.isShowingMoments
-                    ? _momentsFeedSliver(controller)
-                    : SliverList.builder(
-                        // Built lazily: only the rows on screen exist.
-                        itemCount: entries.length,
-                        itemBuilder: (context, index) {
-                          final entry = entries[index];
-                          final framed =
-                              _rowTier(controller, entry) !=
-                              ChartRowTier.compact;
-                          return _RankAnchor(
-                            rank: entry.rank,
-                            rows: rows,
-                            child: Padding(
-                              padding: EdgeInsets.only(bottom: framed ? 6 : 0),
-                              child: _ChartEntryItem(
-                                entry: entry,
-                                controller: controller,
-                              ),
+                        if (controller.hasError && hasChart) ...[
+                          _RefreshErrorBanner(onRetry: controller.refresh),
+                          const SizedBox(height: 16),
+                        ],
+
+                        if (entries.isEmpty &&
+                            controller.board == ChartBoard.extended)
+                          _ChartsMessage(
+                            key: const ValueKey<String>('charts-board-empty'),
+                            icon: Icons.bubble_chart_outlined,
+                            title: controller.chartType == ChartType.songs
+                                ? 'Nothing is bubbling under yet'
+                                : 'No positions below #100 yet',
+                            message: controller.chartType == ChartType.songs
+                                ? 'Songs ranked #101–200 appear here once more than 100 songs have qualified listens.'
+                                : 'Releases ranked #101–200 appear here once more than 100 releases have qualified listens.',
+                          )
+                        else if (entries.isEmpty)
+                          controller.isViewingThisWeek
+                              ? const _ChartsMessage(
+                                  key: ValueKey<String>('charts-empty'),
+                                  icon: Icons.leaderboard_outlined,
+                                  title: 'No chart entries this week yet',
+                                  message:
+                                      'Qualified listens this week will appear here as you listen.',
+                                )
+                              : const _ChartsMessage(
+                                  key: ValueKey<String>('charts-empty'),
+                                  icon: Icons.leaderboard_outlined,
+                                  title: 'No chart entries yet',
+                                  message:
+                                      'Every qualified listen counts toward your Sonus Hot 100 career standings.',
+                                )
+                        else ...[
+                          _ChartSummary(
+                            chartType: controller.chartType,
+                            board: controller.board,
+                            positionCount: entries.length,
+                            onJump: () => _jumpToRank(
+                              context,
+                              scroll: scroll,
+                              rows: rows,
+                              entries: entries,
                             ),
-                          );
-                        },
-                      ),
-              ),
-            ],
+                            isWeeklyHistory: controller.isViewingHistory,
+                            isThisWeek: controller.isViewingThisWeek,
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                      ] else
+                        _MomentsFeedHeader(controller: controller),
+                    ],
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                  sliver: controller.isShowingMoments
+                      ? _momentsFeedSliver(controller)
+                      : SliverList.builder(
+                          // Built lazily: only the rows on screen exist.
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            return _RankAnchor(
+                              rank: entry.rank,
+                              rows: rows,
+                              child: Padding(
+                                // Every position the same (Chart Studio).
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: _ChartEntryItem(
+                                  entry: entry,
+                                  controller: controller,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1000,29 +1011,33 @@ class _MomentPost extends StatelessWidget {
     final track = controller.trackForMoment(item);
     final album = controller.albumForMoment(item);
     final artist = controller.artistForMoment(item);
-    final playable =
-        track != null &&
-        !track.isBlocked &&
-        track.isAvailable &&
-        (track.filePath?.trim().isNotEmpty ?? false);
 
     // App Update 1.1: the card opens the expanded story, where the song,
     // release and artist links live (the approved hybrid design).
     final release = controller.relatedReleaseForMoment(item);
     final portrait = controller.artistPortraitPathForMoment(item);
+    // App Update 1.3 (REF-1.3-03): the Related row never suggests the
+    // story's own recording, only other songs of its album, else of its
+    // primary artist, else none (MomentRelatedSongs).
+    // A song the listener blocked suggests nothing; one whose file is
+    // missing still suggests its album's other songs.
+    final suggestions = track != null && !track.isBlocked
+        ? controller.relatedSongsForMoment(item)
+        : const <LibraryTrack>[];
     final related = <MomentRelatedLink>[
-      if (playable && track.songId == item.entity.entityId)
+      for (final song in suggestions)
         MomentRelatedLink(
           kind: 'Song',
-          title: track.title,
-          subtitle: 'Song • ${track.artistName}',
+          id: song.songId,
+          title: song.displayTitle,
+          subtitle: 'Song • ${song.artistName}',
           image: MomentImage(
             kind: MomentImageKind.cover,
-            entityId: track.songId,
-            path: controller.momentLookups.currentSongCover(track.songId),
+            entityId: song.songId,
+            path: controller.momentLookups.currentSongCover(song.songId),
           ),
           onOpen: () =>
-              unawaited(_showChartTrackContext(context, track, [track])),
+              unawaited(_showChartTrackContext(context, song, [song])),
         ),
       if (album != null && release != null)
         MomentRelatedLink(
@@ -1071,6 +1086,15 @@ class _MomentPost extends StatelessWidget {
           now: now,
           journey: journey,
           related: related,
+          // App Update 1.3 (REF-1.3-01): the song's version as a badge;
+          // the recorded headline is unchanged.
+          versionBadge: track == null
+              ? null
+              : songVersionQualifier(
+                  title: item.entity.title,
+                  versionLabel: track.versionLabel,
+                  characteristics: track.versionCharacteristics,
+                ),
         ),
       ),
     );
@@ -1425,7 +1449,11 @@ class _ChartSummary extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
 
-    final name = _boardName(chartType, board);
+    final name = _boardName(
+      chartType,
+      board,
+      allTime: !isWeeklyHistory && !isThisWeek,
+    );
 
     // The name and count wrap under each other with large text instead of
     // overflowing; the information button stays at the end of the row.
@@ -1468,7 +1496,8 @@ class _ChartSummary extends StatelessWidget {
           ),
         IconButton(
           key: const ValueKey<String>('charts-info-button'),
-          tooltip: 'About the $name',
+          // The sheet it opens is about the whole chart.
+          tooltip: 'About the ${ChartZoneNames.chart(chartType)}',
           icon: Icon(Icons.info_outline_rounded, color: colors.textSecondary),
           onPressed: () => showChartInfoSheet(
             context,
@@ -1503,7 +1532,10 @@ class _ChartEntryItem extends StatelessWidget {
 
     final presentation = controller.albumPresentationFor(entry);
     final song = controller.songPresentationFor(entry);
+    final version = controller.versionBadgeFor(entry);
     final artworkPath = switch (chartType) {
+      // The song's usual artwork, never a Single's own cover (App Update
+      // 1.3 chart artwork correction; see SingleCoverPolicy).
       ChartType.songs => track?.artworkPath,
       ChartType.albums =>
         presentation == null ? album?.artworkPath : presentation.artworkPath,
@@ -1557,128 +1589,80 @@ class _ChartEntryItem extends StatelessWidget {
           )
         : null;
 
+    final id = entry.entity.entityId;
+    final movement = controller.movementFor(entry);
     final allTime = controller.allTimeChart;
-    if (controller.isViewingAllTime && allTime != null) {
-      final stats = allTime.statsFor(entry);
-      final weeklyPeak = controller.weeklyPeakFor(entry);
+    final isCareer = controller.isViewingAllTime && allTime != null;
 
-      // Every position is a compact row; its full card opens from it.
-      final cardKey = ValueKey<String>(
-        'charts-entry-card-${entry.entity.entityId}',
-      );
-      final card = entry.rank == 1
-          ? AllTimeSpotlightCard(
-              key: cardKey,
+    // Built only while the row is expanded (App Update 1.3 Chart Studio).
+    Widget details(BuildContext context) {
+      final trend = controller.weeklyRankTrendFor(entry);
+      final title = presentation?.title ?? song?.title ?? entry.entity.title;
+      final data = isCareer
+          ? ChartDetailsData.career(
               entry: entry,
               chartType: chartType,
-              stats: stats,
-              artworkPath: artworkPath,
-              status: status,
-              weeklyPeakRank: weeklyPeak,
+              stats: allTime.statsFor(entry),
+              weeklyPeakRank: controller.weeklyPeakFor(entry),
               longevity: longevity,
-              title: presentation?.title ?? song?.title,
-              subtitle: song?.subtitle,
-              movement: controller.movementFor(entry),
-              onTap: onTap,
-              onLongPress: onLongPress,
+              isSingle: track?.isSingle ?? false,
+              status: status,
+              trend: trend,
+              movementNote: movement.crossChartNote ?? movement.percentLabel,
+              onShowZones: () => showZoneWeeksSheet(
+                context,
+                title: title,
+                zones: allTime.statsFor(entry).zones,
+              ),
             )
-          : AllTimeEntryCard(
-              key: cardKey,
+          : ChartDetailsData.weekly(
               entry: entry,
               chartType: chartType,
-              stats: stats,
-              artworkPath: artworkPath,
-              status: status,
-              weeklyPeakRank: weeklyPeak,
+              previousExtendedRank: controller.previousExtendedRankFor(entry),
+              bestSoFarRank: controller.bestSoFarRankFor(entry),
+              weeklyPeakRank: controller.isViewingThisWeek
+                  ? controller.weeklyPeakFor(entry)
+                  : null,
               longevity: longevity,
-              title: presentation?.title ?? song?.title,
-              subtitle: song?.subtitle,
-              movement: controller.movementFor(entry),
-              onTap: onTap,
-              onLongPress: onLongPress,
+              isSingle: track?.isSingle ?? false,
+              status: status,
+              trend: trend,
+              movementNote: movement.crossChartNote ?? movement.percentLabel,
             );
-      return _tiered(
-        card: card,
-        artworkPath: artworkPath,
-        title: presentation?.title ?? song?.title ?? entry.entity.title,
-        subtitle:
-            song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
-        status: status,
-        onTap: onTap,
-        onLongPress: onLongPress,
+      return ChartEntryDetails(
+        entityId: id,
+        data: data,
+        openLabel: chartType == ChartType.songs ? 'Song stats' : 'Open release',
+        onOpen: onTap,
       );
     }
 
-    final id = entry.entity.entityId;
-    final card = ChartEntryCard(
-      key: ValueKey<String>('charts-entry-card-$id'),
-      entry: entry,
-      chartType: chartType,
-      artworkPath: artworkPath,
-      status: status,
-      longevity: longevity,
-      previousExtendedRank: controller.previousExtendedRankFor(entry),
-      bestSoFarRank: controller.bestSoFarRankFor(entry),
-      weeklyPeakRank: controller.isViewingThisWeek
-          ? controller.weeklyPeakFor(entry)
-          : null,
-      movement: controller.movementFor(entry),
-      onTap: onTap,
-      onLongPress: onLongPress,
-    );
-
-    return _tiered(
-      card: card,
-      artworkPath: artworkPath,
-      title: presentation?.title ?? song?.title ?? entry.entity.title,
-      subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
-      status: status,
-      onTap: onTap,
-      onLongPress: onLongPress,
-    );
-  }
-
-  /// Charts 2.0 C3 tiers, compact since the SN-50 device polish: every
-  /// position is one compact row with the full card on expand; #1 keeps a
-  /// slim gradient frame and trophy, #2–10 a slim artwork-tinted frame.
-  Widget _tiered({
-    required Widget card,
-    required String? artworkPath,
-    required String title,
-    required String subtitle,
-    required ChartEntryStatus? status,
-    required VoidCallback? onTap,
-    required VoidCallback? onLongPress,
-  }) {
-    final id = entry.entity.entityId;
     final tier = _rowTier(controller, entry);
     final row = ChartCompactRow(
       key: ValueKey<String>('charts-entry-$id'),
       entry: entry,
-      movement: controller.movementFor(entry),
-      title: title,
-      subtitle: subtitle,
+      movement: movement,
+      title: presentation?.title ?? song?.title ?? entry.entity.title,
+      subtitle: song?.subtitle ?? ChartEntryText.subtitleFor(entry, chartType),
       artworkPath: artworkPath,
-      fallbackIcon: controller.chartType == ChartType.songs
+      fallbackIcon: chartType == ChartType.songs
           ? Icons.music_note_rounded
           : Icons.album_rounded,
       status: status,
-      details: card,
+      details: details,
       onTap: onTap,
       onLongPress: onLongPress,
       tier: tier,
+      versionBadge: version,
     );
-    return switch (tier) {
-      ChartRowTier.compact => row,
-      ChartRowTier.featured => ChartFeaturedFrame(
-        chartName: ChartZoneNames.chart(controller.chartType),
-        child: row,
-      ),
-      ChartRowTier.topTen => ChartTopTenFrame(
-        artworkPath: artworkPath,
-        child: row,
-      ),
-    };
+    return tier == ChartRowTier.featured
+        ? Semantics(
+            key: const ValueKey<String>('charts-featured-frame'),
+            container: true,
+            label: 'No. 1 · ${ChartZoneNames.chart(chartType)}',
+            child: row,
+          )
+        : row;
   }
 }
 
@@ -1976,12 +1960,14 @@ ChartRowTier _rowTier(ChartsController controller, ChartEntry entry) =>
     ? ChartRowTier.compact
     : ChartRowTier.of(entry);
 
-String _boardName(ChartType type, ChartBoard board) => switch ((type, board)) {
-  (_, ChartBoard.top100) => ChartZoneNames.chart(type),
-  (ChartType.songs, ChartBoard.extended) => ChartZoneNames.bubblingUnder,
-  (ChartType.albums, ChartBoard.extended) =>
-    '${ChartZoneNames.releases} #101–200',
-};
+/// App Update 1.3 (REF-1.3-06): the board's zone, named with its chart:
+/// "Career Hot 100", "Weekly Bubbling Under".
+String _boardName(ChartType type, ChartBoard board, {required bool allTime}) =>
+    ChartZoneNames.zoneOf(
+      type,
+      board == ChartBoard.top100 ? 1 : 101,
+      allTime: allTime,
+    );
 
 /// Hot 100 | Bubbling Under (Albums & EPs: Top 100 | #101–200).
 class _ChartBoardSelector extends StatelessWidget {

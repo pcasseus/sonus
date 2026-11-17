@@ -36,6 +36,7 @@ import 'package:sonus_next/features/charts/domain/repositories/chart_repository.
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
+import 'package:sonus_next/features/library/domain/entities/song_single_presentation.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_feed_cards.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_category.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
@@ -60,6 +61,30 @@ Future<void> _showDetails(WidgetTester tester, String id) async {
   await tester.tap(button);
   await tester.pumpAndSettle();
 }
+
+/// The text of the [Text] with [key].
+String? _text(String key) =>
+    find.byKey(ValueKey<String>(key)).evaluate().isEmpty
+    ? null
+    : (find.byKey(ValueKey<String>(key)).evaluate().single.widget as Text).data;
+
+/// Scrolls the chart until [target] is built and on screen.
+Future<void> _reveal(WidgetTester tester, Finder target) async {
+  await tester.scrollUntilVisible(
+    target,
+    300,
+    scrollable: find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+}
+
+/// The expanded entry's milestone line.
+String? _facts(String id) => _text('charts-details-facts-$id');
 
 void main() {
   testWidgets('renders branded Hot 100 controls and the career standings', (
@@ -98,16 +123,22 @@ void main() {
     expect(find.text('Song 1'), findsOneWidget);
     expect(find.text('Artist 1 • Album 1'), findsOneWidget);
     await _showDetails(tester, 'songs_1');
+    // App Update 1.3 Chart Studio: the statistics open inside the row.
     expect(
-      find.byKey(const ValueKey<String>('charts-spotlight-songs_1')),
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('charts-tile-songs_1')),
+        matching: find.byKey(const ValueKey<String>('charts-details-songs_1')),
+      ),
       findsOneWidget,
     );
-    expect(find.text('TOTAL STREAMS'), findsOneWidget);
-    expect(find.text('12'), findsOneWidget);
-    expect(find.text('CAREER PEAK'), findsOneWidget);
-    expect(find.text('#1'), findsWidgets);
-    expect(find.text('WEEKLY CHANGE'), findsOneWidget);
-    expect(find.text('WEEKS IN TOP 3'), findsOneWidget);
+    expect(find.text('Total streams'), findsOneWidget);
+    expect(_text('charts-detail-streams-songs_1'), '12');
+    expect(find.text('Career peak'), findsOneWidget);
+    expect(_text('charts-detail-peak-songs_1'), '#1');
+    expect(find.text('Weekly change'), findsOneWidget);
+    // No completed weeks in any zone yet: said, not invented.
+    expect(find.text('Weeks in zones'), findsOneWidget);
+    expect(find.text('No completed weeks yet'), findsOneWidget);
     // SN-49: the explanation is one tap away, not a paragraph on the page.
     expect(find.textContaining('RE-ENTRY: back'), findsNothing);
     expect(
@@ -618,17 +649,9 @@ void main() {
     await _pumpPage(tester, controller);
     await _showDetails(tester, 'songs_1');
 
-    final spotlight = find.byKey(
-      const ValueKey<String>('charts-longevity-songs_1'),
-    );
-    expect(
-      find.descendant(of: spotlight, matching: find.text('2 weeks at #1')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: spotlight, matching: find.text('2 official weeks')),
-      findsOneWidget,
-    );
+    final facts = _facts('songs_1')!;
+    expect(facts, contains('2 weeks at #1'));
+    expect(facts, contains('2 official weeks'));
   });
 
   testWidgets('a final week shows last week in Bubbling Under as context', (
@@ -663,14 +686,14 @@ void main() {
 
     expect(find.text('September 20–26, 2026'), findsOneWidget);
     expect(find.text('NEW'), findsOneWidget);
-    // #80 is a compact row; its full card opens in place of the row.
+    // #80's details open under its row.
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-row-expand-songs_1')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Last week #150 (Bubbling Under)'), findsOneWidget);
+    expect(_facts('songs_1'), contains('Last week #150 (Bubbling Under)'));
     expect(find.text('NEW'), findsOneWidget);
-    expect(find.text('Debut #80 · Sep 20, 2026'), findsOneWidget);
+    expect(_facts('songs_1'), contains('Debut #80 · Sep 20, 2026'));
   });
 
   group('album standings show the edition with the most songs', () {
@@ -723,10 +746,11 @@ void main() {
       expect(find.text('Album 1'), findsNothing);
       // One combined position and stream total for the release.
       await _showDetails(tester, 'albums_1');
-      expect(find.text('12'), findsOneWidget);
+      expect(_text('charts-detail-streams-albums_1'), '12');
 
+      // The row itself opens the release, expanded or not.
       await tester.tap(
-        find.byKey(const ValueKey<String>('charts-entry-albums_1')),
+        find.byKey(const ValueKey<String>('charts-row-albums_1')),
       );
       await tester.pumpAndSettle();
 
@@ -827,6 +851,108 @@ void main() {
       expect(find.text('Artist 1 • Album 1'), findsOneWidget);
       expect(find.textContaining('(Remix)'), findsNothing);
       expect(find.textContaining('Artist A'), findsNothing);
+    });
+
+    // App Update 1.3 (REF-1.3-01): a finalized week keeps its recorded
+    // title and shows the song's version as a badge beside it.
+    testWidgets('final weeks show the version as a badge beside the '
+        'recorded title', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _controller(
+        tracks: [remix],
+        history: [
+          _snapshot(
+            id: 'historical-songs',
+            start: DateTime.utc(2026, 9, 20),
+            finalized: true,
+          ),
+        ],
+      );
+
+      await _pumpPage(tester, controller);
+      // The career standings carry the version in the title: no badge.
+      expect(
+        find.byKey(const ValueKey<String>('charts-version-songs_1')),
+        findsNothing,
+      );
+      expect(controller.versionBadgeFor(controller.entries.first), isNull);
+
+      controller.showOlderWeek();
+      await tester.pumpAndSettle();
+      final badge = find.byKey(
+        const ValueKey<String>('charts-version-songs_1'),
+      );
+      expect(badge, findsOneWidget);
+      expect(
+        find.descendant(of: badge, matching: find.text('REMIX')),
+        findsOneWidget,
+      );
+      expect(find.text('Song 1'), findsWidgets, reason: 'title as recorded');
+      expect(controller.entries.single.entity.title, 'Song 1');
+      expect(
+        find.bySemanticsLabel(RegExp(r'Number \d+, Song 1, version Remix,')),
+        findsOneWidget,
+      );
+
+      // Expanded, the row and its badge stay; the details never repeat
+      // the header (App Update 1.3 Chart Studio).
+      await _showDetails(tester, 'songs_1');
+      expect(badge, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('charts-details-songs_1')),
+          matching: find.text('Song 1'),
+        ),
+        findsNothing,
+      );
+      semantics.dispose();
+    });
+
+    // App Update 1.3 (REF-1.3-01): This Week is built from the library now
+    // and never stored, so it reads like the career standings; finalized
+    // weeks keep their stored titles (above).
+    testWidgets('the provisional This Week chart shows the version', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _controller(
+        tracks: [remix],
+        history: [_finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 3)],
+        thisWeek: _FakeThisWeekChartService(),
+      );
+
+      await _pumpPage(tester, controller);
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      expect(find.text('Song 1 (Remix)'), findsWidgets);
+      expect(find.text('Artist 1 Ft. Artist A • Album 1'), findsWidgets);
+      // Songs no longer in the library keep their recorded title.
+      expect(find.text('Song 2'), findsWidgets);
+      // The chart's identity is the song id, never the title.
+      expect(controller.entries.first.entity.entityId, 'songs_1');
+      expect(controller.entries.first.entity.title, 'Song 1');
+
+      // Expanded, the row reads the same, aloud too.
+      await _showDetails(tester, 'songs_1');
+      final tile = find.byKey(const ValueKey<String>('charts-tile-songs_1'));
+      expect(
+        find.descendant(of: tile, matching: find.text('Song 1 (Remix)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: tile,
+          matching: find.text('Artist 1 Ft. Artist A • Album 1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'Number 1, .*Song 1 \(Remix\)')),
+        findsWidgets,
+      );
+      semantics.dispose();
     });
   });
 
@@ -988,7 +1114,9 @@ void main() {
 
       expect(row(100), findsNothing);
       expect(row(101), findsOneWidget);
-      expect(find.text('Sonus Bubbling Under'), findsOneWidget);
+      // App Update 1.3 (REF-1.3-06): the default view's zone is named with
+      // its chart.
+      expect(find.text('Career Bubbling Under'), findsOneWidget);
       // Bubbling Under keeps the real Top 200 position: #101, never #1.
       expect(
         find.descendant(of: row(101), matching: find.text('101')),
@@ -1001,8 +1129,8 @@ void main() {
     });
 
     group('Charts 2.0 C3 boards', () {
-      testWidgets('SN-50 device polish: #1–10 are about as compact as the '
-          'rows below them', (tester) async {
+      testWidgets('Chart Studio: #1, the Top 10 and every other position '
+          'are the same size', (tester) async {
         final controller = await _controller(live: _rankedSnapshot(30));
         await _pumpPage(tester, controller, size: const Size(411, 20000));
 
@@ -1010,17 +1138,14 @@ void main() {
             .getSize(find.byKey(ValueKey<String>('charts-entry-$id')))
             .height;
         final row = height('songs_11');
-        // The frames add only a few pixels.
-        expect(height('songs_1'), lessThan(row * 1.2));
-        expect(height('songs_5'), lessThan(row * 1.2));
-        // #1 keeps its gradient frame and a trophy; #2–10 their frames.
+        // No oversized Top 10 cards (App Update 1.3 Chart Studio).
+        expect(height('songs_1'), row);
+        expect(height('songs_5'), row);
+        expect(height('songs_30'), row);
+        // #1 keeps a trophy.
         expect(
           find.byKey(const ValueKey<String>('charts-number-one')),
           findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
-          findsNWidgets(9),
         );
         // Movement and details stay on every framed row.
         expect(
@@ -1072,42 +1197,187 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
-          findsNWidgets(9),
-        );
-        // Every position is a compact row; #1–10 sit inside frames.
         expect(find.byType(ChartCompactRow), findsNWidgets(30));
         expect(
           find.byKey(const ValueKey<String>('charts-row-songs_11')),
           findsOneWidget,
         );
-        // The compact row's full card is one tap away and replaces the row.
+        // The details are built only when asked for.
         expect(
-          find.byKey(const ValueKey<String>('charts-entry-card-songs_11')),
+          find.byKey(const ValueKey<String>('charts-details-songs_11')),
           findsNothing,
         );
-        await tester.tap(
-          find.byKey(const ValueKey<String>('charts-row-expand-songs_11')),
-        );
-        await tester.pumpAndSettle();
+        await _showDetails(tester, 'songs_11');
+        // They open under the row, which stays (App Update 1.3 Chart
+        // Studio): one tile, no second card.
+        final tile = find.byKey(const ValueKey<String>('charts-tile-songs_11'));
         expect(
-          find.byKey(const ValueKey<String>('charts-entry-card-songs_11')),
+          find.descendant(
+            of: tile,
+            matching: find.byKey(
+              const ValueKey<String>('charts-details-songs_11'),
+            ),
+          ),
           findsOneWidget,
         );
         expect(
           find.byKey(const ValueKey<String>('charts-row-songs_11')),
-          findsNothing,
+          findsOneWidget,
         );
         await tester.tap(
           find.byKey(const ValueKey<String>('charts-row-collapse-songs_11')),
         );
         await tester.pumpAndSettle();
         expect(
-          find.byKey(const ValueKey<String>('charts-row-songs_11')),
-          findsOneWidget,
+          find.byKey(const ValueKey<String>('charts-details-songs_11')),
+          findsNothing,
         );
         expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('Chart Studio: one row open at a time; the tapped row '
+          'stays where it is on screen', (tester) async {
+        final controller = await _controller(live: _rankedSnapshot(40));
+        await _pumpPage(tester, controller, size: const Size(411, 900));
+
+        await _reveal(
+          tester,
+          find.byKey(const ValueKey<String>('charts-row-expand-songs_3')),
+        );
+        await _showDetails(tester, 'songs_3');
+        final second = find.byKey(
+          const ValueKey<String>('charts-row-expand-songs_8'),
+        );
+        await _reveal(tester, second);
+        final before = tester.getTopLeft(
+          find.byKey(const ValueKey<String>('charts-entry-songs_8')),
+        );
+        await tester.tap(second);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('charts-details-songs_3')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-details-songs_8')),
+          findsOneWidget,
+        );
+        // The row above closed, yet #8 did not move.
+        expect(
+          tester.getTopLeft(
+            find.byKey(const ValueKey<String>('charts-entry-songs_8')),
+          ),
+          before,
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('Chart Studio: expanding never scrolls the page', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(40));
+        await _pumpPage(tester, controller, size: const Size(411, 900));
+        final scroll = tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!;
+        final row = find.byKey(
+          const ValueKey<String>('charts-row-expand-songs_12'),
+        );
+        await _reveal(tester, row);
+        final offset = scroll.offset;
+
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+        expect(scroll.offset, offset);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('charts-row-collapse-songs_12')),
+        );
+        await tester.pumpAndSettle();
+        expect(scroll.offset, offset);
+      });
+
+      testWidgets('Chart Studio: expanding animates, and is immediate with '
+          'Reduce Motion', (tester) async {
+        Future<double> shareAfterOneFrame(SonusAppearanceSpec spec) async {
+          // A fresh page: nothing stays expanded from the previous pass.
+          await tester.pumpWidget(const SizedBox());
+          final controller = await _controller(live: _rankedSnapshot(12));
+          await _pumpPage(
+            tester,
+            controller,
+            theme: SonusThemeFactory.build(spec),
+            size: const Size(411, 2000),
+          );
+          final tile = find.byKey(
+            const ValueKey<String>('charts-tile-songs_4'),
+          );
+          await _reveal(tester, tile);
+          final closed = tester.getSize(tile).height;
+          await tester.tap(
+            find.byKey(const ValueKey<String>('charts-row-expand-songs_4')),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 16));
+          final early = tester.getSize(tile).height;
+          await tester.pumpAndSettle();
+          final open = tester.getSize(tile).height;
+          expect(open, greaterThan(closed));
+          return (early - closed) / (open - closed);
+        }
+
+        expect(
+          await shareAfterOneFrame(const SonusAppearanceSpec()),
+          lessThan(0.9),
+        );
+        expect(
+          await shareAfterOneFrame(
+            const SonusAppearanceSpec(reduceMotion: true),
+          ),
+          1.0,
+        );
+      });
+
+      testWidgets('Chart Studio: an open row stays open off screen and '
+          'closes with another board', (tester) async {
+        final controller = await _controller(live: _rankedSnapshot(150));
+        await _pumpPage(tester, controller, size: const Size(411, 900));
+        await _reveal(
+          tester,
+          find.byKey(const ValueKey<String>('charts-row-expand-songs_2')),
+        );
+        await _showDetails(tester, 'songs_2');
+        final scroll = tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!;
+
+        scroll.jumpTo(6000);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>('charts-entry-songs_2')),
+          findsNothing,
+        );
+        scroll.jumpTo(0);
+        await tester.pumpAndSettle();
+        await _reveal(
+          tester,
+          find.byKey(const ValueKey<String>('charts-entry-songs_2')),
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-details-songs_2')),
+          findsOneWidget,
+        );
+        scroll.jumpTo(0);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Bubbling Under'));
+        await tester.pumpAndSettle();
+        await controller.selectBoard(ChartBoard.top100);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>('charts-details-songs_2')),
+          findsNothing,
+        );
       });
 
       testWidgets('compact rows read rank, title, artist and movement', (
@@ -1141,7 +1411,7 @@ void main() {
           findsNothing,
         );
         expect(
-          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
+          find.byKey(const ValueKey<String>('charts-number-one')),
           findsNothing,
         );
         expect(find.byType(ChartCompactRow), findsNWidgets(20));
@@ -1320,14 +1590,16 @@ void main() {
         );
         for (final id in ['songs_1', 'songs_2', 'songs_3']) {
           await _showDetails(tester, id);
+          expect(tester.takeException(), isNull);
+          expect(_facts(id), isNotEmpty, reason: id);
+          expect(
+            find.byKey(ValueKey<String>('charts-details-trend-$id')),
+            findsOneWidget,
+            reason: '$id has two finalized weeks to draw',
+          );
         }
-        expect(tester.takeException(), isNull);
         expect(
-          find.byKey(const ValueKey<String>('charts-longevity-songs_1')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey<String>('charts-top-accent-songs_2')),
+          find.byKey(const ValueKey<String>('charts-number-one')),
           findsOneWidget,
         );
 
@@ -1340,9 +1612,9 @@ void main() {
               .evaluate()
               .isNotEmpty) {
             await _showDetails(tester, id);
+            expect(_facts(id), contains('Top 10 streak: 2 weeks'));
           }
         }
-        expect(find.text('Top 10 streak: 2 weeks'), findsNWidgets(3));
       });
     }
 
@@ -1424,6 +1696,36 @@ void main() {
       expect(find.textContaining('Best so far'), findsNothing);
     });
 
+    // App Update 1.3 (REF-1.3-06): the board names its chart.
+    testWidgets('the boards say which chart they are', (tester) async {
+      final controller = await withThisWeek();
+      await _pumpPage(tester, controller);
+      final summary = find.byKey(
+        const ValueKey<String>('charts-snapshot-summary'),
+      );
+      expect(
+        find.descendant(of: summary, matching: find.text('Career Hot 100')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingThisWeek, isTrue);
+      expect(
+        find.descendant(of: summary, matching: find.text('Weekly Hot 100')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(controller.isViewingHistory, isTrue);
+      expect(
+        find.descendant(of: summary, matching: find.text('Weekly Hot 100')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('About the Sonus Hot 100'), findsOneWidget);
+    });
+
     testWidgets('is clearly provisional, with its best so far apart from the '
         'official peak', (tester) async {
       final semantics = tester.ensureSemantics();
@@ -1452,30 +1754,24 @@ void main() {
 
       // songs_2 led earlier this week; its official peak is last week's #2.
       await _showDetails(tester, 'songs_2');
+      final songTwo = find.byKey(
+        const ValueKey<String>('charts-entry-songs_2'),
+      );
       expect(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('charts-entry-songs_2')),
-          matching: find.text('Best so far #1'),
-        ),
+        find.descendant(of: songTwo, matching: find.text('Best so far')),
+        findsOneWidget,
+      );
+      expect(_text('charts-detail-peak-songs_2'), '#1');
+      expect(
+        find.descendant(of: songTwo, matching: find.text('Peak #2')),
         findsOneWidget,
       );
       expect(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('charts-entry-songs_2')),
-          matching: find.text('Peak #2'),
-        ),
+        find.bySemanticsLabel(RegExp('^Best so far, #1, Peak #2')),
         findsOneWidget,
       );
       await _showDetails(tester, 'songs_1');
-      expect(
-        find.byKey(const ValueKey<String>('charts-last-week-songs_1')),
-        findsOneWidget,
-      );
-      expect(find.text('Last week #3'), findsOneWidget);
-      expect(
-        find.bySemanticsLabel(RegExp('best so far this week number 1')),
-        findsWidgets,
-      );
+      expect(_facts('songs_1'), contains('Last week #3'));
 
       expect(find.byTooltip('Older chart week'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
@@ -1546,7 +1842,10 @@ void main() {
         await _showDetails(tester, 'songs_3');
         expect(tester.takeException(), isNull);
         expect(
-          find.byKey(const ValueKey<String>('charts-best-so-far-songs_3')),
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('charts-entry-songs_3')),
+            matching: find.text('Best so far'),
+          ),
           findsOneWidget,
         );
       });
@@ -1741,15 +2040,18 @@ void main() {
     await tester.pump();
 
     // App Update 1.1: the card opens the expanded story, whose Related
-    // section links to the song, the release and the artist.
+    // section links to the release and the artist. App Update 1.3
+    // (REF-1.3-03): it never suggests the story's own song, and the album
+    // has no other song to suggest.
     await tester.tap(_postPart('open'));
     await tester.pumpAndSettle();
-    for (final link in ['Song', 'Album', 'Artist']) {
+    for (final link in ['Album', 'Artist']) {
       expect(
         find.byKey(ValueKey<String>('moment-story-related-$link')),
         findsOneWidget,
       );
     }
+    expect(_relatedSongs(), findsNothing);
     // Sonus never invents engagement.
     expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
     expect(find.byIcon(Icons.repeat_rounded), findsNothing);
@@ -1771,6 +2073,176 @@ void main() {
           .initialEditionId,
       'edition_1',
     );
+  });
+
+  // App Update 1.3 (REF-1.3-04): a Single's own cover in Moments only when
+  // the listener chose it; the release card keeps the release's cover.
+  // Chart rows never show it (App Update 1.3 chart artwork correction).
+  group('Single covers', () {
+    SongSinglePresentation single({required bool inCharts}) =>
+        SongSinglePresentation(
+          songId: 'songs_1',
+          artworkId: 'art-single',
+          artworkPath: '/art/single.png',
+          useArtworkInCharts: inCharts,
+          createdAt: DateTime.utc(2026),
+          updatedAt: DateTime.utc(2026),
+        );
+
+    Future<ChartsController> controllerWith({
+      required bool isSingle,
+      required bool inCharts,
+    }) => _controller(
+      tracks: [_track(isSingle: isSingle, artworkPath: '/art/usual.png')],
+      albums: [_album(id: 'album_1')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+      singlePresentations: () async => {'songs_1': single(inCharts: inCharts)},
+    );
+
+    String? rowArtwork(WidgetTester tester) => tester
+        .widget<ChartCompactRow>(
+          find.byKey(const ValueKey('charts-entry-songs_1')),
+        )
+        .artworkPath;
+
+    testWidgets('chosen: the chart row keeps the usual artwork', (
+      tester,
+    ) async {
+      final controller = await controllerWith(isSingle: true, inCharts: true);
+      await _pumpPage(tester, controller);
+      expect(rowArtwork(tester), '/art/usual.png');
+    });
+
+    testWidgets('a Single that was never given a chart choice keeps the '
+        'usual artwork on its row', (tester) async {
+      for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
+        final controller = await controllerWith(
+          isSingle: isSingle,
+          inCharts: inCharts,
+        );
+        await _pumpPage(tester, controller);
+        expect(rowArtwork(tester), '/art/usual.png');
+      }
+    });
+
+    test('chosen: Moments show it', () async {
+      final controller = await controllerWith(isSingle: true, inCharts: true);
+      expect(
+        controller.momentLookups.currentSongCover('songs_1'),
+        '/art/single.png',
+      );
+      final item = controller.momentFeedItems.single;
+      expect(
+        controller.relatedReleaseForMoment(item)!.cover,
+        isNot('/art/single.png'),
+        reason: "the release card shows the release's cover",
+      );
+    });
+
+    test(
+      'not chosen, or no longer a Single: Moments keep their artwork',
+      () async {
+        for (final (isSingle, inCharts) in [(true, false), (false, true)]) {
+          final controller = await controllerWith(
+            isSingle: isSingle,
+            inCharts: inCharts,
+          );
+          expect(
+            controller.momentLookups.currentSongCover('songs_1'),
+            isNot('/art/single.png'),
+          );
+        }
+      },
+    );
+  });
+
+  testWidgets('a story opens with its song\'s version as a badge '
+      '(REF-1.3-01)', (tester) async {
+    final controller = await _controller(
+      tracks: [_track(versionLabel: 'Live')],
+      albums: [_album(id: 'album_1')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
+
+    final badge = find.byKey(const ValueKey<String>('moment-story-version'));
+    expect(
+      find.descendant(of: badge, matching: find.text('LIVE')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets("Related suggests the album's other songs, never the "
+      "story's own (REF-1.3-03)", (tester) async {
+    final controller = await _controller(
+      tracks: [
+        _track(),
+        _track(
+          songId: 'songs_3',
+          title: 'Song 3',
+          trackNumber: 3,
+          filePath: 'C:/Music/song_3.mp3',
+        ),
+        _track(
+          songId: 'songs_2',
+          title: 'Song 2',
+          trackNumber: 2,
+          filePath: 'C:/Music/song_2.mp3',
+          versionLabel: 'Live',
+        ),
+      ],
+      albums: [_album(id: 'album_1')],
+      artists: [_artist()],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+          artistId: 'artist_1',
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
+
+    expect(
+      [
+        for (final element in _relatedSongs().evaluate())
+          (element.widget.key! as ValueKey<String>).value,
+      ],
+      [
+        'moment-story-related-Song-songs_2',
+        'moment-story-related-Song-songs_3',
+      ],
+    );
+    // Current surfaces show the version (REF-1.3-01).
+    expect(find.text('Song 2 (Live)'), findsOneWidget);
   });
 
   testWidgets('a post only links to what exists in the library', (
@@ -2698,6 +3170,7 @@ Future<ChartsController> _controller({
   MomentsLastSeenStore? momentsLastSeen,
   int momentPageSize = ChartMomentFeedPager.defaultPageSize,
   DateTime? devicePolishFromUtc,
+  SinglePresentationsLoader? singlePresentations,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -2725,6 +3198,7 @@ Future<ChartsController> _controller({
     thisWeekCharts: thisWeek,
     momentsLastSeen: momentsLastSeen,
     momentPageSize: momentPageSize,
+    singlePresentations: singlePresentations,
     momentRules: () async => ChartMomentRules(
       activatedAtUtc: DateTime.utc(2026, 11, 1),
       devicePolishFromUtc: devicePolishFromUtc,
@@ -2807,6 +3281,11 @@ ChartSnapshot _rankedSnapshot(int count, {int from = 1}) {
 }
 
 LibraryTrack _track({
+  String songId = 'songs_1',
+  String title = 'Song 1',
+  int trackNumber = 1,
+  bool isSingle = false,
+  String? artworkPath,
   bool isAvailable = true,
   bool isBlocked = false,
   String? filePath = 'C:/Music/song_1.mp3',
@@ -2814,8 +3293,8 @@ LibraryTrack _track({
   List<String> featured = const [],
 }) {
   return LibraryTrack(
-    songId: 'songs_1',
-    title: 'Song 1',
+    songId: songId,
+    title: title,
     artistId: 'artist_1',
     artistName: 'Artist 1',
     albumId: 'album_1',
@@ -2823,17 +3302,27 @@ LibraryTrack _track({
     albumEditionId: 'edition_1',
     albumEditionTitle: 'Standard',
     albumEditionType: AlbumEditionType.standard,
-    trackNumber: 1,
+    trackNumber: trackNumber,
     durationSeconds: 180,
-    isSingle: false,
+    isSingle: isSingle,
     featuredArtists: featured,
     versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 1),
     isAvailable: isAvailable,
     isSongBlocked: isBlocked,
     filePath: filePath,
+    artworkPath: artworkPath,
   );
 }
+
+/// The Related row's suggested song cards.
+Finder _relatedSongs() => find.byWidgetPredicate(
+  (widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith(
+        'moment-story-related-Song',
+      ),
+);
 
 /// A part of the Moment post on screen, whatever its feed item id.
 Finder _postPart(String part) => find.byWidgetPredicate(

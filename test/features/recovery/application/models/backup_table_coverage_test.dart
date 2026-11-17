@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 38);
+    expect(tables.length, 40);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -19,7 +19,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(names.length, 21);
+    expect(names.length, 23);
 
     expect(
       names,
@@ -45,6 +45,10 @@ void main() {
         DatabaseTables.albumReleaseClassifications,
         DatabaseTables.artistProjectAssignments,
         DatabaseTables.artworkCrops,
+        // Singles' own dates and covers (App Update 1.3, version 47).
+        DatabaseTables.songSinglePresentations,
+        // Published new-release debut stories (App Update 1.3, version 48).
+        DatabaseTables.newReleaseDebutPublications,
       ]),
     );
   });
@@ -59,6 +63,8 @@ void main() {
         DatabaseTables.artistProjectAssignments,
         DatabaseTables.artworkCrops,
         DatabaseTables.albumEditionDiscLabels,
+        DatabaseTables.songSinglePresentations,
+        DatabaseTables.newReleaseDebutPublications,
       },
     );
     expect(

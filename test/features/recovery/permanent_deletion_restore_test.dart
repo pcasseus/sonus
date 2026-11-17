@@ -60,10 +60,22 @@ void main() {
       seed: (db) async {
         await seedConnectedLibrary(db, key: 'a', songTitle: 'Deleted');
         await seedConnectedLibrary(db, key: 'b', week: 1, songTitle: 'Kept');
+        // App Update 1.3: both songs have a Single presentation.
+        for (final song in ['song-a', 'song-b']) {
+          await db.insert(DatabaseTables.songSinglePresentations, {
+            'song_id': song,
+            'release_date': '2026',
+            'release_date_precision': 'year',
+            'use_artwork_in_charts': 0,
+            'created_at': '2026-11-15T00:00:00.000Z',
+            'updated_at': '2026-11-15T00:00:00.000Z',
+          });
+        }
       },
     );
     await restore(backup);
     expect(await count(DatabaseTables.songs), 2);
+    expect(await count(DatabaseTables.songSinglePresentations), 2);
     final historyOfA = await count(
       DatabaseTables.qualifiedPlays,
       "song_id = 'song-a'",
@@ -105,6 +117,15 @@ void main() {
       greaterThan(0),
     );
     expect(await count(DatabaseTables.playlistItems, "song_id = 'song-b'"), 1);
+    // A deleted song's Single presentation stays gone; the other's is back.
+    expect(
+      await count(DatabaseTables.songSinglePresentations, "song_id = 'song-a'"),
+      0,
+    );
+    expect(
+      await count(DatabaseTables.songSinglePresentations, "song_id = 'song-b'"),
+      1,
+    );
     // The ledger survived the restore.
     expect(
       await count(

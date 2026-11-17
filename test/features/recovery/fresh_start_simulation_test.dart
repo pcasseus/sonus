@@ -315,6 +315,8 @@ void main() {
       ('deluxe-cropped', 3),
       ('banner', 4),
       ('portrait-cropped', 5),
+      // App Update 1.3: a Single's own cover.
+      ('single', 6),
     ]) {
       final file = File(path.join(art.path, '$name.png'));
       await file.writeAsBytes(List.filled(64, byte));
@@ -378,6 +380,54 @@ void main() {
       'label': 'Bonus Tracks',
       'created_at': _now.toIso8601String(),
       'updated_at': _now.toIso8601String(),
+    });
+
+    // App Update 1.3 (REF-1.3-04): a Single presentation with every field
+    // and its own cover. The song's Single designation is off: the
+    // presentation is kept regardless.
+    final singleSongId =
+        (await db.query(
+              DatabaseTables.songs,
+              columns: ['id'],
+              orderBy: 'id',
+              limit: 1,
+            )).single['id']!
+            as String;
+    await db.insert(DatabaseTables.songSinglePresentations, {
+      'song_id': singleSongId,
+      'release_date': '2026-04',
+      'release_date_precision': 'month',
+      'artwork_id': 'art-single',
+      'use_artwork_in_charts': 1,
+      'created_at': _now.toIso8601String(),
+      'updated_at': _now.toIso8601String(),
+    });
+
+    // App Update 1.3: the song's published new-release story, every
+    // column set (an album track, so the album columns too).
+    await db.insert(DatabaseTables.newReleaseDebutPublications, {
+      'song_id': singleSongId,
+      'story_id': 'moment:story-1',
+      'event_id': 'event-1',
+      'event_deduplication_key': 'allTime|debut|$singleSongId',
+      'kind': 'albumTrack',
+      'chart_scope': 'allTime',
+      'chart_rank': 145,
+      'chart_name': 'the Career Sonus Bubbling Under',
+      'week_start_utc': '2026-11-15T00:00:00.000Z',
+      'debuted_at_utc': '2026-11-17T10:00:00.000Z',
+      'song_title': 'Original Title',
+      'artist_name': 'Original Artist',
+      'featured_artists': '["Guest One","Guest Two"]',
+      'album_id': 'album-at-publication',
+      'album_title': 'Original Album',
+      'album_format': 'ep',
+      'release_date': '2026-11-07',
+      'release_date_precision': 'day',
+      'headline': 'A published headline.',
+      'published_at': '2026-11-17T10:00:05.000Z',
+      'revision': 2,
+      'corrected_at': '2026-11-20T00:00:00.000Z',
     });
 
     // Step 5: soundtrack collaborators and user edits.
@@ -522,7 +572,12 @@ void main() {
       now: () => _now,
     ).record(referenceLocal: _now.toLocal());
 
-    return {'deluxe': deluxe, 'madison': madison, 'soundtrack': soundtrack};
+    return {
+      'deluxe': deluxe,
+      'madison': madison,
+      'soundtrack': soundtrack,
+      'single': singleSongId,
+    };
   }
 
   Future<Map<String, List<Map<String, Object?>>>> portableRows(
@@ -637,6 +692,37 @@ void main() {
         expect(path.isWithin(phoneB.support.path, restored.path), isTrue);
         expect(await restored.readAsBytes(), await original.readAsBytes());
       }
+
+      // The Single presentation comes back whole, with its own cover.
+      final single = (await dbB.query(
+        DatabaseTables.songSinglePresentations,
+      )).single;
+      expect(single['song_id'], ids['single']);
+      expect(single['release_date'], '2026-04');
+      expect(single['release_date_precision'], 'month');
+      expect(single['artwork_id'], 'art-single');
+      expect(single['use_artwork_in_charts'], 1);
+      final singleCover = File(
+        (await dbB.query(
+              DatabaseTables.artworkAssets,
+              where: 'id = ?',
+              whereArgs: ['art-single'],
+            )).single['file_path']!
+            as String,
+      );
+      expect(await singleCover.readAsBytes(), List.filled(64, 6));
+
+      // The published new-release story comes back exactly as stored.
+      expect(
+        await dbB.query(DatabaseTables.newReleaseDebutPublications),
+        await dbA.query(DatabaseTables.newReleaseDebutPublications),
+      );
+      expect(
+        (await dbB.query(
+          DatabaseTables.newReleaseDebutPublications,
+        )).single['song_id'],
+        ids['single'],
+      );
 
       // The named disc comes back on its edition and disc.
       final discLabels = await dbB.query(DatabaseTables.albumEditionDiscLabels);

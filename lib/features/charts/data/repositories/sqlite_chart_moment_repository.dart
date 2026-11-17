@@ -1,6 +1,7 @@
 import '../../../../core/database/app_database.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event.dart';
+import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../daos/chart_moment_event_dao.dart';
@@ -98,6 +99,52 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
     return List.unmodifiable(
       rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
     );
+  }
+
+  /// Every stored Weekly and Career song chart debut since [fromUtc]
+  /// (App Update 1.3 new-release debuts): read-only, from the stored
+  /// events themselves, so no new storage is needed.
+  Future<List<ChartMomentEvent>> getSongDebutsSince(DateTime fromUtc) async {
+    final db = await database.database;
+    final rows = await ChartMomentEventDao(db).findSince(
+      // Stored the way the mapper writes it, so the text order matches.
+      fromOccurredAt: fromUtc.toUtc().toIso8601String(),
+      chartType: ChartType.songs.name,
+      eventType: ChartMomentEventType.debut.name,
+      scopes: [ChartMomentScope.finalized.name, ChartMomentScope.allTime.name],
+    );
+    return List.unmodifiable(
+      rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+    );
+  }
+
+  /// [getSongDebutsSince], plus every Weekly and Career song chart debut
+  /// and re-entry of the same songs, whenever it happened (App Update 1.3,
+  /// user decision 2026-11-16): a song that charted before the start never
+  /// gets a delayed new-release story. Read-only.
+  Future<List<ChartMomentEvent>> getSongDebutHistorySince(
+    DateTime fromUtc,
+  ) async {
+    final since = await getSongDebutsSince(fromUtc);
+    if (since.isEmpty) return since;
+    final db = await database.database;
+    final rows = await ChartMomentEventDao(db).findForEntities(
+      entityIds: {for (final event in since) event.entity.entityId},
+      chartType: ChartType.songs.name,
+      eventTypes: [
+        ChartMomentEventType.debut.name,
+        ChartMomentEventType.reentry.name,
+      ],
+      scopes: [ChartMomentScope.finalized.name, ChartMomentScope.allTime.name],
+    );
+    final seen = <String>{};
+    return List.unmodifiable([
+      for (final event in [
+        ...since,
+        ...rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+      ])
+        if (seen.add(event.deduplicationKey)) event,
+    ]);
   }
 }
 

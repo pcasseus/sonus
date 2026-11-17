@@ -6,8 +6,12 @@ import 'package:sonus_next/features/charts/domain/services/chart_ranking_engine.
 void main() {
   const engine = ChartRankingEngine();
 
+  // User decision 2026-11-16: official RE-ENTRY derives from finalized
+  // chart history only. A first-time entity that falls out and returns in
+  // the same provisional live week stays NEW (this test used to expect
+  // RE-ENTRY under the SN-50 same-week rule).
   test(
-    'first-time entity becomes reentry after falling out and returning in same live week',
+    'first-time entity stays NEW after falling out and returning in same live week',
     () {
       final events = <ChartRankingEvent>[
         ChartRankingEvent(
@@ -49,9 +53,10 @@ void main() {
       expect(target.qualifiedStreamCount, 2);
 
       expect(target.hasEnteredOfficialChartThisWeek, isTrue);
+      // The return is still recorded as a provisional fact.
       expect(target.hasReenteredOfficialChartThisWeek, isTrue);
 
-      expect(target.movement, ChartMovement.reentry);
+      expect(target.movement, ChartMovement.newEntry);
 
       // It reached #1 on its original entrance, so its live peak remains #1.
       expect(target.peakRank, 1);

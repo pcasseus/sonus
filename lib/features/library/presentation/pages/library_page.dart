@@ -219,6 +219,19 @@ class _LibraryPageState extends State<LibraryPage> {
             return const SonusStateView.loading();
           }
 
+          // App Update 1.3 (REF-1.3-05): the artists usually load before
+          // their statistics. Until then every artist is unranked, so a
+          // statistics sort is really A-Z and the Roster would feature the
+          // alphabetical first artist, then switch to the real first. Wait
+          // for the first statistics (loaded or failed) instead. Later
+          // refreshes keep the statistics already shown, so this waits only
+          // once per Library entry.
+          if (!statistics.hasSettled &&
+              _rosterSort != ArtistStatisticsSort.name &&
+              controller.visibleArtists.isNotEmpty) {
+            return const SonusStateView.loading();
+          }
+
           if (controller.hasError && controller.artists.isEmpty) {
             return _LibraryLoadError(onRetry: controller.load);
           }

@@ -122,8 +122,16 @@ class _KeyboardInsetGuardState extends State<KeyboardInsetGuard>
     final holdsKeyboard = _editing || (!_resumed() && _editedNode != null);
     if (holdsKeyboard || data.viewInsets.bottom == 0) return widget.child;
 
+    // Flutter reports `padding` as the system bars minus the keyboard, so a
+    // stale keyboard inset also hid the navigation bar's inset: the shell
+    // then put the mini-player behind Android's buttons, with no Sonus
+    // background under them (App Update 1.3 preview). With the keyboard
+    // discarded, the padding is the window's own system-bar inset again.
     return MediaQuery(
-      data: data.copyWith(viewInsets: data.viewInsets.copyWith(bottom: 0)),
+      data: data.copyWith(
+        viewInsets: data.viewInsets.copyWith(bottom: 0),
+        padding: data.padding.copyWith(bottom: data.viewPadding.bottom),
+      ),
       child: widget.child,
     );
   }

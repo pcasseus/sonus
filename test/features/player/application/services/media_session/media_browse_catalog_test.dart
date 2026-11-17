@@ -6,6 +6,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_browse_catalog.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_browse_library.dart';
+import 'package:sonus_next/features/player/application/services/media_session/voice_request_resolver.dart';
 
 LibraryTrack libraryTrack(
   String id, {
@@ -94,16 +95,22 @@ class FakeBrowseLibrary implements MediaBrowseLibrary {
       playlistTracksById[playlistId] ?? const [];
 }
 
-LibraryAlbum libraryAlbum(String id, String title, {String? artworkPath}) =>
-    LibraryAlbum(
-      albumId: id,
-      title: title,
-      artistId: 'artist-1',
-      artistName: 'Madison Beer',
-      trackCount: 4,
-      dateAdded: DateTime.utc(2026, 10, 1),
-      artworkPath: artworkPath,
-    );
+LibraryAlbum libraryAlbum(
+  String id,
+  String title, {
+  String? artworkPath,
+  String artistName = 'Madison Beer',
+  String? genre,
+}) => LibraryAlbum(
+  albumId: id,
+  title: title,
+  artistId: 'artist-1',
+  artistName: artistName,
+  trackCount: 4,
+  dateAdded: DateTime.utc(2026, 10, 1),
+  artworkPath: artworkPath,
+  genre: genre,
+);
 
 void main() {
   late FakeBrowseLibrary library;
@@ -462,43 +469,371 @@ void main() {
       library.recent = [libraryTrack('r1'), libraryTrack('r2')];
     });
 
+    Future<VoiceResolved> resolve(VoiceRequest request) async =>
+        await catalog.resolveVoiceRequest(request) as VoiceResolved;
+
     test('an empty request resumes recent listening', () async {
-      final queue = await catalog.queueForSearch('');
-      expect(queue!.tracks.map((t) => t.songId), ['r1', 'r2']);
+      final queue = await resolve(const VoiceRequest());
+      expect(queue.tracks.map((t) => t.songId), ['r1', 'r2']);
       expect(queue.startIndex, 0);
+      expect(queue.title, 'Recent');
     });
 
     test('an empty request with no history plays the library', () async {
       library.recent = [];
-      final queue = await catalog.queueForSearch('');
-      expect(queue!.tracks.map((t) => t.songId), ['t1']);
+      final queue = await resolve(const VoiceRequest());
+      expect(queue.tracks.map((t) => t.songId), ['t1']);
+      expect(queue.title, 'Songs');
+    });
+
+    test('an empty request with an empty library is not found', () async {
+      library
+        ..recent = []
+        ..tracks = [];
+      final result = await catalog.resolveVoiceRequest(const VoiceRequest());
+      expect(
+        (result as VoiceNotFound).reason,
+        VoiceNotFoundReason.nothingToPlay,
+      );
     });
 
     test('an album name plays the album in order', () async {
-      final queue = await catalog.queueForSearch('Locket');
-      expect(queue!.tracks.map((t) => t.songId), ['first', 'second']);
+      final queue = await resolve(const VoiceRequest(query: 'Locket'));
+      expect(queue.tracks.map((t) => t.songId), ['first', 'second']);
+      expect(queue.title, 'locket');
     });
 
     test('an artist name plays the artist', () async {
-      final queue = await catalog.queueForSearch('sabrina carpenter');
-      expect(queue!.tracks.map((t) => t.songId), ['s1', 's2']);
+      final queue = await resolve(
+        const VoiceRequest(query: 'sabrina carpenter'),
+      );
+      expect(queue.tracks.map((t) => t.songId), ['s1', 's2']);
+      expect(queue.title, 'Sabrina Carpenter');
     });
 
     test('structured artist extras are honoured', () async {
-      final queue = await catalog.queueForSearch(
-        '',
-        artist: 'Sabrina Carpenter',
+      final queue = await resolve(
+        const VoiceRequest(artist: 'Sabrina Carpenter'),
       );
-      expect(queue!.tracks.first.songId, 's1');
+      expect(queue.tracks.first.songId, 's1');
     });
 
     test('anything else plays matching songs', () async {
-      final queue = await catalog.queueForSearch('angel');
-      expect(queue!.tracks.single.songId, 't1');
+      final queue = await resolve(const VoiceRequest(query: 'angel'));
+      expect(queue.tracks.single.songId, 't1');
+      expect(queue.title, 'Search: angel');
     });
 
     test('nothing matching plays nothing', () async {
-      expect(await catalog.queueForSearch('zzzz'), isNull);
+      final result = await catalog.resolveVoiceRequest(
+        const VoiceRequest(query: 'zzzz'),
+      );
+      expect((result as VoiceNotFound).reason, VoiceNotFoundReason.noMatch);
+      expect(result.spoken, 'zzzz');
+    });
+
+    test('a playlist request plays the playlist in its saved order, '
+        'repeats included', () async {
+      library
+        ..playlistList = const [
+          MediaBrowsePlaylist(id: 'p1', name: 'Road Trip', trackCount: 3),
+        ]
+        ..playlistTracksById['p1'] = [
+          libraryTrack('x'),
+          libraryTrack('y'),
+          libraryTrack('x'),
+        ];
+
+      final queue = await resolve(
+        const VoiceRequest(query: 'road trip', focus: VoiceFocus.playlist),
+      );
+
+      expect(queue.tracks.map((t) => t.songId), ['x', 'y', 'x']);
+      expect(queue.title, 'Road Trip');
+    });
+
+    test('an empty playlist is not found, never other songs', () async {
+      library
+        ..playlistList = const [
+          MediaBrowsePlaylist(id: 'p1', name: 'Angel', trackCount: 1),
+        ]
+        ..playlistTracksById['p1'] = [libraryTrack('gone', available: false)];
+
+      final result = await catalog.resolveVoiceRequest(
+        const VoiceRequest(playlist: 'angel'),
+      );
+
+      expect(
+        (result as VoiceNotFound).reason,
+        VoiceNotFoundReason.nothingPlayable,
+      );
+    });
+
+    test('blocked and unavailable songs are never offered', () async {
+      library.tracks = [
+        libraryTrack('blocked', title: 'Halo', blocked: true),
+        libraryTrack('missing', title: 'Halo', available: false),
+        libraryTrack('ok', title: 'Halo Theme'),
+      ];
+
+      final queue = await resolve(const VoiceRequest(query: 'halo'));
+      expect(queue.tracks.map((t) => t.songId), ['ok']);
+    });
+
+    test('an album that cannot be played falls through to songs', () async {
+      library.albumTracksById['album-1'] = [
+        libraryTrack('first', blocked: true),
+      ];
+      library.tracks = [libraryTrack('t1', title: 'locket theme')];
+
+      final queue = await resolve(const VoiceRequest(query: 'locket'));
+      expect(queue.tracks.single.songId, 't1');
+    });
+
+    test('a genre plays its albums in library order', () async {
+      library
+        ..albumList = [
+          libraryAlbum('jazz-1', 'Blue', genre: 'Jazz'),
+          libraryAlbum('pop-1', 'Shine', genre: 'Pop'),
+          libraryAlbum('jazz-2', 'Kind', genre: 'Jazz'),
+        ]
+        ..albumTracksById['jazz-1'] = [libraryTrack('j1')]
+        ..albumTracksById['jazz-2'] = [libraryTrack('j2')]
+        ..albumTracksById['pop-1'] = [libraryTrack('p1')];
+
+      final queue = await resolve(const VoiceRequest(genre: 'jazz music'));
+      expect(queue.tracks.map((t) => t.songId), ['j1', 'j2']);
+      expect(queue.title, 'Jazz');
+    });
+
+    test('same-named songs resolve as ambiguous, best match first', () async {
+      library.tracks = [
+        libraryTrack('a', title: 'Angel', artistName: 'One'),
+        libraryTrack('b', title: 'Angel', artistName: 'Two'),
+      ];
+
+      final result = await catalog.resolveVoiceRequest(
+        const VoiceRequest(query: 'angel'),
+      );
+      expect(result, isA<VoiceAmbiguous>());
+      expect((result as VoiceAmbiguous).tracks.first.songId, 'a');
+    });
+  });
+
+  group('queue titles of browsed lists', () {
+    setUp(() {
+      library
+        ..albumList = [libraryAlbum('album-1', 'locket')]
+        ..albumTracksById['album-1'] = [libraryTrack('first')]
+        ..playlistList = const [
+          MediaBrowsePlaylist(id: 'p1', name: 'Gym', trackCount: 1),
+        ]
+        ..playlistTracksById['p1'] = [libraryTrack('first')]
+        ..recent = [libraryTrack('first')];
+    });
+
+    test('name the album, playlist or list played', () async {
+      Future<String?> title(String id) async =>
+          (await catalog.queueFor(id))!.title;
+
+      expect(await title('sonus:album:album-1/song:first'), 'locket');
+      expect(await title('sonus:playlist:p1/song:first'), 'Gym');
+      expect(await title('sonus:recent/song:first'), 'Recent');
+    });
+
+    test('a song is found by its browse ID or its own ID', () async {
+      library.tracks = [
+        libraryTrack('first'),
+        libraryTrack('x', blocked: true),
+      ];
+
+      expect(
+        (await catalog.track('sonus:album:album-1/song:first'))!.songId,
+        'first',
+      );
+      expect((await catalog.track('first'))!.songId, 'first');
+      expect(await catalog.track('x'), isNull);
+    });
+  });
+
+  group('voice queue titles name the real list played', () {
+    setUp(() {
+      library
+        ..tracks = [
+          libraryTrack('s', title: 'Locket'),
+          libraryTrack('a', title: 'Angel', artistName: 'One'),
+          libraryTrack('b', title: 'Angel', artistName: 'Two'),
+        ]
+        ..albumList = [
+          libraryAlbum('album-1', 'locket'),
+          libraryAlbum('jazz-1', 'Blue', genre: 'Jazz'),
+        ]
+        ..albumTracksById['album-1'] = [
+          libraryTrack('first'),
+          libraryTrack('second'),
+        ]
+        ..albumTracksById['jazz-1'] = [libraryTrack('j1')]
+        ..artistList = [
+          LibraryArtist(
+            artistId: 'artist-2',
+            name: 'Sabrina Carpenter',
+            albumCount: 1,
+            songCount: 2,
+            dateAdded: DateTime.utc(2026),
+          ),
+        ]
+        ..artistTracksById['artist-2'] = [
+          libraryTrack('s1', artistId: 'artist-2'),
+          libraryTrack('s2', artistId: 'artist-2'),
+        ]
+        ..playlistList = const [
+          MediaBrowsePlaylist(id: 'p1', name: 'Road Trip', trackCount: 2),
+          MediaBrowsePlaylist(id: 'p2', name: 'Locket', trackCount: 1),
+        ]
+        ..playlistTracksById['p1'] = [libraryTrack('y'), libraryTrack('x')]
+        ..playlistTracksById['p2'] = [libraryTrack('z')]
+        ..recent = [libraryTrack('r1')];
+    });
+
+    /// The queue title and the queued song IDs, joined.
+    Future<(String, String)> play(VoiceRequest request) async {
+      final queue = await catalog.resolveVoiceRequest(request) as VoiceResolved;
+      return (queue.title, [for (final t in queue.tracks) t.songId].join(','));
+    }
+
+    test('each context is named for what it is, with its own queue', () async {
+      final cases = <VoiceRequest, (String, String)>{
+        // Albums, by any wording.
+        const VoiceRequest(query: 'locket', focus: VoiceFocus.album): (
+          'locket',
+          'first,second',
+        ),
+        const VoiceRequest(query: 'the album locket'): (
+          'locket',
+          'first,second',
+        ),
+        const VoiceRequest(album: 'Locket'): ('locket', 'first,second'),
+        // Artists.
+        const VoiceRequest(query: 'sabrina carpenter'): (
+          'Sabrina Carpenter',
+          's1,s2',
+        ),
+        const VoiceRequest(artist: 'Sabrina Carpenter'): (
+          'Sabrina Carpenter',
+          's1,s2',
+        ),
+        // Playlists.
+        const VoiceRequest(query: 'road trip'): ('Road Trip', 'y,x'),
+        const VoiceRequest(query: 'playlist locket'): ('Locket', 'z'),
+        const VoiceRequest(query: 'my road trip playlist'): (
+          'Road Trip',
+          'y,x',
+        ),
+        // Genre.
+        const VoiceRequest(genre: 'Jazz'): ('Jazz', 'j1'),
+        // Lists.
+        const VoiceRequest(): ('Recent', 'r1'),
+        // Songs found by searching: only these are "Search: …".
+        // Every song's album is "locket", so all match by word, the exact
+        // title first.
+        const VoiceRequest(query: 'locket'): ('Search: locket', 's,a,b'),
+        const VoiceRequest(query: 'song locket'): (
+          'Search: song locket',
+          's,a,b',
+        ),
+        const VoiceRequest(title: 'Angel', artist: 'Two'): (
+          'Search: Angel by Two',
+          'b,a',
+        ),
+        const VoiceRequest(query: 'angel by two'): (
+          'Search: angel by two',
+          'b,a',
+        ),
+      };
+
+      for (final MapEntry(key: request, value: expected) in cases.entries) {
+        expect(await play(request), expected, reason: request.spoken);
+      }
+    });
+
+    test('an artist focus that names no artist plays matching songs, '
+        'titled as a search', () async {
+      // "sabrina" is not an artist's whole name: the artist's songs are
+      // found by searching, so the queue is a search.
+      library.tracks = [
+        libraryTrack('s1', artistId: 'artist-2', artistName: 'Sabrina'),
+      ];
+      expect(
+        await play(
+          const VoiceRequest(query: 'sabrina', focus: VoiceFocus.artist),
+        ),
+        ('Search: sabrina', 's1'),
+      );
+    });
+
+    test(
+      'an album that cannot be played gives songs, titled as a search',
+      () async {
+        library.albumTracksById['album-1'] = [
+          libraryTrack('first', blocked: true),
+        ];
+        expect(
+          await play(
+            const VoiceRequest(query: 'locket', focus: VoiceFocus.album),
+          ),
+          ('Search: locket', 's,a,b'),
+        );
+      },
+    );
+
+    test('with no history, the whole library is "Songs"', () async {
+      library.recent = [];
+      expect(await play(const VoiceRequest()), ('Songs', 's,a,b'));
+    });
+  });
+
+  group('voice requests with nothing playable at all', () {
+    test('any request, named or not, has nothing to play', () async {
+      library.tracks = [libraryTrack('gone', available: false)];
+
+      for (final request in const [
+        VoiceRequest(),
+        VoiceRequest(query: 'angel'),
+        VoiceRequest(playlist: 'Road Trip'),
+      ]) {
+        final result = await catalog.resolveVoiceRequest(request);
+        expect(
+          (result as VoiceNotFound).reason,
+          VoiceNotFoundReason.nothingToPlay,
+          reason: request.spoken,
+        );
+      }
+    });
+  });
+
+  group('queue titles of every browsed list', () {
+    test('Recently Added, Songs, an artist and a search', () async {
+      library
+        ..added = [libraryTrack('n')]
+        ..tracks = [libraryTrack('n', title: 'angel')]
+        ..artistList = [
+          LibraryArtist(
+            artistId: 'artist-1',
+            name: 'Madison Beer',
+            albumCount: 1,
+            songCount: 1,
+            dateAdded: DateTime.utc(2026),
+          ),
+        ]
+        ..artistTracksById['artist-1'] = [libraryTrack('n')];
+
+      Future<String?> title(String id) async =>
+          (await catalog.queueFor(id))!.title;
+
+      expect(await title('sonus:added/song:n'), 'Recently Added');
+      expect(await title('sonus:songs/song:n'), 'Songs');
+      expect(await title('sonus:artist-songs:artist-1/song:n'), 'Madison Beer');
+      expect(await title('sonus:search:angel/song:n'), 'Search: angel');
     });
   });
 }

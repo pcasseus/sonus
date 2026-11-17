@@ -60,6 +60,9 @@ abstract final class SettingsDataCoverage {
     DatabaseTables.chartSnapshots: 'Personal charts and chart moments',
     DatabaseTables.chartEntries: 'Personal charts and chart moments',
     DatabaseTables.chartMomentEvents: 'Personal charts and chart moments',
+    // App Update 1.3: published new-release stories are chart moments.
+    DatabaseTables.newReleaseDebutPublications:
+        'Personal charts and chart moments',
     DatabaseTables.playlists: 'Playlists',
     DatabaseTables.playlistItems: 'Playlists',
     DatabaseTables.mediaFileBindings:
@@ -81,6 +84,7 @@ abstract final class SettingsDataCoverage {
         'Soundtrack and collaborator organization',
     DatabaseTables.artworkCrops: 'How covers and artist photos are cropped',
     DatabaseTables.albumEditionDiscLabels: 'Disc names',
+    DatabaseTables.songSinglePresentations: 'Single dates and covers',
   };
 
   static List<String> _labelsFor(BackupTablePolicy policy) {

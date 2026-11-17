@@ -320,9 +320,19 @@ class _ArtistRosterState extends State<ArtistRoster> {
         );
 
   /// SELECT ARTIST and the featured portrait open the Artist Profile.
+  ///
+  /// App Update 1.3 (REF-1.3-05, ROSTER approval 2026-11-15): opening the
+  /// featured artist chooses them. Before, a default featured artist kept
+  /// following the roster's first place, so listening on the profile that
+  /// reordered the ranks featured someone else on Back.
   void _openPreview() {
     final artist = _preview;
-    if (artist != null) widget.onOpenArtist(artist);
+    if (artist == null) return;
+    if (_isDefault) {
+      _isDefault = false;
+      widget.onSelected(artist.artistId);
+    }
+    widget.onOpenArtist(artist);
   }
 
   /// The page controller for [perPage] portraits a page, recreated (on the

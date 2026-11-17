@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../library/data/repositories/sqlite_song_single_presentation_repository.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
@@ -19,8 +20,10 @@ import '../../application/services/this_week_chart_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
+import '../../data/repositories/sqlite_new_release_publication_repository.dart';
 import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
 import '../../data/services/sqlite_chart_song_credit_reader.dart';
+import '../../data/services/sqlite_new_release_evidence_reader.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../editorial/moment_family.dart';
@@ -32,8 +35,11 @@ import '../../../analytics/application/services/listening_artist_attribution.dar
 import '../../../song_stats/application/song_listening_records.dart';
 import '../../../song_stats/application/song_stats_service.dart';
 import '../../../song_stats/data/sqlite_song_listening_records.dart';
+import '../../application/models/new_release_library_facts.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../../domain/moments/new_release_eligibility.dart';
+import '../editorial/new_release_debut_headlines.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({
@@ -64,11 +70,16 @@ class ChartsScope extends StatefulWidget {
 }
 
 /// The device's Moments activation. Artist-dominance Moments get a start
-/// (and so are recorded) only once their lines are approved (REF-19).
+/// (and so are recorded) only once their lines are approved (REF-19), and
+/// new-release debuts only once their generation and wording are both
+/// approved (App Update 1.3).
 @visibleForTesting
 MomentRulesActivation deviceMomentRulesActivation(
   SharedPreferencesMomentRulesActivationStore store, {
   Set<MomentFamily> approved = MomentHeadlines.approvedFamilies,
+  bool newReleaseDebutsApproved =
+      NewReleaseDebutActivation.generationApproved &&
+      NewReleaseDebutHeadlines.approved,
 }) {
   return MomentRulesActivation(
     store: store,
@@ -78,6 +89,7 @@ MomentRulesActivation deviceMomentRulesActivation(
     jointControl: MomentHeadlines.artistJointControlApproved(approved)
         ? store
         : null,
+    newReleaseDebuts: newReleaseDebutsApproved ? store : null,
   );
 }
 
@@ -148,6 +160,20 @@ class _ChartsScopeState extends State<ChartsScope> {
         album.albumId: album.artistId,
     };
   }
+
+  /// Stated release kinds and live flags, for new-release debuts.
+  static Future<NewReleaseClassifications> _newReleaseClassifications(
+    LibraryOrganizationService organization,
+  ) async => NewReleaseClassifications(
+    kinds: {
+      for (final c in await organization.organization.getClassifications())
+        c.albumId: c.kind,
+    },
+    live: {
+      for (final l in await organization.organization.getLiveClassifications())
+        l.albumId: l.isLive,
+    },
+  );
 
   static LibraryOrganizationService? _organizationOf(BuildContext context) {
     try {
@@ -264,6 +290,25 @@ class _ChartsScopeState extends State<ChartsScope> {
           (await qualifiedPlays.getById(playId))?.albumEditionId,
       momentRules:
           (widget.momentRulesActivation ?? _deviceRulesActivation).rules,
+      // App Update 1.3 (REF-1.3-04): Singles' own covers, read-only here.
+      singlePresentations: () async => SqliteSongSinglePresentationRepository(
+        await database.database,
+      ).getAll(),
+      // App Update 1.3 new-release debuts: read only once approved and
+      // started (ChartsController._readNewReleaseInputs).
+      newReleaseClassifications: organization == null
+          ? null
+          : () => _newReleaseClassifications(organization),
+      newReleaseDebutHistory: moments.getSongDebutHistorySince,
+      // Published once, then told from the record (user decision
+      // 2026-11-16).
+      newReleasePublications: SqliteNewReleasePublicationRepository(database),
+      // Proof for a new one (user rules 2026-11-16): read-only.
+      newReleaseEvidence: SqliteNewReleaseEvidenceReader(
+        database,
+        historyOriginUtc: charts.chartHistoryOriginUtc,
+        momentsCutoffUtc: deletionJournal.momentsCutoff,
+      ).read,
     );
 
     _controller = controller;
@@ -273,6 +318,12 @@ class _ChartsScopeState extends State<ChartsScope> {
     final journeys = MomentChartJourneyService(
       qualifiedPlays: qualifiedPlays,
       releaseEligibility: releaseEligibility,
+      // App Update 1.3 (REF-1.3-02): the live rank follows the all-time
+      // chart's eligibility (blocked songs take no place).
+      blockedSongIds: () async => {
+        for (final track in await library.getTracks())
+          if (track.isBlocked) track.songId,
+      },
       now: widget.now,
     );
     _journeys = (chartType, entityId) =>

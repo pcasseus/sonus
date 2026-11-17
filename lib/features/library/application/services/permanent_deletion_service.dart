@@ -231,6 +231,17 @@ class PermanentDeletionService {
     }
     await ledgerAll(DeletionLedgerEntity.moment, momentKeys);
 
+    // App Update 1.3: a deleted song's published new-release story goes
+    // with its Moments, in this same step. Nothing else ever removes one
+    // (no foreign key: removing a song row keeps published history).
+    for (final songId in impact.songIds) {
+      await txn.delete(
+        DatabaseTables.newReleaseDebutPublications,
+        where: 'song_id = ?',
+        whereArgs: [songId],
+      );
+    }
+
     // 2. Stored weekly charts from the earliest affected week on, both
     // charts (D3). Entries cascade. Charts rebuilds them from the remaining
     // plays; the journal stops those weeks publishing new Moments.

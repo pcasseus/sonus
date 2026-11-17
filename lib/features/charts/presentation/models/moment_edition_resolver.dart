@@ -48,6 +48,11 @@ class MomentEditionResolver {
     return bySong;
   }
 
+  /// The editions that list [songId] (its placements), empty when none
+  /// are known.
+  Set<String> editionIdsOf(String songId) =>
+      _editionIdsBySong[songId] ?? const <String>{};
+
   /// The edition [track] first appeared on, or null when none is known.
   ///
   /// Candidates are the editions of the song's own album that list it.

@@ -157,7 +157,8 @@ void main() {
         ),
       );
       expect(m.achievement, ChartAchievement.newEntry);
-      expect(m.spokenLabel(1), 'New entry at number 1');
+      // Live, so provisional until the week is finalized (App Update 1.3).
+      expect(m.spokenLabel(1), 'New entry at number 1, provisional');
     });
 
     test(
@@ -362,15 +363,16 @@ void main() {
         movement: ChartMovement.newEntry,
         firstHot100At: now.subtract(const Duration(hours: 5)),
       );
+      // A live NEW says it is provisional (App Update 1.3).
       await pump(tester, live(e), e);
-      expect(find.text('NEW'), findsOneWidget);
+      expect(find.text('NEW · LIVE'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('charts-achievement-song-lit')),
         findsOneWidget,
       );
 
       await pump(tester, live(e, at: now.add(const Duration(days: 1))), e);
-      expect(find.text('NEW'), findsOneWidget);
+      expect(find.text('NEW · LIVE'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('charts-achievement-song-plain')),
         findsOneWidget,
@@ -391,5 +393,36 @@ void main() {
       await pump(tester, finalized(e), e, theme: SonusThemeId.monochrome);
       expect(tester.takeException(), isNull);
     });
+  });
+
+  testWidgets('a finalized NEW or RE-ENTRY carries no LIVE label', (
+    tester,
+  ) async {
+    for (final (movement, label) in const [
+      (ChartMovement.newEntry, 'NEW'),
+      (ChartMovement.reentry, 'RE-ENTRY'),
+    ]) {
+      final e = entry(rank: 20, movement: movement);
+      final finalized = ChartEntryMovement.of(e, live: false, now: now);
+      final provisional = ChartEntryMovement.of(e, live: true, now: now);
+      expect(finalized.spokenLabel(20), isNot(contains('provisional')));
+      expect(provisional.spokenLabel(20), endsWith(', provisional'));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChartMovementIndicator(entry: e, movement: finalized),
+          ),
+        ),
+      );
+      expect(find.text(label), findsOneWidget);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChartMovementIndicator(entry: e, movement: provisional),
+          ),
+        ),
+      );
+      expect(find.text('$label · LIVE'), findsOneWidget);
+    }
   });
 }

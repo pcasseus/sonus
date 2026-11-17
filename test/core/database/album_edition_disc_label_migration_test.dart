@@ -67,7 +67,7 @@ void main() {
       final db = await (await fresh('fresh.db')).database;
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        46,
+        48,
       );
       expect(await db.query(table), isEmpty);
       expect(

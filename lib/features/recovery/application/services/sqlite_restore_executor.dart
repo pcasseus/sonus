@@ -6,6 +6,8 @@ import '../../../../core/database/database_tables.dart';
 import '../../../../core/database/schema/chart_schema.dart';
 import '../../../../core/database/schema/release_date_precision_backfill.dart';
 import '../../../../core/identity/text_normalizer.dart';
+import '../../../../core/lyrics/lyrics_provenance.dart';
+import '../../../../core/lyrics/sqlite_lyrics_provenance_store.dart';
 import '../models/backup_table_coverage.dart';
 import 'backup_json_codec.dart';
 import 'restore_planner.dart';
@@ -82,6 +84,10 @@ class SqliteRestoreExecutor {
     DatabaseTables.artworkCrops,
     // Disc names (database version 45); a backup made before has none.
     DatabaseTables.albumEditionDiscLabels,
+    // Singles' presentations (database version 47).
+    DatabaseTables.songSinglePresentations,
+    // Published new-release debut stories (database version 48).
+    DatabaseTables.newReleaseDebutPublications,
   ];
 
   Future<void> apply({
@@ -118,6 +124,10 @@ class SqliteRestoreExecutor {
       for (final table in optionalTables)
         if (tables.containsKey(table)) table,
     ];
+
+    // App Update 1.3: the listener's lyrics edits made here survive a
+    // restore unless the backup holds a more recent edit of the same text.
+    final lyricsEdits = await _localLyricsEdits(transaction);
 
     // 1. Dependent tables reference anchors; clear them children first.
     for (final table in [...dependentTables, ...restoredOptional].reversed) {
@@ -181,6 +191,9 @@ class SqliteRestoreExecutor {
 
       await batch.commit(noResult: true);
     }
+    final keptLyricsRows = await _keepLyricsEdits(transaction, lyricsEdits);
+    expectedCounts[DatabaseTables.trackLyrics] =
+        (expectedCounts[DatabaseTables.trackLyrics] ?? 0) + keptLyricsRows;
     await afterPhase?.call(RestorePhase.insertDependentTables);
 
     // Dates restored from a backup made before their precision was
@@ -195,6 +208,69 @@ class SqliteRestoreExecutor {
     // 6. Verify before the transaction may commit.
     await _verify(transaction, expectedCounts, artworkRows);
     await afterPhase?.call(RestorePhase.verifyIntegrity);
+  }
+
+  static Future<List<Map<String, Object?>>> _localLyricsEdits(
+    Transaction transaction,
+  ) async => [
+    for (final row in await transaction.query(
+      DatabaseTables.trackLyrics,
+      where:
+          'plain_user_edited_at IS NOT NULL OR '
+          'synced_user_edited_at IS NOT NULL OR '
+          'offset_user_edited_at IS NOT NULL',
+    ))
+      {...row},
+  ];
+
+  /// Puts each local listener edit back over the restored row, text by
+  /// text ([LyricsPrecedence.replaces]); returns how many rows it added
+  /// for songs the backup has no lyrics for.
+  static Future<int> _keepLyricsEdits(
+    Transaction transaction,
+    List<Map<String, Object?>> edits,
+  ) async {
+    var added = 0;
+    for (final local in edits) {
+      final songId = local['song_id']! as String;
+      final song = await transaction.query(
+        DatabaseTables.songs,
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [songId],
+        limit: 1,
+      );
+      if (song.isEmpty) continue;
+      final edited = <String, Object?>{
+        'created_at': local['created_at'],
+        for (final kind in LyricsTextKind.values)
+          if (LyricsText.fromRow(local, kind).isUserEdit)
+            for (final column in kind.columns) column: local[column],
+        if (local[LyricsColumns.offsetUserEditedAt] != null) ...{
+          LyricsColumns.offsetMs: local[LyricsColumns.offsetMs],
+          LyricsColumns.offsetUserEditedAt:
+              local[LyricsColumns.offsetUserEditedAt],
+        },
+      };
+      final restored = await SqliteLyricsProvenanceStore.readIn(
+        transaction,
+        songId,
+      );
+      final merged = LyricsRows.merge(
+        songId: songId,
+        existing: restored,
+        incoming: edited,
+        stamp: local['updated_at']! as String,
+      );
+      if (merged == null) continue;
+      await SqliteLyricsProvenanceStore.writeIn(
+        transaction,
+        merged,
+        exists: restored != null,
+      );
+      if (restored == null) added++;
+    }
+    return added;
   }
 
   void _assertCoverage() {

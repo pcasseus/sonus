@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sonus_next/features/sync/domain/models/lyrics_archive_sync_gate.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
@@ -45,7 +46,7 @@ class _Consent implements CloudLibraryConsentStore {
 /// binding, then the archive. The library tables are covered by the same
 /// guard, which runs before anything else.
 class _Device {
-  _Device(this.database, InMemoryCloudArchive cloud)
+  _Device(this.database, InMemoryCloudArchive cloud, {bool? uploadLyrics})
     : binding = SqliteLocalAccountBindingRepository(appDatabase: database) {
     final archive = CloudArchiveSyncService(
       gateway: cloud,
@@ -54,6 +55,7 @@ class _Device {
         changes: LibraryChangeSignal(),
       ),
       queueArtworkUpload: ({required userId, required artworkId}) async {},
+      uploadLyrics: uploadLyrics ?? LyricsArchiveSyncGate.uploadsEnabled,
     );
     final guard = CloudLibraryFirstLinkGuard(
       syncedBefore: (userId) async => syncedWith.contains(userId),
@@ -108,15 +110,16 @@ void main() {
     await root.delete(recursive: true);
   });
 
-  Future<_Device> device(String name) async {
+  Future<_Device> device(String name, {bool? uploadLyrics}) async {
     final database = fileAppDatabase(root, '$name.db');
     addTearDown(database.close);
-    return _Device(database, cloud);
+    return _Device(database, cloud, uploadLyrics: uploadLyrics);
   }
 
-  /// The old library, already in the old account's cloud.
+  /// The old library, already in the old account's cloud. Uploaded by a
+  /// build from before App Update 1.3, so its lyrics are there too.
   Future<Map<String, Object>> oldCloudLibrary() async {
-    final old = await device('old-phone');
+    final old = await device('old-phone', uploadLyrics: true);
     await seedConnectedLibrary(await old.db, key: 'old');
     await old.consent.grant(_oldAccount);
     await old.synchronize(_oldAccount);
@@ -163,10 +166,11 @@ void main() {
     expect(result.userId, _newAccount);
     expect(again.userId, _newAccount);
     expect((await fresh.binding.getBinding())!.userId, _newAccount);
+    // App Update 1.3: lyrics are not uploaded while the provenance gate is
+    // closed (LyricsArchiveSyncGate).
     expect(cloud.rowsFor(_newAccount).keys, {
       'playlist:playlist-new',
       'listening_session:session-new',
-      'lyrics:song-new',
     });
     expect({
       for (final MapEntry(:key, :value) in cloud.rowsFor(_oldAccount).entries)

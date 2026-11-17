@@ -28,6 +28,35 @@ abstract final class ChartZoneNames {
     ChartType.songs => 'BUBBLING UNDER',
     ChartType.albums => '#101–200',
   };
+
+  /// App Update 1.3 (REF-1.3-06): labels that say which chart a position
+  /// belongs to. The career standings (the permanent Top 200, by lifetime
+  /// streams) and the weekly charts (one week's streams) share the zone
+  /// names, so every label outside a story's own headline names the chart
+  /// too. "Career" is the approved name for the permanent chart (SN-50
+  /// E-Q15A retired "all time" from the Charts page). Headlines keep the
+  /// wording they were written with.
+  static const String careerTop200 = 'Career Top 200';
+
+  /// The chart a view or story belongs to.
+  static String chartOf(ChartType type, {required bool allTime}) =>
+      switch ((type, allTime)) {
+        (ChartType.songs, true) => careerTop200,
+        (ChartType.songs, false) => 'Weekly Hot 100',
+        (ChartType.albums, true) => 'Career Albums & EPs',
+        (ChartType.albums, false) => 'Weekly Albums & EPs',
+      };
+
+  /// The zone [rank] is in, on the career or weekly chart: "Career Hot
+  /// 100", "Weekly Bubbling Under", "Weekly Albums & EPs #101–200".
+  static String zoneOf(ChartType type, int rank, {required bool allTime}) {
+    final scope = allTime ? 'Career' : 'Weekly';
+    final lower = rank > 100;
+    return switch (type) {
+      ChartType.songs => '$scope ${lower ? 'Bubbling Under' : 'Hot 100'}',
+      ChartType.albums => '$scope Albums & EPs${lower ? ' #101–200' : ''}',
+    };
+  }
 }
 
 /// Marks where the Hot 100 ends and Bubbling Under begins (or, for

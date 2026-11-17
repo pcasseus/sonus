@@ -13,7 +13,10 @@ import '../models/chart_entry_movement.dart';
 /// suits icons; the text keeps the primary text colour for 4.5:1.
 /// Which part of a C2 indicator to draw: compact chart rows (C3) show the
 /// movement at the end and the achievement badge beside the artist.
-enum ChartIndicatorPart { all, movement, achievement }
+///
+/// [arrow] is the arrow line alone, under a Chart Studio row's rank (App
+/// Update 1.3); its percent and cross-chart note are in the row's details.
+enum ChartIndicatorPart { all, movement, achievement, arrow }
 
 class ChartMovementIndicator extends StatelessWidget {
   const ChartMovementIndicator({
@@ -83,14 +86,16 @@ class ChartMovementIndicator extends StatelessWidget {
     );
 
     final achievement = switch (m.achievement) {
+      // Provisional until the week is finalized, like a live peak (App
+      // Update 1.3: live status is told apart from finalized events).
       ChartAchievement.newEntry => badge(
-        'NEW',
+        m.provisional ? 'NEW · LIVE' : 'NEW',
         Icons.star_rounded,
         colors.chartNew,
         m.highlighted,
       ),
       ChartAchievement.reentry => badge(
-        'RE-ENTRY',
+        m.provisional ? 'RE-ENTRY · LIVE' : 'RE-ENTRY',
         Icons.replay_rounded,
         blue,
         m.highlighted,
@@ -138,7 +143,8 @@ class ChartMovementIndicator extends StatelessWidget {
                 Text(m.shortLabel, style: base?.copyWith(color: colour)),
               ],
             ),
-          if (percent != null || note != null)
+          if ((percent != null || note != null) &&
+              part != ChartIndicatorPart.arrow)
             Text(
               note ?? percent!,
               key: ValueKey<String>(

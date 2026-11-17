@@ -229,6 +229,16 @@ void main() {
           'created_at': stamp,
           'updated_at': stamp,
         });
+        // A playable file: playlists offer only songs that can play.
+        await db.insert(DatabaseTables.mediaFileBindings, {
+          'id': 'binding_$index',
+          'song_id': 'song_$index',
+          'file_path': '/music/song_$index.mp3',
+          'normalized_path': '/music/song_$index.mp3',
+          'is_available': 1,
+          'created_at': stamp,
+          'updated_at': stamp,
+        });
       }
     });
 

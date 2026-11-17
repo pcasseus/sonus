@@ -11,34 +11,46 @@ import '../../../library/application/models/library_release_edition.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/models/song_edition_membership.dart';
+import '../../../library/application/models/song_display_title.dart';
+import '../../../library/application/models/single_cover_policy.dart';
+import '../../../library/domain/entities/song_single_presentation.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
+import '../../application/models/new_release_library_facts.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../application/services/chart_moment_feed_pager.dart';
 import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
+import '../../application/services/new_release_publication_store.dart';
 import '../../application/services/this_week_chart_service.dart';
 import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
+import '../../domain/moments/new_release_eligibility.dart';
+import '../../domain/moments/new_release_publication.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_category.dart';
+import '../models/chart_rank_trend.dart';
 import '../models/chart_entry_movement.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
 import '../editorial/moment_family.dart';
 import '../editorial/moment_publisher.dart';
+import '../editorial/new_release_debut_desk.dart';
+import '../editorial/new_release_debut_headlines.dart';
 import '../models/chart_album_presentation.dart';
 import '../models/chart_longevity.dart';
 import '../models/moment_edition_resolver.dart';
+import '../models/moment_related_songs.dart';
 import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
@@ -73,6 +85,23 @@ enum ChartBoard { top100, extended }
 /// Which Moments rules this run uses (SN-50 R2).
 typedef MomentRulesLoader = Future<ChartMomentRules> Function();
 
+/// Release kinds and live flags, for new-release debuts (App Update 1.3).
+typedef NewReleaseClassificationsLoader =
+    Future<NewReleaseClassifications> Function();
+
+/// Every stored song chart debut since [fromUtc], beyond the loaded feed
+/// pages, and every earlier chart appearance of those songs, so a song's
+/// first new-release debut is chosen the same way however much of the
+/// feed is loaded (App Update 1.3).
+typedef NewReleaseDebutHistoryLoader =
+    Future<List<ChartMomentEvent>> Function(DateTime fromUtc);
+
+/// What proves a new-release debut for [songIds] (App Update 1.3, user
+/// rules 2026-11-16): the chart history origin, the Moments cutoff and each
+/// song's first qualified play.
+typedef NewReleaseEvidenceLoader =
+    Future<NewReleaseEvidence> Function(Set<String> songIds);
+
 /// Where a Moment's release link opens.
 class MomentReleaseTarget {
   const MomentReleaseTarget({
@@ -90,6 +119,10 @@ class MomentReleaseTarget {
   /// opens instead (SN-50 A-Q29).
   final bool editionRemoved;
 }
+
+/// Every Single presentation by Song ID (App Update 1.3).
+typedef SinglePresentationsLoader =
+    Future<Map<String, SongSinglePresentation>> Function();
 
 class ChartsController extends ChangeNotifier {
   ChartsController({
@@ -111,7 +144,21 @@ class ChartsController extends ChangeNotifier {
     MomentRulesLoader? momentRules,
     int momentPageSize = ChartMomentFeedPager.defaultPageSize,
     Future<Set<String>> Function()? recalculatedWeeks,
+    SinglePresentationsLoader? singlePresentations,
+    NewReleaseClassificationsLoader? newReleaseClassifications,
+    NewReleaseDebutHistoryLoader? newReleaseDebutHistory,
+    NewReleasePublicationStore? newReleasePublications,
+    NewReleaseEvidenceLoader? newReleaseEvidence,
+    bool newReleaseDebutsApproved =
+        NewReleaseDebutActivation.generationApproved &&
+        NewReleaseDebutHeadlines.approved,
   }) : _allTimeCharts = allTimeCharts,
+       _loadNewReleaseClassifications = newReleaseClassifications,
+       _loadNewReleaseDebutHistory = newReleaseDebutHistory,
+       _newReleasePublications = newReleasePublications,
+       _loadNewReleaseEvidence = newReleaseEvidence,
+       _newReleaseDebutsApproved = newReleaseDebutsApproved,
+       _loadSinglePresentations = singlePresentations,
        _loadRecalculatedWeeks = recalculatedWeeks,
        _finalization = finalization,
        _charts = charts,
@@ -160,6 +207,29 @@ class ChartsController extends ChangeNotifier {
   /// show the song's own artwork, then its album's cover, as before.
   final SongEditionMembershipsLoader? _loadSongEditionMemberships;
   MomentEditionResolver _momentEditions = MomentEditionResolver.empty();
+
+  /// Singles' own covers (App Update 1.3, REF-1.3-04), shown in Moments
+  /// only where the listener chose to; never on chart rows
+  /// ([SingleCoverPolicy]).
+  final SinglePresentationsLoader? _loadSinglePresentations;
+  Map<String, SongSinglePresentation> _singles = const {};
+
+  /// App Update 1.3 new-release debuts: read only while approved and
+  /// started (ChartMomentRules.newReleaseDebutsFromUtc); otherwise null
+  /// and no story changes.
+  final NewReleaseClassificationsLoader? _loadNewReleaseClassifications;
+  final NewReleaseDebutHistoryLoader? _loadNewReleaseDebutHistory;
+
+  /// Without it (or when its read fails) nothing new is proven: stored
+  /// records are still told, but no new record is composed.
+  final NewReleaseEvidenceLoader? _loadNewReleaseEvidence;
+  final bool _newReleaseDebutsApproved;
+  _NewReleaseInputs? _newReleaseInputs;
+
+  /// Published new-release stories (user decision 2026-11-16): a story is
+  /// stored the first time it is shown and told from the record after
+  /// that. Without a store no story is re-worded (fails closed).
+  final NewReleasePublicationStore? _newReleasePublications;
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -325,10 +395,25 @@ class ChartsController extends ChangeNotifier {
       _momentStories ??= _composeMomentStories();
 
   List<MomentStory> _composeMomentStories() {
+    final newRelease = _newReleaseInputs;
     final stories =
         MomentEditorialDesk(
           lookups: momentLookups,
           rules: _momentRules,
+          newReleases: newRelease == null
+              ? null
+              : NewReleaseDebutDesk(
+                  start: NewReleaseDebutStart(
+                    _momentRules.newReleaseDebutsFromUtc,
+                  ),
+                  lookups: newRelease,
+                  storedDebuts: newRelease.storedDebuts,
+                  publications: newRelease.publications,
+                  evidence: newRelease.evidence,
+                  now: _now,
+                  generationApproved: _newReleaseDebutsApproved,
+                  headlinesApproved: _newReleaseDebutsApproved,
+                ),
         ).compose([
           for (final item in _momentFeedItems)
             if (!_offReleaseChart(item)) item,
@@ -337,13 +422,76 @@ class ChartsController extends ChangeNotifier {
     final pager = _momentPager;
     final contextDay = pager != null && pager.hasMore ? pager.oldestDay : null;
 
-    if (contextDay == null) return stories;
+    final shown = contextDay == null
+        ? stories
+        : List<MomentStory>.unmodifiable([
+            for (final story in stories)
+              if (ChartMomentFeedPager.localDay(story.occurredAt) != contextDay)
+                story,
+          ]);
+    _publishNewReleases(shown);
+    return shown;
+  }
 
-    return List.unmodifiable([
-      for (final story in stories)
-        if (ChartMomentFeedPager.localDay(story.occurredAt) != contextDay)
-          story,
-    ]);
+  /// Stores the publication of each new-release story shown for the first
+  /// time, once per song. When another load stored a different one first,
+  /// that one is told from then on.
+  void _publishNewReleases(List<MomentStory> shown) {
+    final inputs = _newReleaseInputs;
+    final store = _newReleasePublications;
+    if (inputs == null || store == null) return;
+    final pending = [
+      for (final story in shown)
+        if (story.newRelease case final rewording?
+            when !rewording.recorded &&
+                inputs.attempted.add(rewording.publication.songId))
+          rewording.publication,
+    ];
+    if (pending.isEmpty) return;
+    final writing = _storeNewReleases(store, inputs, pending);
+    _newReleaseWrites = Future.wait([_newReleaseWrites, writing]);
+    unawaited(writing);
+  }
+
+  Future<void> _newReleaseWrites = Future<void>.value();
+
+  /// Completes once every publication sent so far is stored (or failed,
+  /// logged). Tests only.
+  @visibleForTesting
+  Future<void> get newReleaseWritesSettled => _newReleaseWrites;
+
+  Future<void> _storeNewReleases(
+    NewReleasePublicationStore store,
+    _NewReleaseInputs inputs,
+    List<NewReleasePublication> pending,
+  ) async {
+    try {
+      final stored = await store.publish(
+        pending,
+        restoreGeneration: inputs.restoreGeneration,
+      );
+      if (_isDisposed || !identical(inputs, _newReleaseInputs)) return;
+      inputs.publications.addAll(stored);
+      // Another load published first: tell its record from now on. Songs
+      // not stored (a restore intervened) are tried again on the next load.
+      final differs = pending.any((publication) {
+        final kept = stored[publication.songId];
+        return kept != null && kept != publication;
+      });
+      if (differs) {
+        _momentStories = null;
+        _notify();
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'A new-release debut story could not be recorded '
+        '(${error.runtimeType}); it is recorded when next shown',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   static MomentStory? _newestOf(List<MomentStory> stories) {
@@ -700,11 +848,30 @@ class ChartsController extends ChangeNotifier {
 
   /// The title and credit line the current song chart shows for a song:
   /// its version qualifier and role-aware credits, so two recordings
-  /// sharing a base title read differently (SN-50 BUG-02). Null on weekly
-  /// views, whose rows keep their stored titles, and for songs no longer
-  /// in the library.
+  /// sharing a base title read differently (SN-50 BUG-02). Shown on the
+  /// career standings and, since App Update 1.3 (REF-1.3-01), on the
+  /// provisional This Week chart, which is built from the library now and
+  /// never stored. Null on finalized weeks, whose rows keep their stored
+  /// titles, and for songs no longer in the library. Display only: chart
+  /// identity is the song id, never the title.
+  /// The version badge beside a finalized week's recorded title (App
+  /// Update 1.3, REF-1.3-01): the song's current version, unless the
+  /// recorded title already says it. Null on current views (their title
+  /// carries the version, [songPresentationFor]), for releases and for
+  /// songs no longer in the library. Presentation only.
+  String? versionBadgeFor(ChartEntry entry) {
+    if (!isViewingHistory || chartType != ChartType.songs) return null;
+    final track = trackForEntry(entry);
+    if (track == null) return null;
+    return songVersionQualifier(
+      title: entry.entity.title,
+      versionLabel: track.versionLabel,
+      characteristics: track.versionCharacteristics,
+    );
+  }
+
   ({String title, String subtitle})? songPresentationFor(ChartEntry entry) {
-    if (!isViewingAllTime) return null;
+    if (!isViewingAllTime && !isViewingThisWeek) return null;
 
     final track = trackForEntry(entry);
     if (track == null) return null;
@@ -1012,6 +1179,25 @@ class ChartsController extends ChangeNotifier {
       ? _tracksById[item.entity.entityId]
       : null;
 
+  /// The other songs a song story's Related row suggests (App Update 1.3,
+  /// REF-1.3-03): never the story's own recording. See
+  /// [MomentRelatedSongs]. Empty for release stories and for songs no
+  /// longer in the library. Presentation only.
+  List<LibraryTrack> relatedSongsForMoment(ChartMomentFeedItem item) {
+    final track = trackForMoment(item);
+    if (track == null) return const [];
+    final chart = _allTimeChart;
+    final ranks = chart != null && chart.chartType == ChartType.songs
+        ? {for (final entry in chart.entries) entry.entity.entityId: entry.rank}
+        : const <String, int>{};
+    return MomentRelatedSongs.select(
+      current: track,
+      library: _tracksById.values,
+      editionsOf: _momentEditions.editionIdsOf,
+      allTimeRankOf: (songId) => ranks[songId],
+    );
+  }
+
   /// The album a Moment is about, or the album of its song.
   /// The release title an album-chart story's release button names: the
   /// title of the edition it opens (the release's edition with the most
@@ -1067,7 +1253,11 @@ class ChartsController extends ChangeNotifier {
         final songId = item.entity.entityId;
         return (
           title: momentSongEditionTitle(songId) ?? album.displayTitle,
-          cover: momentLookups.currentSongCover(songId),
+          // The release's own cover, never a Single cover (App Update 1.3).
+          cover: switch (_tracksById[songId]) {
+            final track? => _momentEditions.songCover(track, album: album),
+            null => null,
+          },
         );
     }
   }
@@ -1140,6 +1330,89 @@ class ChartsController extends ChangeNotifier {
     }
   }
 
+  /// What new-release debuts need this load (App Update 1.3), or null:
+  /// not approved, not started, no loader, or a failed read (fails closed,
+  /// logged): every story then keeps its ordinary wording.
+  Future<_NewReleaseInputs?> _readNewReleaseInputs(
+    ChartMomentRules rules, {
+    required List<LibraryTrack> tracks,
+    required List<LibraryAlbum> albums,
+    required Map<String, ReleaseFormat?> formats,
+    required List<LibraryReleaseEdition> editions,
+    required Map<String, SongSinglePresentation> singles,
+    required int? restoreGeneration,
+  }) async {
+    final from = rules.newReleaseDebutsFromUtc;
+    final classify = _loadNewReleaseClassifications;
+    final history = _loadNewReleaseDebutHistory;
+    final publications = _newReleasePublications;
+    if (!_newReleaseDebutsApproved ||
+        from == null ||
+        classify == null ||
+        history == null ||
+        publications == null ||
+        restoreGeneration == null) {
+      return null;
+    }
+    try {
+      final classifications = await classify();
+      final storedDebuts = await history(from);
+      final published = await publications.readAll();
+      final evidence = await _readNewReleaseEvidence({
+        for (final event in storedDebuts) event.entity.entityId,
+      });
+      final albumsById = {for (final album in albums) album.albumId: album};
+      return _NewReleaseInputs(
+        facts: NewReleaseLibraryFacts.of(
+          tracks: tracks,
+          albumsById: albumsById,
+          formatOf: (albumId) => formats.containsKey(albumId)
+              ? formats[albumId]
+              : ReleaseFormat.album,
+          editions: editions,
+          singles: singles,
+          classifications: classifications,
+        ),
+        storedDebuts: storedDebuts,
+        publications: {...published},
+        evidence: evidence,
+        restoreGeneration: restoreGeneration,
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'New-release debut facts could not be read (${error.runtimeType}); '
+        'debut stories keep their ordinary wording',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  /// Fails closed: without a loader, or when the read fails (logged),
+  /// nothing new is proven.
+  Future<NewReleaseEvidence> _readNewReleaseEvidence(
+    Set<String> songIds,
+  ) async {
+    final load = _loadNewReleaseEvidence;
+    if (load == null || songIds.isEmpty) return NewReleaseEvidence.none;
+    try {
+      return await load(songIds);
+    } catch (error, stackTrace) {
+      developer.log(
+        'New-release debut evidence could not be read '
+        '(${error.runtimeType}); no new debut story is told',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return NewReleaseEvidence.none;
+    }
+  }
+
   /// Fails open: without formats every release reads as an Album.
   Future<Map<String, ReleaseFormat?>> _readReleaseFormats() async {
     try {
@@ -1168,6 +1441,24 @@ class ChartsController extends ChangeNotifier {
 
   /// Null when there is no loader or the read failed: song Moments then
   /// keep their pre-1.1 pictures.
+  Future<Map<String, SongSinglePresentation>> _readSinglePresentations() async {
+    final load = _loadSinglePresentations;
+    if (load == null) return const {};
+    try {
+      return await load();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Single presentations could not be read (${error.runtimeType}); '
+        'songs show their usual artwork',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return const {};
+    }
+  }
+
   Future<List<SongEditionMembership>?> _readSongEditionMemberships() async {
     final load = _loadSongEditionMemberships;
     if (load == null) return null;
@@ -1356,6 +1647,9 @@ class ChartsController extends ChangeNotifier {
     }
 
     final generation = ++_requestGeneration;
+    // Before anything is read: a restore after it stores no new-release
+    // publication composed from what this load read.
+    final publicationGeneration = _newReleasePublications?.restoreGeneration;
 
     _isLoading = true;
     _error = null;
@@ -1429,6 +1723,20 @@ class ChartsController extends ChangeNotifier {
       final formats = await _readReleaseFormats();
       final editions = await _readReleaseEditions();
       final memberships = await _readSongEditionMemberships();
+      // Read only when a song is a Single (a cover can show only then).
+      final singles = tracks.any((track) => track.isSingle)
+          ? await _readSinglePresentations()
+          : const <String, SongSinglePresentation>{};
+
+      final newReleaseInputs = await _readNewReleaseInputs(
+        momentRules,
+        tracks: tracks,
+        albums: albums,
+        formats: formats,
+        editions: editions,
+        singles: singles,
+        restoreGeneration: publicationGeneration,
+      );
 
       var momentFeedItems = _momentFeedItems;
       var momentPager = _momentPager;
@@ -1469,6 +1777,7 @@ class ChartsController extends ChangeNotifier {
       _longevity = ChartLongevityIndex.fromHistory(history);
 
       _tracksById = {for (final track in tracks) track.songId: track};
+      _singles = singles;
 
       _albumsById = {for (final album in albums) album.albumId: album};
       _albumPresentations = _albumPresentationsOf(albums, editions);
@@ -1480,6 +1789,7 @@ class ChartsController extends ChangeNotifier {
       _releaseFormats = formats;
 
       _momentRules = momentRules;
+      _newReleaseInputs = newReleaseInputs;
       _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
         momentFeedItems,
       );
@@ -1566,6 +1876,17 @@ class ChartsController extends ChangeNotifier {
     });
   }
 
+  /// [entry]'s positions on the finalized weekly chart over its recent
+  /// weeks, through the week shown when a finalized week is shown (App
+  /// Update 1.3 Chart Studio). Null when there are too few to draw. Never
+  /// includes the provisional week in progress.
+  ChartRankTrend? weeklyRankTrendFor(ChartEntry entry) => ChartRankTrend.of(
+    _history,
+    chartType: _chartType,
+    entityId: entry.entity.entityId,
+    throughWeekStartUtc: selectedHistoricalSnapshot?.weekStartUtc,
+  );
+
   static Map<String, int> _weeklyPeaksOf(List<ChartSnapshot> history) {
     final peaks = <String, int>{};
 
@@ -1602,6 +1923,36 @@ class ChartsController extends ChangeNotifier {
       entries: List.unmodifiable(source.entries.take(_effectiveSize.limit)),
     );
   }
+}
+
+/// The library facts and stored debuts new-release debuts were read with.
+class _NewReleaseInputs implements NewReleaseLookups {
+  _NewReleaseInputs({
+    required this.facts,
+    required this.storedDebuts,
+    required this.publications,
+    required this.restoreGeneration,
+    this.evidence = NewReleaseEvidence.none,
+  });
+
+  final Map<String, NewReleaseSongFacts> facts;
+  final List<ChartMomentEvent> storedDebuts;
+
+  /// What proves a newly composed story (NewReleaseDebutDesk.evidence).
+  final NewReleaseEvidence evidence;
+
+  /// Stored publications by song id; grows as stories are first shown.
+  final Map<String, NewReleasePublication> publications;
+
+  /// LibraryMutationCoordinator.restoreGeneration when the load began.
+  final int restoreGeneration;
+
+  /// Songs whose publication was sent to the store with these inputs:
+  /// each is sent once per load.
+  final Set<String> attempted = {};
+
+  @override
+  NewReleaseSongFacts? newReleaseFactsOf(String songId) => facts[songId];
 }
 
 /// Library lookups for Moments, from what the controller has loaded.
@@ -1660,13 +2011,20 @@ class _ControllerMomentLookups implements MomentLookups {
   /// The cover of the edition the song first appeared on, then the song's
   /// own artwork, then its album's cover (App Update 1.1; see
   /// [MomentEditionResolver.songCover]).
+  ///
+  /// App Update 1.3 (REF-1.3-04): a Single's own cover comes first when the
+  /// listener chose to show it in Moments ([SingleCoverPolicy]).
   @override
   String? currentSongCover(String songId) {
     final track = _controller._tracksById[songId];
     if (track == null) return null;
-    return _controller._momentEditions.songCover(
-      track,
-      album: _controller._albumsById[track.albumId],
+    return SingleCoverPolicy.momentCover(
+      isSingle: track.isSingle,
+      single: _controller._singles[songId],
+      existing: _controller._momentEditions.songCover(
+        track,
+        album: _controller._albumsById[track.albumId],
+      ),
     );
   }
 

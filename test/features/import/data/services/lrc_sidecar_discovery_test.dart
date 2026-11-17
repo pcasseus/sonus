@@ -82,4 +82,55 @@ void main() {
     expect(candidates, hasLength(1));
     expect(candidates.single.lyricsPath, isNull);
   });
+  // App Update 1.3 (REF-1.3-07): plain-text lyrics files.
+  group('TXT lyrics', () {
+    Future<Directory> album(Map<String, String> files) async {
+      final root = await Directory.systemTemp.createTemp('sonus_txt_');
+      addTearDown(() async {
+        if (await root.exists()) await root.delete(recursive: true);
+      });
+      final albumDirectory = await Directory(
+        path.join(root.path, 'Album'),
+      ).create();
+      for (final MapEntry(key: name, value: text) in files.entries) {
+        final file = File(path.join(albumDirectory.path, name));
+        if (name.endsWith('.mp3')) {
+          await file.writeAsBytes(const [0]);
+        } else {
+          await file.writeAsString(text);
+        }
+      }
+      return root;
+    }
+
+    test('a .txt of the same name is the lyrics file', () async {
+      final root = await album({'01 Song.mp3': '', '01 Song.TXT': 'Words'});
+      final candidates = await const FileSystemImportCandidateDiscovery()
+          .discoverFolder(root.path);
+      expect(candidates, hasLength(1));
+      expect(candidates.single.lyricsPath, endsWith('01 Song.TXT'));
+    });
+
+    test('an .lrc of the same name wins over a .txt', () async {
+      final root = await album({
+        '01 Song.mp3': '',
+        '01 Song.txt': 'Words',
+        '01 Song.lrc': '[00:01.00]Line',
+      });
+      final candidates = await const FileSystemImportCandidateDiscovery()
+          .discoverFolder(root.path);
+      expect(candidates.single.lyricsPath, endsWith('01 Song.lrc'));
+    });
+
+    test(
+      'a .txt with another name is allowed and attaches to nothing',
+      () async {
+        final root = await album({'01 Song.mp3': '', 'notes.txt': 'Credits'});
+        final candidates = await const FileSystemImportCandidateDiscovery()
+            .discoverFolder(root.path);
+        expect(candidates, hasLength(1));
+        expect(candidates.single.lyricsPath, isNull);
+      },
+    );
+  });
 }

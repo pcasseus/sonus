@@ -6,6 +6,9 @@ import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/album_edition_disc_label_schema.dart';
+import 'schema/new_release_publication_schema.dart';
+import 'schema/song_single_presentation_schema.dart';
+import 'schema/lyrics_provenance_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -555,6 +558,25 @@ abstract final class DatabaseMigrations {
           );
         }
         await ChartSchema.createChartHistoryOrigin(db);
+        return;
+
+      case 47:
+        // App Update 1.3, REF-1.3-04: a song's own Single presentation
+        // (release date and dedicated cover). One new table; every existing
+        // row is untouched and no song has a presentation yet.
+        await SongSinglePresentationSchema.create(db);
+        return;
+
+      case 48:
+        // App Update 1.3: published new-release debut stories, one per
+        // song (user decision 2026-11-16). A new, empty table; nothing has
+        // been published before it.
+        await NewReleasePublicationSchema.create(db);
+        // App Update 1.3: where each lyrics text came from. Nullable
+        // columns only; every stored text is kept and left legacy (source
+        // not recorded, never assumed to be the listener's edit).
+        if (!await _tableExists(db, DatabaseTables.trackLyrics)) return;
+        await LyricsProvenanceSchema.addColumns(db);
         return;
 
       default:

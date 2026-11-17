@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
@@ -93,5 +95,57 @@ class ChartMomentEventDao {
       orderBy: 'occurred_at DESC, id DESC',
       limit: limit,
     );
+  }
+
+  /// Moments of [chartType] and [eventType] in one of [scopes] that
+  /// occurred at or after [fromOccurredAt], oldest first (App Update 1.3
+  /// new-release debuts). Reads the occurred-time index; parameterized.
+  Future<List<Map<String, Object?>>> findSince({
+    required String fromOccurredAt,
+    required String chartType,
+    required String eventType,
+    required List<String> scopes,
+  }) {
+    final placeholders = List.filled(scopes.length, '?').join(', ');
+    return db.query(
+      DatabaseTables.chartMomentEvents,
+      where:
+          'occurred_at >= ? AND chart_type = ? AND event_type = ? '
+          'AND scope IN ($placeholders)',
+      whereArgs: [fromOccurredAt, chartType, eventType, ...scopes],
+      orderBy: 'occurred_at ASC, id ASC',
+    );
+  }
+
+  /// Every Moment of [chartType] and one of [eventTypes] in one of
+  /// [scopes] about one of [entityIds], at any time, oldest first (App
+  /// Update 1.3: whether a song had charted before its new-release debut).
+  /// Reads the entity index; parameterized, in chunks under SQLite's
+  /// variable limit.
+  Future<List<Map<String, Object?>>> findForEntities({
+    required Iterable<String> entityIds,
+    required String chartType,
+    required List<String> eventTypes,
+    required List<String> scopes,
+  }) async {
+    final ids = entityIds.toSet().toList()..sort();
+    final rows = <Map<String, Object?>>[];
+    String marks(int count) => List.filled(count, '?').join(', ');
+    const chunk = 400;
+    for (var offset = 0; offset < ids.length; offset += chunk) {
+      final part = ids.sublist(offset, math.min(offset + chunk, ids.length));
+      rows.addAll(
+        await db.query(
+          DatabaseTables.chartMomentEvents,
+          where:
+              'entity_id IN (${marks(part.length)}) AND chart_type = ? '
+              'AND event_type IN (${marks(eventTypes.length)}) '
+              'AND scope IN (${marks(scopes.length)})',
+          whereArgs: [...part, chartType, ...eventTypes, ...scopes],
+          orderBy: 'occurred_at ASC, id ASC',
+        ),
+      );
+    }
+    return rows;
   }
 }

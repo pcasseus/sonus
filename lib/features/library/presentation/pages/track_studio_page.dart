@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 
+import '../../application/services/song_single_presentation_service.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_form_section.dart';
@@ -21,6 +23,7 @@ import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
+import 'single_presentation_editor_page.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/track_credit_editor_dialog.dart';
 
@@ -612,6 +615,30 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                         });
                       },
                     ),
+                    // App Update 1.3 (REF-1.3-04): the Single's own cover
+                    // and release date, saved on their own. Switching the
+                    // Single off keeps them.
+                    if (_isSingle && _hasSinglePresentations(context))
+                      ListTile(
+                        key: const ValueKey<String>(
+                          'track-single-presentation',
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                        minTileHeight: 48,
+                        leading: const Icon(Icons.album_outlined),
+                        title: const Text('Single cover and date'),
+                        subtitle: const Text(
+                          'Shown on the artist profile; the album keeps its own.',
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => unawaited(
+                          SinglePresentationEditorPage.open(
+                            context,
+                            songId: widget.track.songId,
+                            songTitle: widget.track.displayTitle,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ],
@@ -620,6 +647,16 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         ),
       ),
     );
+  }
+
+  /// Whether Singles' own covers and dates can be edited here (the Library
+  /// provides the service; screens built without it do not offer it).
+  static bool _hasSinglePresentations(BuildContext context) {
+    try {
+      return context.read<SongSinglePresentationService?>() != null;
+    } on ProviderNotFoundException {
+      return false;
+    }
   }
 
   Future<void> _searchMusicBrainz() async {

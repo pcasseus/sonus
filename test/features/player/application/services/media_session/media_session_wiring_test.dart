@@ -84,6 +84,22 @@ void main() {
     expect(routeOf('KEYCODE_HEADSETHOOK'), 'listener.onClick');
   });
 
+  test('the vendored plugin keeps the queue title patch (App Update 1.3)', () {
+    const root = 'third_party/audio_service/';
+    const java = '${root}android/src/main/java/com/ryanheise/audioservice/';
+    final dart = File('${root}lib/audio_service.dart').readAsStringSync();
+    final plugin = File('${java}AudioServicePlugin.java').readAsStringSync();
+    final service = File('${java}AudioService.java').readAsStringSync();
+
+    expect(dart, contains('_observeQueueTitle();'));
+    expect(dart, contains("invokeMethod<void>('setQueueTitle'"));
+    expect(dart, contains("'com.ryanheise.audio_service.handler.methods'"));
+    expect(plugin, contains('case "setQueueTitle":'));
+    expect(plugin, contains('AudioService.instance.setQueueTitle(queueTitle)'));
+    expect(service, contains('mediaSession.setQueueTitle(queueTitle)'));
+    expect(File('${root}PATCHES.md').readAsStringSync(), contains('Patch 2'));
+  });
+
   group('bootstrap', () {
     test('keeps the service alive while paused and uses the Sonus icon', () {
       const config = MediaSessionBootstrap.config;

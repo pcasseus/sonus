@@ -435,9 +435,11 @@ class LibraryImportService {
     final lyricsPath = candidate.lyricsPath?.trim();
     final songId = result.songId?.trim();
 
+    final hasSidecar = lyricsPath != null && lyricsPath.isNotEmpty;
     if (service == null ||
-        lyricsPath == null ||
-        lyricsPath.isEmpty ||
+        // App Update 1.3 (REF-1.3-07): a song's own tags can carry lyrics
+        // without a sidecar.
+        (!hasSidecar && !service.readsEmbedded) ||
         songId == null ||
         songId.isEmpty ||
         result.failed ||

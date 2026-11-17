@@ -55,7 +55,7 @@ void main() {
     );
     try {
       final db = await app.database;
-      expect(AppDatabase.databaseVersion, 46);
+      expect(AppDatabase.databaseVersion, 48);
       final provenance = (await _columns(
         db,
       )).singleWhere((c) => c['name'] == 'provenance');

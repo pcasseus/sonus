@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,6 +5,7 @@ import 'package:saf/saf.dart';
 
 import '../../domain/models/import_candidate.dart';
 import '../../domain/services/lyrics_source_reader.dart';
+import 'lyrics_text_decoder.dart';
 
 typedef ContentUriBytesReader = Future<Uint8List> Function(String uri);
 
@@ -33,13 +33,8 @@ class LocalLyricsSourceReader implements LyricsSourceReader {
       return null;
     }
 
-    var text = utf8.decode(bytes, allowMalformed: true);
-
-    if (text.startsWith('\uFEFF')) {
-      text = text.substring(1);
-    }
-
-    final cleaned = text.trim();
+    // Byte order marks are dropped by the decoder.
+    final cleaned = LyricsTextDecoder.decode(bytes).trim();
 
     if (cleaned.isEmpty) {
       return null;

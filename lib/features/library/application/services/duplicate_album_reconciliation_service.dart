@@ -7,6 +7,8 @@ import '../../../../core/database/database_tables.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
+import '../../../../core/lyrics/lyrics_provenance.dart';
+import '../../../../core/lyrics/sqlite_lyrics_provenance_store.dart';
 import '../../../import/application/identity/recording_evidence.dart';
 import '../../data/repositories/merge_history_remap.dart';
 import '../../data/repositories/sqlite_library_deletion_ledger.dart';
@@ -346,15 +348,59 @@ class DuplicateAlbumReconciliationService {
       }
 
       // Lyrics: the kept song's own win; otherwise the duplicate's move.
-      final keptLyrics = await txn.query(
-        DatabaseTables.trackLyrics,
+      // App Update 1.3 (version 48), text by text: an empty kept text takes
+      // the duplicate's, and a more recent listener edit on the duplicate
+      // replaces the kept text; the kept song's listener edit always stays.
+      final keptLyrics = await SqliteLyricsProvenanceStore.readIn(txn, keep);
+      if (keptLyrics == null) {
+        await txn.update(
+          DatabaseTables.trackLyrics,
+          {'song_id': keep},
+          where: 'song_id = ?',
+          whereArgs: [drop],
+        );
+      } else if (await SqliteLyricsProvenanceStore.readIn(txn, drop)
+          case final dropped?) {
+        final merged = LyricsRows.merge(
+          songId: keep,
+          existing: keptLyrics,
+          incoming: dropped,
+          stamp: stamp,
+          mode: LyricsMergeMode.keepExisting,
+        );
+        if (merged != null) {
+          await SqliteLyricsProvenanceStore.writeIn(txn, merged, exists: true);
+        }
+      }
+
+      // App Update 1.3: a published new-release story follows the song
+      // that stays, as its Moments do, unless that song has its own; then
+      // the duplicate's stays under its old id, kept, told by nothing.
+      final keptPublication = await txn.query(
+        DatabaseTables.newReleaseDebutPublications,
         columns: ['song_id'],
         where: 'song_id = ?',
         whereArgs: [keep],
       );
-      if (keptLyrics.isEmpty) {
+      if (keptPublication.isEmpty) {
         await txn.update(
-          DatabaseTables.trackLyrics,
+          DatabaseTables.newReleaseDebutPublications,
+          {'song_id': keep},
+          where: 'song_id = ?',
+          whereArgs: [drop],
+        );
+      }
+
+      // App Update 1.3: a Single presentation follows the same rule.
+      final keptSingle = await txn.query(
+        DatabaseTables.songSinglePresentations,
+        columns: ['song_id'],
+        where: 'song_id = ?',
+        whereArgs: [keep],
+      );
+      if (keptSingle.isEmpty) {
+        await txn.update(
+          DatabaseTables.songSinglePresentations,
           {'song_id': keep},
           where: 'song_id = ?',
           whereArgs: [drop],

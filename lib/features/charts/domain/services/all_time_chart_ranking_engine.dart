@@ -114,7 +114,12 @@ class AllTimeChartRankingEngine {
       movement: _movementFor(
         rank: rank,
         previousRank: previousRank,
-        hadCharted: comparison.charted.contains(state.entityId),
+        // NEW is a first appearance on the relevant chart: arriving in the
+        // Hot 100 needs an earlier Hot 100 position to be a RE-ENTRY, as on
+        // the weekly chart (App Update 1.3 movement rules).
+        hadCharted: rank <= ChartRankingEngine.officialChartLimit
+            ? comparison.chartedHot100.contains(state.entityId)
+            : comparison.charted.contains(state.entityId),
       ),
     );
   }
@@ -161,7 +166,11 @@ class AllTimeChartRankingEngine {
 
 /// The standings at the comparison start.
 class _Comparison {
-  const _Comparison({required this.ranks, required this.charted});
+  const _Comparison({
+    required this.ranks,
+    required this.charted,
+    required this.chartedHot100,
+  });
 
   factory _Comparison.of(
     Iterable<_LifetimeState> states,
@@ -185,6 +194,11 @@ class _Comparison {
           if (state.peakRank! <= ChartRankingEngine.extendedStandingsLimit)
             state.entityId,
       },
+      chartedHot100: {
+        for (final state in states)
+          if (state.peakRank! <= ChartRankingEngine.officialChartLimit)
+            state.entityId,
+      },
     );
   }
 
@@ -193,6 +207,9 @@ class _Comparison {
 
   /// Entities that had been inside the extended standings before.
   final Set<String> charted;
+
+  /// Entities that had been in the Hot 100 (#1–100) before.
+  final Set<String> chartedHot100;
 }
 
 List<_LifetimeState> _sortedStates(Iterable<_LifetimeState> states) =>

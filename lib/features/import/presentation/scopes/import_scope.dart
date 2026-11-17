@@ -21,8 +21,7 @@ import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
-import '../../../player/data/daos/track_lyrics_dao.dart';
-import '../../../player/data/repositories/sqlite_track_lyrics_repository.dart';
+import '../../../../core/lyrics/sqlite_lyrics_provenance_store.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/services/atomic_library_importer.dart';
 import '../../application/services/device_music_access.dart';
@@ -35,6 +34,7 @@ import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
 import '../../application/services/possible_recording_review_service.dart';
+import '../../application/lyrics/id3_lyrics_reader.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
@@ -245,10 +245,7 @@ class _ImportScopeState extends State<ImportScope> {
 
     // Sidecar lyrics are written after the song import commits, so the write
     // must participate in restore admission on its own.
-    final trackLyricsRepository = SqliteTrackLyricsRepository(
-      TrackLyricsDao(sqliteDatabase),
-      appDatabase: database,
-    );
+    final lyricsWriter = SqliteLyricsProvenanceStore(appDatabase: database);
 
     // Review resolution and startup cleanup write outside any caller-owned
     // transaction, so both participate in restore admission.
@@ -292,11 +289,25 @@ class _ImportScopeState extends State<ImportScope> {
       userId: userId,
     );
 
+    final openAudio = audioByteSourceOpener(
+      saf: Platform.isAndroid ? _saf : null,
+    );
     final lyricsIngestionService = LyricsIngestionService(
       sourceReader: LocalLyricsSourceReader(
         saf: Platform.isAndroid ? _saf : null,
       ),
-      trackLyricsRepository: trackLyricsRepository,
+      lyricsWriter: lyricsWriter,
+      // App Update 1.3 (REF-1.3-07): lyrics in the song's own ID3 tag,
+      // read locally (bounded reads, never the audio itself).
+      embeddedReader: (candidate) async {
+        final source = await openAudio(candidate.filePath);
+        if (source == null) return null;
+        try {
+          return await Id3LyricsReader.read(source);
+        } finally {
+          await source.close();
+        }
+      },
     );
 
     final possibleRecordingStore = PossibleRecordingStore();
@@ -305,7 +316,7 @@ class _ImportScopeState extends State<ImportScope> {
     // by their audio, read-only.
     final fileIdentityService = FileIdentityService(
       appDatabase: database,
-      openSource: audioByteSourceOpener(saf: Platform.isAndroid ? _saf : null),
+      openSource: openAudio,
       metadataResolver: metadataResolver,
       tagUpdater: ExistingSongTagUpdater(userId: userId),
       reviewStore: possibleRecordingStore,

@@ -1,7 +1,9 @@
 import 'dart:ui' show ImageFilter;
+import '../../application/services/song_single_presentation_service.dart';
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -187,6 +189,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artworkCropService: context.read<ArtworkCropService?>(),
       organization: context.read<LibraryOrganizationService?>(),
       projectArtistId: widget.projectArtistId,
+      singlePresentations: _optional<SongSinglePresentationService>(context),
     );
 
     // The artwork can change without this State rebuilding: when the
@@ -534,7 +537,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                         !playableAlbumIds.contains(album.albumId),
                   );
                   // REF-16: songs marked as singles that live on an album
-                  // join the Singles section, once each, as themselves.
+                  // join the Singles section, once each, as themselves:
+                  // since App Update 1.3 as cards in the Singles rail.
                   final singleSongs = ArtistProfileSections.singleSongs(
                     tracks: controller.allTracks,
                     artistId: controller.artistId,
@@ -758,34 +762,34 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                               : 0),
                                     ),
                                     const SizedBox(height: 12),
-                                    if (cards.isNotEmpty)
-                                      ArtistProfileAlbumsGrid(
-                                        cards: cards,
-                                        onAlbumTap: (album) {
-                                          unawaited(
-                                            _pushAndRefresh(
-                                              AlbumProfilePage(
-                                                albumId: album.albumId,
-                                                initialAlbumTitle:
-                                                    album.displayTitle,
-                                              ),
+                                    ArtistProfileAlbumsGrid(
+                                      cards: shelf == ArtistReleaseShelf.singles
+                                          ? ArtistProfileSections.singlesRail(
+                                              releases: cards,
+                                              songs: singleSongs,
+                                              presentations: controller
+                                                  .singlePresentations,
+                                            )
+                                          : cards,
+                                      onSingleSongTap: (track) => unawaited(
+                                        openSongStats(
+                                          context,
+                                          songId: track.songId,
+                                          initialTitle: track.displayTitle,
+                                        ),
+                                      ),
+                                      onAlbumTap: (album) {
+                                        unawaited(
+                                          _pushAndRefresh(
+                                            AlbumProfilePage(
+                                              albumId: album.albumId,
+                                              initialAlbumTitle:
+                                                  album.displayTitle,
                                             ),
-                                          );
-                                        },
-                                      ),
-                                    if (shelf == ArtistReleaseShelf.singles &&
-                                        singleSongs.isNotEmpty) ...[
-                                      if (cards.isNotEmpty)
-                                        const SizedBox(height: 12),
-                                      _tracksList(
-                                        context,
-                                        controller,
-                                        userId,
-                                        atmosphere,
-                                        tracks: singleSongs,
-                                        keyPrefix: 'artist-single-song',
-                                      ),
-                                    ],
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ],
                                 ),
                               ),

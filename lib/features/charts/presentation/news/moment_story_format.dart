@@ -270,6 +270,8 @@ class MomentEditorialPalette {
     required this.purple,
     required this.pinkText,
     required this.purpleText,
+    required this.live,
+    required this.liveText,
     required this.up,
     required this.down,
     required this.gold,
@@ -295,6 +297,8 @@ class MomentEditorialPalette {
         purple: colors.textPrimary,
         pinkText: colors.textPrimary,
         purpleText: colors.textPrimary,
+        live: colors.textPrimary,
+        liveText: colors.textPrimary,
         up: _readable(colors.chartUp, surface, 4.5, colors.textPrimary),
         down: _readable(colors.chartDown, surface, 4.5, colors.textPrimary),
         gold: colors.textPrimary,
@@ -330,6 +334,13 @@ class MomentEditorialPalette {
         4.5,
         colors.textPrimary,
       ),
+      live: _readable(_liveCyan, surface, 3, colors.textPrimary),
+      liveText: _readable(
+        Color.lerp(_liveCyan, Colors.white, 0.2)!,
+        surface,
+        4.5,
+        colors.textPrimary,
+      ),
       up: _readable(colors.chartUp, surface, 4.5, colors.textPrimary),
       down: _readable(colors.chartDown, surface, 4.5, colors.textPrimary),
       gold: _readable(
@@ -350,6 +361,14 @@ class MomentEditorialPalette {
   final Color purple;
   final Color pinkText;
   final Color purpleText;
+
+  /// App Update 1.3 (REF-1.3-02): the Chart Journey's provisional live
+  /// position, a cyan that contrasts with the finalized pink history (3:1
+  /// for the line and marker, 4.5:1 for [liveText]). High contrast uses
+  /// the text colour; the dashed line and LIVE label still set it apart.
+  final Color live;
+  final Color liveText;
+  static const Color _liveCyan = Color(0xFF2FD9EE);
   final Color up;
   final Color down;
   final Color gold;

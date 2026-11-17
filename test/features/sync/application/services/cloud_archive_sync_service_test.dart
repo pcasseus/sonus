@@ -17,6 +17,10 @@ import '../../../../support/recovery_fixtures.dart';
 
 const _user = 'user-1';
 
+/// The archive machinery is exercised with lyrics as an ordinary mutable
+/// record, so these devices open the App Update 1.3 lyrics gate (legacy
+/// rows only, which merge as before). The closed gate, the default, is
+/// covered by lyrics_archive_provenance_test.dart.
 class _Device {
   _Device(
     this.database,
@@ -34,6 +38,7 @@ class _Device {
       newId: () => 'copy-${++_copies}',
       now: () => DateTime.parse(now()),
       pageSize: 3,
+      uploadLyrics: true,
     );
   }
 
@@ -572,6 +577,7 @@ void main() {
         store: a.store,
         queueArtworkUpload: ({required userId, required artworkId}) async {},
         pageSize: 3,
+        uploadLyrics: true,
       );
 
       await expectLater(

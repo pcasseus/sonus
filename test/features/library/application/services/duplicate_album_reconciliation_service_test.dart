@@ -481,6 +481,162 @@ void main() {
     );
   });
 
+  // App Update 1.3 (REF-1.3-04): like lyrics, the kept song's own Single
+  // presentation wins; otherwise the duplicate's moves to it.
+  test('Single presentations follow the kept songs', () async {
+    await seedAlbum(
+      'album_a',
+      createdAt: '2026-10-01T00:00:00Z',
+      folder: '/a',
+      playable: true,
+    );
+    await seedAlbum(
+      'album_b',
+      createdAt: '2026-10-02T00:00:00Z',
+      folder: '/b',
+      playable: true,
+    );
+    Future<void> single(String song, String year) =>
+        db.insert(DatabaseTables.songSinglePresentations, {
+          'song_id': song,
+          'release_date': year,
+          'release_date_precision': 'year',
+          'use_artwork_in_charts': 0,
+          'created_at': '2026-10-03T00:00:00Z',
+          'updated_at': '2026-10-03T00:00:00Z',
+        });
+    await single('song_album_b_1', '2026');
+    await single('song_album_a_2', '2025');
+    await single('song_album_b_2', '2024');
+
+    await service.reconcile();
+
+    final rows = {
+      for (final row in await db.query(DatabaseTables.songSinglePresentations))
+        row['song_id']: row['release_date'],
+    };
+    expect(rows, {'song_album_a_1': '2026', 'song_album_a_2': '2025'});
+  });
+
+  // App Update 1.3 (user decision 2026-11-16): a published new-release
+  // story follows the kept song, as its Moments do; when the kept song has
+  // its own, the duplicate's is kept under its old id, never deleted.
+  test('new-release publications follow the kept songs, never '
+      'deleted', () async {
+    await seedAlbum(
+      'album_a',
+      createdAt: '2026-10-01T00:00:00Z',
+      folder: '/a',
+      playable: true,
+    );
+    await seedAlbum(
+      'album_b',
+      createdAt: '2026-10-02T00:00:00Z',
+      folder: '/b',
+      playable: true,
+    );
+    Future<void> published(String song) =>
+        db.insert(DatabaseTables.newReleaseDebutPublications, {
+          'song_id': song,
+          'story_id': 'story-$song',
+          'event_id': 'event-$song',
+          'event_deduplication_key': 'key-$song',
+          'kind': 'single',
+          'chart_scope': 'allTime',
+          'chart_rank': 10,
+          'chart_name': 'the Career Sonus Hot 100',
+          'week_start_utc': '2026-11-15T00:00:00.000Z',
+          'debuted_at_utc': '2026-11-17T00:00:00.000Z',
+          'song_title': song,
+          'artist_name': 'Artist',
+          'release_date': '2026-11-07',
+          'release_date_precision': 'day',
+          'headline': 'Headline $song.',
+          'published_at': '2026-11-17T00:00:00.000Z',
+        });
+    await published('song_album_b_1');
+    await published('song_album_a_2');
+    await published('song_album_b_2');
+
+    await service.reconcile();
+
+    final rows = {
+      for (final row in await db.query(
+        DatabaseTables.newReleaseDebutPublications,
+      ))
+        row['song_id']: row['headline'],
+    };
+    expect(rows, {
+      'song_album_a_1': 'Headline song_album_b_1.',
+      'song_album_a_2': 'Headline song_album_a_2.',
+      'song_album_b_2': 'Headline song_album_b_2.',
+    });
+  });
+
+  // App Update 1.3 (database version 48): lyrics merge text by text. An
+  // empty kept text takes the duplicate's; the kept song's listener edit
+  // always stays; a duplicate's listener edit replaces imported text.
+  test('lyrics merge text by text and never lose a listener edit', () async {
+    await seedAlbum(
+      'album_a',
+      createdAt: '2026-10-01T00:00:00Z',
+      folder: '/a',
+      playable: true,
+    );
+    await seedAlbum(
+      'album_b',
+      createdAt: '2026-10-02T00:00:00Z',
+      folder: '/b',
+      playable: true,
+    );
+    Future<void> lyrics(String song, Map<String, Object?> values) =>
+        db.insert(DatabaseTables.trackLyrics, {
+          'song_id': song,
+          'created_at': '2026-10-03T00:00:00Z',
+          'updated_at': '2026-10-03T00:00:00Z',
+          ...values,
+        });
+    await lyrics('song_album_a_1', {
+      'plain_text': 'My words',
+      'plain_source': 'user',
+      'plain_user_edited_at': '2026-10-04T00:00:00Z',
+    });
+    await lyrics('song_album_b_1', {
+      'plain_text': 'Tag words',
+      'plain_source': 'embedded',
+      'synced_text': '[00:01.00]Tag',
+      'synced_source': 'embedded',
+    });
+    await lyrics('song_album_a_2', {
+      'plain_text': 'Imported',
+      'plain_source': 'sidecarTxt',
+      'synced_text': '[00:01.00]Kept legacy',
+    });
+    await lyrics('song_album_b_2', {
+      'plain_text': 'Edited on the duplicate',
+      'plain_source': 'user',
+      'plain_user_edited_at': '2026-10-05T00:00:00Z',
+      'synced_text': '[00:01.00]Duplicate tag',
+      'synced_source': 'embedded',
+    });
+
+    await service.reconcile();
+
+    final rows = {
+      for (final row in await db.query(DatabaseTables.trackLyrics))
+        row['song_id']: row,
+    };
+    expect(rows['song_album_a_1']!['plain_text'], 'My words');
+    expect(rows['song_album_a_1']!['plain_source'], 'user');
+    expect(rows['song_album_a_1']!['synced_text'], '[00:01.00]Tag');
+    expect(rows['song_album_a_1']!['synced_source'], 'embedded');
+    expect(rows['song_album_a_2']!['plain_text'], 'Edited on the duplicate');
+    expect(rows['song_album_a_2']!['plain_source'], 'user');
+    // Automatic text: the kept song's own stays, whatever the duplicate's.
+    expect(rows['song_album_a_2']!['synced_text'], '[00:01.00]Kept legacy');
+    expect(rows['song_album_a_2']!['synced_source'], isNull);
+  });
+
   test('the album with the listening history stays, even if newer', () async {
     await seedAlbum(
       'album_old',

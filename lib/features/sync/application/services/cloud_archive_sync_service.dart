@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models/cloud_archive_record.dart';
+import '../../domain/models/lyrics_archive_sync_gate.dart';
 import 'cloud_archive_gateway.dart';
 import 'sync_cancellation.dart';
 
@@ -101,7 +102,10 @@ typedef QueueLibraryUpload =
 ///   stands and nothing is overwritten;
 /// - a playlist changed on two devices is kept twice (this device's copy
 ///   is saved as "`name` (this device)"), so no song or order is lost;
-/// - lyrics, crops and organization: the most recent edit wins.
+/// - crops and organization: the most recent edit wins;
+/// - lyrics: not uploaded while [LyricsArchiveSyncGate.uploadsEnabled] is
+///   off; cloud copies are merged text by text, never replacing the
+///   listener's edit or a better source (the store's rule).
 /// Removals are recorded in the cloud, keeping the content, and never
 /// remove anything on another device.
 ///
@@ -116,6 +120,7 @@ class CloudArchiveSyncService {
     String Function()? newId,
     DateTime Function()? now,
     this.pageSize = 200,
+    this.uploadLyrics = LyricsArchiveSyncGate.uploadsEnabled,
   }) : _newId = newId ?? const Uuid().v4,
        _now = now ?? DateTime.now;
 
@@ -125,6 +130,12 @@ class CloudArchiveSyncService {
   final String Function() _newId;
   final DateTime Function() _now;
   final int pageSize;
+
+  /// App Update 1.3: off by default ([LyricsArchiveSyncGate]). While off,
+  /// no lyrics record is uploaded and no lyrics removal is recorded, so an
+  /// older build can never receive (and strip) provenance. Lyrics records
+  /// from the cloud are still applied under the store's guarded merge.
+  final bool uploadLyrics;
 
   /// Whether this pass's server keeps history tombstones final and empty.
   bool _deletionSupported = false;
@@ -167,6 +178,7 @@ class CloudArchiveSyncService {
           !deletionSupported) {
         continue;
       }
+      if (record.kind == CloudArchiveKind.lyrics && !uploadLyrics) continue;
       final state = states[record.recordId];
       if (state != null && state.pendingApply) continue;
       if (state != null && state.fingerprint == record.fingerprint) continue;
@@ -200,6 +212,7 @@ class CloudArchiveSyncService {
       final separator = recordId.indexOf(':');
       final kind = CloudArchiveKind.fromWire(recordId.substring(0, separator));
       if (kind == null || kind == CloudArchiveKind.libraryDeletion) continue;
+      if (kind == CloudArchiveKind.lyrics && !uploadLyrics) continue;
       final key = recordId.substring(separator + 1);
       // History (listening, Moments) leaves the cloud only when the user
       // permanently deleted it here, and only on a server that keeps such

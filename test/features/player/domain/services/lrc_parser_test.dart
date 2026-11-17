@@ -170,6 +170,44 @@ Untimed lyric
     });
   });
 
+  // App Update 1.3 (REF-1.3-07): enhanced LRC word timings.
+  group('enhanced word timings', () {
+    test('are removed from the text; the line keeps its own time', () {
+      final lines = LrcParser.parse(
+        '[00:12.00]<00:12.00>Hold <00:12.50>me <00:13.10>close\n'
+        '[00:15.00]<00:15.00>Let <00:15.40>go<00:16.00>\n',
+      );
+
+      expect(lines.map((line) => line.text), ['Hold me close', 'Let go']);
+      expect(lines.map((line) => line.timestamp.inMilliseconds), [
+        12000,
+        15000,
+      ]);
+    });
+
+    test('syllable timings inside a word join the word', () {
+      final lines = LrcParser.parse('[00:01.00]Hel<00:01.30>lo');
+      expect(lines.single.text, 'Hello');
+    });
+
+    test('lines without word timings keep their spacing', () {
+      final lines = LrcParser.parse('[00:01.00]A  gap   kept');
+      expect(lines.single.text, 'A  gap   kept');
+    });
+
+    test('a continuation line loses its word timings too', () {
+      final lines = LrcParser.parse(
+        '[00:01.00]First\n<00:02.00>wrapped <00:02.40>line\n',
+      );
+      expect(lines.single.text, 'First\nwrapped line');
+    });
+
+    test('angle-bracket text that is not a time stays', () {
+      final lines = LrcParser.parse('[00:01.00]<3 you');
+      expect(lines.single.text, '<3 you');
+    });
+  });
+
   test('returns immutable parsed results', () {
     final lines = LrcParser.parse('[00:01.00]Line');
 

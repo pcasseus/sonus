@@ -19,6 +19,7 @@ class ArtistReelStatisticsController extends ChangeNotifier {
   ArtistLibraryStatisticsSnapshot _snapshot =
       ArtistLibraryStatisticsSnapshot.empty;
   bool _hasLoaded = false;
+  bool _hasSettled = false;
   Future<void>? _running;
   bool _again = false;
   bool _disposed = false;
@@ -27,6 +28,10 @@ class ArtistReelStatisticsController extends ChangeNotifier {
 
   /// Whether statistics have been loaded at least once.
   bool get hasLoaded => _hasLoaded;
+
+  /// Whether the first load has finished, loaded or failed. Until then the
+  /// statistics are not known; after a failure they stay empty.
+  bool get hasSettled => _hasSettled;
 
   /// Loads the statistics, or once more after a load already running.
   Future<void> refresh() {
@@ -47,6 +52,7 @@ class ArtistReelStatisticsController extends ChangeNotifier {
           if (_disposed) return;
           _snapshot = snapshot;
           _hasLoaded = true;
+          _hasSettled = true;
           notifyListeners();
         } catch (error, stackTrace) {
           developer.log(
@@ -56,6 +62,10 @@ class ArtistReelStatisticsController extends ChangeNotifier {
             error: error,
             stackTrace: stackTrace,
           );
+          if (!_disposed && !_hasSettled) {
+            _hasSettled = true;
+            notifyListeners();
+          }
         }
       } while (_again && !_disposed);
     } finally {

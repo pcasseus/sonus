@@ -643,6 +643,7 @@ class LibraryQueryDao {
         ae.artwork_id AS artwork_id,
         aa.file_path AS artwork_path,
         ae.created_at AS created_at,
+        ae.updated_at AS updated_at,
         (
           SELECT COUNT(DISTINCT et.song_id)
           FROM ${DatabaseTables.albumEditionTracks} et

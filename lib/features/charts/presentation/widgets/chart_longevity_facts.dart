@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 import '../../../../core/design/sonus_count_label.dart';
 import '../models/chart_longevity.dart';
 import '../models/chart_week_label.dart';
@@ -57,22 +55,3 @@ List<ChartLongevityFact> chartLongevityFacts(
 
 /// The facts as a wrapping row: with large text they flow onto more lines
 /// instead of being cut.
-class ChartLongevityFacts extends StatelessWidget {
-  const ChartLongevityFacts({
-    super.key,
-    required this.facts,
-    required this.style,
-  });
-
-  final List<ChartLongevityFact> facts;
-  final TextStyle? style;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 4,
-      children: [for (final fact in facts) Text(fact.text, style: style)],
-    );
-  }
-}

@@ -66,6 +66,25 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.trackLyrics,
       policy: BackupTablePolicy.portableData,
+      // Where each text came from (database version 48); lyrics in older
+      // backups restore as legacy (source not recorded). Display-only
+      // provider text is never exported.
+      columnsAddedLater: {
+        'plain_source',
+        'plain_user_edited_at',
+        'plain_updated_at',
+        'plain_confidence',
+        'synced_source',
+        'synced_user_edited_at',
+        'synced_updated_at',
+        'synced_confidence',
+        'offset_ms',
+        'offset_user_edited_at',
+        'provider',
+        'provider_ref',
+        'provider_licence',
+        'language',
+      },
     ),
 
     // Listening history and analytics.
@@ -158,6 +177,20 @@ abstract final class BackupCoverageContract {
     // without them.
     BackupTableCoverage(
       table: DatabaseTables.albumEditionDiscLabels,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
+    // Singles' own release dates and covers (database version 47). Backups
+    // made before restore without them.
+    BackupTableCoverage(
+      table: DatabaseTables.songSinglePresentations,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
+    // Published new-release debut stories (database version 48). Backups
+    // made before restore without them.
+    BackupTableCoverage(
+      table: DatabaseTables.newReleaseDebutPublications,
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
     ),
