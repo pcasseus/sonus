@@ -327,6 +327,65 @@ void main() {
     expect(assignments.single['album_id'], 'album-a');
   });
 
+  // App Update 1.3 (version 48): published new-release stories.
+  test('an older backup without new-release publications keeps the '
+      'local ones; a backup with them restores them verbatim', () async {
+    final db = await target.database;
+    await seedConnectedLibrary(db, key: 'a');
+    final record = {
+      'song_id': 'song-a',
+      'story_id': 'moment:a',
+      'event_id': 'event-a',
+      'event_deduplication_key': 'allTime|debut|song-a',
+      'kind': 'single',
+      'chart_scope': 'allTime',
+      'chart_rank': 12,
+      'chart_name': 'the Career Sonus Hot 100',
+      'week_start_utc': '2026-11-15T00:00:00.000Z',
+      'debuted_at_utc': '2026-11-17T10:00:00.000Z',
+      'song_title': 'Song A',
+      'artist_name': 'Artist A',
+      'featured_artists': '[]',
+      'album_id': null,
+      'album_title': null,
+      'album_format': null,
+      'release_date': '2026-11',
+      'release_date_precision': 'month',
+      'headline': 'Artist A debuts new single "Song A".',
+      'published_at': '2026-11-17T10:00:05.000Z',
+      'revision': 1,
+      'corrected_at': null,
+    };
+    await db.insert(DatabaseTables.newReleaseDebutPublications, record);
+
+    final full = await verifiedFixtureContents(
+      directory: root,
+      seed: (db) async {
+        await seedConnectedLibrary(db, key: 'a');
+        await seedConnectedLibrary(db, key: 'b', week: 1);
+      },
+    );
+    final older = withoutOptionalTables(full);
+    expect(
+      older.backup.payload.tables.keys,
+      isNot(contains(DatabaseTables.newReleaseDebutPublications)),
+    );
+
+    await apply(older);
+    expect(await db.query(DatabaseTables.newReleaseDebutPublications), [
+      record,
+    ]);
+
+    // A backup that carries the table (here: none published) replaces
+    // this device's rows with its own.
+    expect(
+      full.backup.payload.tables[DatabaseTables.newReleaseDebutPublications],
+      isEmpty,
+    );
+    await apply(full);
+    expect(await db.query(DatabaseTables.newReleaseDebutPublications), isEmpty);
+  });
+
   group('chart provenance (version 46)', () {
     Future<VerifiedBackupContents> backupWithOriginalWeek() =>
         verifiedFixtureContents(

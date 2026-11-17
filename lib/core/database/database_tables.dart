@@ -27,6 +27,8 @@ abstract final class DatabaseTables {
   static const String chartEntries = 'chart_entries';
   static const String chartMomentEvents = 'chart_moment_events';
   static const String chartHistoryOrigin = 'chart_history_origin';
+  static const String newReleaseDebutPublications =
+      'new_release_debut_publications';
 
   static const String playlists = 'playlists';
   static const String playlistItems = 'playlist_items';

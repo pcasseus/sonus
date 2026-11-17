@@ -373,6 +373,24 @@ class DuplicateAlbumReconciliationService {
         }
       }
 
+      // App Update 1.3: a published new-release story follows the song
+      // that stays, as its Moments do, unless that song has its own; then
+      // the duplicate's stays under its old id, kept, told by nothing.
+      final keptPublication = await txn.query(
+        DatabaseTables.newReleaseDebutPublications,
+        columns: ['song_id'],
+        where: 'song_id = ?',
+        whereArgs: [keep],
+      );
+      if (keptPublication.isEmpty) {
+        await txn.update(
+          DatabaseTables.newReleaseDebutPublications,
+          {'song_id': keep},
+          where: 'song_id = ?',
+          whereArgs: [drop],
+        );
+      }
+
       // App Update 1.3: a Single presentation follows the same rule.
       final keptSingle = await txn.query(
         DatabaseTables.songSinglePresentations,

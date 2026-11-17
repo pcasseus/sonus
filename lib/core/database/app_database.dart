@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'library_mutation_coordinator.dart';
 import 'database_migrations.dart';
 import 'schema/album_edition_disc_label_schema.dart';
+import 'schema/new_release_publication_schema.dart';
 import 'schema/song_single_presentation_schema.dart';
 import 'schema/lyrics_provenance_schema.dart';
 import 'schema/artwork_crop_schema.dart';
@@ -107,6 +108,7 @@ class AppDatabase {
     await AlbumEditionDiscLabelSchema.create(db);
     await SongSinglePresentationSchema.create(db);
     await LyricsProvenanceSchema.addColumns(db);
+    await NewReleasePublicationSchema.create(db);
   }
 
   Future<void> _onUpgrade(

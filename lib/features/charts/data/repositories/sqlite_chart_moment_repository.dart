@@ -117,6 +117,35 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
       rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
     );
   }
+
+  /// [getSongDebutsSince], plus every Weekly and Career song chart debut
+  /// and re-entry of the same songs, whenever it happened (App Update 1.3,
+  /// user decision 2026-11-16): a song that charted before the start never
+  /// gets a delayed new-release story. Read-only.
+  Future<List<ChartMomentEvent>> getSongDebutHistorySince(
+    DateTime fromUtc,
+  ) async {
+    final since = await getSongDebutsSince(fromUtc);
+    if (since.isEmpty) return since;
+    final db = await database.database;
+    final rows = await ChartMomentEventDao(db).findForEntities(
+      entityIds: {for (final event in since) event.entity.entityId},
+      chartType: ChartType.songs.name,
+      eventTypes: [
+        ChartMomentEventType.debut.name,
+        ChartMomentEventType.reentry.name,
+      ],
+      scopes: [ChartMomentScope.finalized.name, ChartMomentScope.allTime.name],
+    );
+    final seen = <String>{};
+    return List.unmodifiable([
+      for (final event in [
+        ...since,
+        ...rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+      ])
+        if (seen.add(event.deduplicationKey)) event,
+    ]);
+  }
 }
 
 /// Throws unless every event is a finalized Moment of [chartType] for the

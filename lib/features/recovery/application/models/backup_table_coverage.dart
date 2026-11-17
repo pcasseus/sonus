@@ -187,6 +187,13 @@ abstract final class BackupCoverageContract {
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
     ),
+    // Published new-release debut stories (database version 48). Backups
+    // made before restore without them.
+    BackupTableCoverage(
+      table: DatabaseTables.newReleaseDebutPublications,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(

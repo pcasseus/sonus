@@ -24,6 +24,7 @@ import '../../application/services/chart_moment_feed_pager.dart';
 import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
+import '../../application/services/new_release_publication_store.dart';
 import '../../application/services/this_week_chart_service.dart';
 import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
@@ -35,6 +36,7 @@ import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/moments/new_release_eligibility.dart';
+import '../../domain/moments/new_release_publication.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_category.dart';
 import '../models/chart_rank_trend.dart';
@@ -88,8 +90,9 @@ typedef NewReleaseClassificationsLoader =
     Future<NewReleaseClassifications> Function();
 
 /// Every stored song chart debut since [fromUtc], beyond the loaded feed
-/// pages, so a song's first new-release debut is chosen the same way
-/// however much of the feed is loaded (App Update 1.3).
+/// pages, and every earlier chart appearance of those songs, so a song's
+/// first new-release debut is chosen the same way however much of the
+/// feed is loaded (App Update 1.3).
 typedef NewReleaseDebutHistoryLoader =
     Future<List<ChartMomentEvent>> Function(DateTime fromUtc);
 
@@ -138,12 +141,14 @@ class ChartsController extends ChangeNotifier {
     SinglePresentationsLoader? singlePresentations,
     NewReleaseClassificationsLoader? newReleaseClassifications,
     NewReleaseDebutHistoryLoader? newReleaseDebutHistory,
+    NewReleasePublicationStore? newReleasePublications,
     bool newReleaseDebutsApproved =
         NewReleaseDebutActivation.generationApproved &&
         NewReleaseDebutHeadlines.approved,
   }) : _allTimeCharts = allTimeCharts,
        _loadNewReleaseClassifications = newReleaseClassifications,
        _loadNewReleaseDebutHistory = newReleaseDebutHistory,
+       _newReleasePublications = newReleasePublications,
        _newReleaseDebutsApproved = newReleaseDebutsApproved,
        _loadSinglePresentations = singlePresentations,
        _loadRecalculatedWeeks = recalculatedWeeks,
@@ -208,6 +213,11 @@ class ChartsController extends ChangeNotifier {
   final NewReleaseDebutHistoryLoader? _loadNewReleaseDebutHistory;
   final bool _newReleaseDebutsApproved;
   _NewReleaseInputs? _newReleaseInputs;
+
+  /// Published new-release stories (user decision 2026-11-16): a story is
+  /// stored the first time it is shown and told from the record after
+  /// that. Without a store no story is re-worded (fails closed).
+  final NewReleasePublicationStore? _newReleasePublications;
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -386,6 +396,8 @@ class ChartsController extends ChangeNotifier {
                   ),
                   lookups: newRelease,
                   storedDebuts: newRelease.storedDebuts,
+                  publications: newRelease.publications,
+                  now: _now,
                   generationApproved: _newReleaseDebutsApproved,
                   headlinesApproved: _newReleaseDebutsApproved,
                 ),
@@ -397,13 +409,76 @@ class ChartsController extends ChangeNotifier {
     final pager = _momentPager;
     final contextDay = pager != null && pager.hasMore ? pager.oldestDay : null;
 
-    if (contextDay == null) return stories;
+    final shown = contextDay == null
+        ? stories
+        : List<MomentStory>.unmodifiable([
+            for (final story in stories)
+              if (ChartMomentFeedPager.localDay(story.occurredAt) != contextDay)
+                story,
+          ]);
+    _publishNewReleases(shown);
+    return shown;
+  }
 
-    return List.unmodifiable([
-      for (final story in stories)
-        if (ChartMomentFeedPager.localDay(story.occurredAt) != contextDay)
-          story,
-    ]);
+  /// Stores the publication of each new-release story shown for the first
+  /// time, once per song. When another load stored a different one first,
+  /// that one is told from then on.
+  void _publishNewReleases(List<MomentStory> shown) {
+    final inputs = _newReleaseInputs;
+    final store = _newReleasePublications;
+    if (inputs == null || store == null) return;
+    final pending = [
+      for (final story in shown)
+        if (story.newRelease case final rewording?
+            when !rewording.recorded &&
+                inputs.attempted.add(rewording.publication.songId))
+          rewording.publication,
+    ];
+    if (pending.isEmpty) return;
+    final writing = _storeNewReleases(store, inputs, pending);
+    _newReleaseWrites = Future.wait([_newReleaseWrites, writing]);
+    unawaited(writing);
+  }
+
+  Future<void> _newReleaseWrites = Future<void>.value();
+
+  /// Completes once every publication sent so far is stored (or failed,
+  /// logged). Tests only.
+  @visibleForTesting
+  Future<void> get newReleaseWritesSettled => _newReleaseWrites;
+
+  Future<void> _storeNewReleases(
+    NewReleasePublicationStore store,
+    _NewReleaseInputs inputs,
+    List<NewReleasePublication> pending,
+  ) async {
+    try {
+      final stored = await store.publish(
+        pending,
+        restoreGeneration: inputs.restoreGeneration,
+      );
+      if (_isDisposed || !identical(inputs, _newReleaseInputs)) return;
+      inputs.publications.addAll(stored);
+      // Another load published first: tell its record from now on. Songs
+      // not stored (a restore intervened) are tried again on the next load.
+      final differs = pending.any((publication) {
+        final kept = stored[publication.songId];
+        return kept != null && kept != publication;
+      });
+      if (differs) {
+        _momentStories = null;
+        _notify();
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'A new-release debut story could not be recorded '
+        '(${error.runtimeType}); it is recorded when next shown',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   static MomentStory? _newestOf(List<MomentStory> stories) {
@@ -1252,19 +1327,24 @@ class ChartsController extends ChangeNotifier {
     required Map<String, ReleaseFormat?> formats,
     required List<LibraryReleaseEdition> editions,
     required Map<String, SongSinglePresentation> singles,
+    required int? restoreGeneration,
   }) async {
     final from = rules.newReleaseDebutsFromUtc;
     final classify = _loadNewReleaseClassifications;
     final history = _loadNewReleaseDebutHistory;
+    final publications = _newReleasePublications;
     if (!_newReleaseDebutsApproved ||
         from == null ||
         classify == null ||
-        history == null) {
+        history == null ||
+        publications == null ||
+        restoreGeneration == null) {
       return null;
     }
     try {
       final classifications = await classify();
       final storedDebuts = await history(from);
+      final published = await publications.readAll();
       final albumsById = {for (final album in albums) album.albumId: album};
       return _NewReleaseInputs(
         facts: NewReleaseLibraryFacts.of(
@@ -1278,6 +1358,8 @@ class ChartsController extends ChangeNotifier {
           classifications: classifications,
         ),
         storedDebuts: storedDebuts,
+        publications: {...published},
+        restoreGeneration: restoreGeneration,
       );
     } catch (error, stackTrace) {
       developer.log(
@@ -1526,6 +1608,9 @@ class ChartsController extends ChangeNotifier {
     }
 
     final generation = ++_requestGeneration;
+    // Before anything is read: a restore after it stores no new-release
+    // publication composed from what this load read.
+    final publicationGeneration = _newReleasePublications?.restoreGeneration;
 
     _isLoading = true;
     _error = null;
@@ -1611,6 +1696,7 @@ class ChartsController extends ChangeNotifier {
         formats: formats,
         editions: editions,
         singles: singles,
+        restoreGeneration: publicationGeneration,
       );
 
       var momentFeedItems = _momentFeedItems;
@@ -1802,10 +1888,25 @@ class ChartsController extends ChangeNotifier {
 
 /// The library facts and stored debuts new-release debuts were read with.
 class _NewReleaseInputs implements NewReleaseLookups {
-  _NewReleaseInputs({required this.facts, required this.storedDebuts});
+  _NewReleaseInputs({
+    required this.facts,
+    required this.storedDebuts,
+    required this.publications,
+    required this.restoreGeneration,
+  });
 
   final Map<String, NewReleaseSongFacts> facts;
   final List<ChartMomentEvent> storedDebuts;
+
+  /// Stored publications by song id; grows as stories are first shown.
+  final Map<String, NewReleasePublication> publications;
+
+  /// LibraryMutationCoordinator.restoreGeneration when the load began.
+  final int restoreGeneration;
+
+  /// Songs whose publication was sent to the store with these inputs:
+  /// each is sent once per load.
+  final Set<String> attempted = {};
 
   @override
   NewReleaseSongFacts? newReleaseFactsOf(String songId) => facts[songId];

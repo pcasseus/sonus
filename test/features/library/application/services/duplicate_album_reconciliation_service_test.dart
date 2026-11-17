@@ -518,6 +518,61 @@ void main() {
     expect(rows, {'song_album_a_1': '2026', 'song_album_a_2': '2025'});
   });
 
+  // App Update 1.3 (user decision 2026-11-16): a published new-release
+  // story follows the kept song, as its Moments do; when the kept song has
+  // its own, the duplicate's is kept under its old id, never deleted.
+  test('new-release publications follow the kept songs, never '
+      'deleted', () async {
+    await seedAlbum(
+      'album_a',
+      createdAt: '2026-10-01T00:00:00Z',
+      folder: '/a',
+      playable: true,
+    );
+    await seedAlbum(
+      'album_b',
+      createdAt: '2026-10-02T00:00:00Z',
+      folder: '/b',
+      playable: true,
+    );
+    Future<void> published(String song) =>
+        db.insert(DatabaseTables.newReleaseDebutPublications, {
+          'song_id': song,
+          'story_id': 'story-$song',
+          'event_id': 'event-$song',
+          'event_deduplication_key': 'key-$song',
+          'kind': 'single',
+          'chart_scope': 'allTime',
+          'chart_rank': 10,
+          'chart_name': 'the Career Sonus Hot 100',
+          'week_start_utc': '2026-11-15T00:00:00.000Z',
+          'debuted_at_utc': '2026-11-17T00:00:00.000Z',
+          'song_title': song,
+          'artist_name': 'Artist',
+          'release_date': '2026-11-07',
+          'release_date_precision': 'day',
+          'headline': 'Headline $song.',
+          'published_at': '2026-11-17T00:00:00.000Z',
+        });
+    await published('song_album_b_1');
+    await published('song_album_a_2');
+    await published('song_album_b_2');
+
+    await service.reconcile();
+
+    final rows = {
+      for (final row in await db.query(
+        DatabaseTables.newReleaseDebutPublications,
+      ))
+        row['song_id']: row['headline'],
+    };
+    expect(rows, {
+      'song_album_a_1': 'Headline song_album_b_1.',
+      'song_album_a_2': 'Headline song_album_a_2.',
+      'song_album_b_2': 'Headline song_album_b_2.',
+    });
+  });
+
   // App Update 1.3 (database version 48): lyrics merge text by text. An
   // empty kept text takes the duplicate's; the kept song's listener edit
   // always stays; a duplicate's listener edit replaces imported text.

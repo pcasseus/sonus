@@ -403,6 +403,33 @@ void main() {
       'updated_at': _now.toIso8601String(),
     });
 
+    // App Update 1.3: the song's published new-release story, every
+    // column set (an album track, so the album columns too).
+    await db.insert(DatabaseTables.newReleaseDebutPublications, {
+      'song_id': singleSongId,
+      'story_id': 'moment:story-1',
+      'event_id': 'event-1',
+      'event_deduplication_key': 'allTime|debut|$singleSongId',
+      'kind': 'albumTrack',
+      'chart_scope': 'allTime',
+      'chart_rank': 145,
+      'chart_name': 'the Career Sonus Bubbling Under',
+      'week_start_utc': '2026-11-15T00:00:00.000Z',
+      'debuted_at_utc': '2026-11-17T10:00:00.000Z',
+      'song_title': 'Original Title',
+      'artist_name': 'Original Artist',
+      'featured_artists': '["Guest One","Guest Two"]',
+      'album_id': 'album-at-publication',
+      'album_title': 'Original Album',
+      'album_format': 'ep',
+      'release_date': '2026-11-07',
+      'release_date_precision': 'day',
+      'headline': 'A published headline.',
+      'published_at': '2026-11-17T10:00:05.000Z',
+      'revision': 2,
+      'corrected_at': '2026-11-20T00:00:00.000Z',
+    });
+
     // Step 5: soundtrack collaborators and user edits.
     await db.insert(DatabaseTables.albumReleaseClassifications, {
       'album_id': soundtrack,
@@ -684,6 +711,18 @@ void main() {
             as String,
       );
       expect(await singleCover.readAsBytes(), List.filled(64, 6));
+
+      // The published new-release story comes back exactly as stored.
+      expect(
+        await dbB.query(DatabaseTables.newReleaseDebutPublications),
+        await dbA.query(DatabaseTables.newReleaseDebutPublications),
+      );
+      expect(
+        (await dbB.query(
+          DatabaseTables.newReleaseDebutPublications,
+        )).single['song_id'],
+        ids['single'],
+      );
 
       // The named disc comes back on its edition and disc.
       final discLabels = await dbB.query(DatabaseTables.albumEditionDiscLabels);

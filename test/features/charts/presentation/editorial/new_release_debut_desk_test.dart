@@ -13,6 +13,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_typ
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/moments/new_release_eligibility.dart';
+import 'package:sonus_next/features/charts/domain/moments/new_release_publication.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/new_release_debut_desk.dart';
@@ -142,6 +143,9 @@ NewReleaseSongFacts albumTrack(NewReleaseAlbumFacts album) =>
       album: album,
     );
 
+/// When a newly composed new-release story is first shown.
+final publishedAt = DateTime.utc(2026, 11, 26, 8);
+
 /// Every recorded debut is told (SN-50 device polish), as on the device.
 final rules = ChartMomentRules(
   devicePolishFromUtc: DateTime.utc(2026, 10, 1),
@@ -152,6 +156,7 @@ List<MomentStory> compose(
   List<ChartMomentEvent> events, {
   NewReleaseLookups? facts,
   List<ChartMomentEvent> storedDebuts = const [],
+  Map<String, NewReleasePublication> publications = const {},
   bool approved = true,
   bool attach = true,
   ChartMomentRules? withRules,
@@ -166,6 +171,8 @@ List<MomentStory> compose(
             start: NewReleaseDebutStart(effective.newReleaseDebutsFromUtc),
             lookups: facts ?? newSingle,
             storedDebuts: storedDebuts,
+            publications: publications,
+            now: () => publishedAt,
             generationApproved: approved,
             headlinesApproved: approved,
           )
@@ -561,6 +568,256 @@ void main() {
       ];
       expect(view(off), view(without));
       expect(off.where(isNewRelease), isEmpty);
+    });
+  });
+
+  // User decisions 2026-11-16: a stable publication record, and no delayed
+  // story for a song that charted before the start.
+  group('publication records', () {
+    test('a first telling composes the record with every fact it states', () {
+      final debut = weekly(dead, weekStart: week1, rank: 12);
+      final story = storyOf(
+        compose(
+          [debut],
+          lookups: FakeLookups(
+            featured: {
+              dead.entityId: ['Kehlani'],
+            },
+          ),
+        ),
+        debut,
+      );
+      final rewording = story.newRelease!;
+      expect(rewording.recorded, isFalse);
+      final record = rewording.publication;
+      expect(record.songId, dead.entityId);
+      expect(record.storyId, story.id);
+      expect(record.eventId, debut.id);
+      expect(record.eventKey, debut.deduplicationKey);
+      expect(record.kind, NewReleaseDebutKind.single);
+      expect(record.scope, ChartMomentScope.finalized);
+      expect(record.rank, 12);
+      expect(record.chartName, 'the Weekly Sonus Hot 100');
+      expect(record.weekStartUtc, week1);
+      expect(record.debutedAtUtc, week2);
+      expect(record.songTitle, 'Dead');
+      expect(record.artistName, 'Madison Beer');
+      expect(record.featuredArtists, ['Kehlani']);
+      expect(record.albumTitle, isNull);
+      expect(record.albumFormat, isNull);
+      expect(record.releaseDate, ReleaseDate.of(2026, 11, 7));
+      expect(record.headline, story.headline);
+      expect(record.publishedAtUtc, publishedAt);
+      expect(record.revision, 1);
+      expect(record.correctedAtUtc, isNull);
+      expect(story.variantId, record.variantId);
+    });
+
+    test('an album track record names its release', () {
+      final debut = weekly(eternity, weekStart: week1, rank: 30);
+      final facts = Facts({
+        eternity.entityId: albumTrack(albumFacts(format: ReleaseFormat.ep)),
+      });
+      final record = storyOf(
+        compose([debut], facts: facts),
+        debut,
+      ).newRelease!.publication;
+      expect(record.kind, NewReleaseDebutKind.albumTrack);
+      expect(record.albumId, 'album-Anatomy of a Popstar');
+      expect(record.albumTitle, 'Anatomy of a Popstar');
+      expect(record.albumFormat, ReleaseFormat.ep);
+    });
+
+    test('once published, the story is told from the record whatever the '
+        'library says now', () {
+      final debut = weekly(dead, weekStart: week1, rank: 12);
+      final record = storyOf(
+        compose(
+          [debut],
+          lookups: FakeLookups(
+            featured: {
+              dead.entityId: ['Kehlani'],
+            },
+          ),
+        ),
+        debut,
+      ).newRelease!.publication;
+      final published = {dead.entityId: record};
+
+      // Every later library state: no facts, no longer a Single, another
+      // Single date, an old date; and other featured artists.
+      final later = <NewReleaseLookups>[
+        Facts(const {}),
+        Facts({
+          dead.entityId: NewReleaseSongFacts(
+            songId: dead.entityId,
+            isSingle: false,
+            album: albumFacts(title: 'Renamed Album'),
+          ),
+        }),
+        Facts({
+          dead.entityId: NewReleaseSongFacts(
+            songId: dead.entityId,
+            isSingle: true,
+            singleReleaseDate: ReleaseDate.of(2026, 12, 1),
+          ),
+        }),
+        Facts({
+          dead.entityId: NewReleaseSongFacts(
+            songId: dead.entityId,
+            isSingle: true,
+            singleReleaseDate: ReleaseDate.of(2019, 1, 1),
+          ),
+        }),
+      ];
+      for (final facts in later) {
+        final story = storyOf(
+          compose(
+            [debut],
+            facts: facts,
+            publications: published,
+            lookups: FakeLookups(
+              featured: {
+                dead.entityId: ['Someone New'],
+              },
+            ),
+          ),
+          debut,
+        );
+        expect(story.headline, record.headline);
+        expect(story.variantId, 'new-release-single');
+        expect(story.newRelease!.recorded, isTrue);
+        expect(story.newRelease!.publication, record);
+        // Today's credits never add to a published headline.
+        expect(story.body ?? '', isNot(contains('Someone New')));
+      }
+    });
+
+    test('a published song tells nothing else as new, not even a debut '
+        'that now sorts first', () {
+      final careerDebut = career(
+        dead,
+        at: week2.add(const Duration(days: 2)),
+        rank: 45,
+      );
+      final weeklyDebut = weekly(dead, weekStart: week1, rank: 12);
+      // Published from the career debut (the weekly debut was not stored
+      // then, for example until a restore brought it back).
+      final record = storyOf(
+        compose([careerDebut]),
+        careerDebut,
+      ).newRelease!.publication;
+      final stories = compose(
+        [weeklyDebut, careerDebut],
+        publications: {dead.entityId: record},
+      );
+      expect(storyOf(stories, careerDebut).headline, record.headline);
+      expect(isNewRelease(storyOf(stories, weeklyDebut)), isFalse);
+      expect(stories.where(isNewRelease), hasLength(1));
+    });
+
+    test('a record matching no stored debut tells nothing new', () {
+      final debut = weekly(dead, weekStart: week1, rank: 12);
+      final record = storyOf(compose([debut]), debut).newRelease!.publication;
+      final unmatched = NewReleasePublication(
+        songId: record.songId,
+        storyId: '',
+        eventId: '',
+        eventKey: '',
+        kind: record.kind,
+        scope: record.scope,
+        rank: record.rank,
+        chartName: '',
+        weekStartUtc: record.weekStartUtc,
+        debutedAtUtc: record.debutedAtUtc,
+        songTitle: '',
+        artistName: '',
+        featuredArtists: const [],
+        releaseDate: record.releaseDate,
+        headline: '',
+        publishedAtUtc: record.publishedAtUtc,
+      );
+      final stories = compose(
+        [debut],
+        publications: {dead.entityId: unmatched},
+      );
+      expect(stories.where(isNewRelease), isEmpty);
+    });
+  });
+
+  group('charted before the start (user decision 2026-11-16)', () {
+    List<(String, String, String, String?)> view(List<MomentStory> s) => [
+      for (final story in s)
+        (story.id, story.family.name, story.headline, story.body),
+    ];
+
+    test('a career debut before the start: the later weekly debut is not '
+        'a delayed new release, and keeps its ordinary story', () {
+      final oldCareer = career(
+        dead,
+        at: start.subtract(const Duration(days: 3)),
+        rank: 45,
+      );
+      final weeklyDebut = weekly(dead, weekStart: week1, rank: 1);
+      final stories = compose(
+        [weeklyDebut],
+        storedDebuts: [oldCareer, weeklyDebut],
+      );
+      expect(stories.where(isNewRelease), isEmpty);
+      // Exactly the ordinary stories (an ordinary debut story), as
+      // without new-release debuts.
+      expect(view(stories), view(compose([weeklyDebut], attach: false)));
+      expect(
+        NewReleaseDebutHeadlines.replacesFamilies,
+        contains(storyOf(stories, weeklyDebut).family),
+      );
+    });
+
+    test('a weekly debut before the start: the later career debut is not '
+        'a delayed new release', () {
+      final oldWeekly = weekly(
+        dead,
+        weekStart: week1.subtract(const Duration(days: 14)),
+        rank: 12,
+      );
+      final careerDebut = career(
+        dead,
+        at: week1.add(const Duration(days: 2)),
+        rank: 45,
+      );
+      final events = [careerDebut, oldWeekly];
+      final stories = compose(events);
+      expect(stories.where(isNewRelease), isEmpty);
+      expect(view(stories), view(compose(events, attach: false)));
+    });
+
+    test('a week running at the start (not prospective) that is the first '
+        'appearance blocks the later career debut too', () {
+      final spanning = weekly(
+        dead,
+        weekStart: start.subtract(const Duration(days: 2)),
+        rank: 12,
+      );
+      final careerDebut = career(
+        dead,
+        at: spanning.weekEndUtc.add(const Duration(days: 1)),
+        rank: 45,
+      );
+      expect(compose([spanning, careerDebut]).where(isNewRelease), isEmpty);
+    });
+
+    test('simultaneous debuts: the Weekly chart gets it, exactly one '
+        'record', () {
+      final weeklyDebut = weekly(dead, weekStart: week1, rank: 12);
+      final careerDebut = career(dead, at: week2, rank: 45);
+      final stories = compose([careerDebut, weeklyDebut]);
+      final records = [
+        for (final story in stories)
+          if (story.newRelease case final rewording?) rewording.publication,
+      ];
+      expect(records, hasLength(1));
+      expect(records.single.eventKey, weeklyDebut.deduplicationKey);
+      expect(records.single.scope, ChartMomentScope.finalized);
     });
   });
 }

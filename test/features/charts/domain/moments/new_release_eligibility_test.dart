@@ -458,36 +458,99 @@ void main() {
       expect(NewReleaseEligibility.deduplicate([career, weekly]), [weekly]);
     });
 
-    test('firstQualifying skips re-entries, live and pre-start debuts', () {
+    group('firstDebuts (user decision 2026-11-16: the first appearance '
+        'on either chart, or none)', () {
       final start = NewReleaseDebutStart(DateTime.utc(2026, 11, 16));
-      final events = [
-        debutEvent(type: ChartMomentEventType.reentry),
-        debutEvent(
-          scope: ChartMomentScope.live,
-          weekStartUtc: DateTime.utc(2026, 11, 16),
-        ),
-        debutEvent(
-          scope: ChartMomentScope.allTime,
-          occurredAt: DateTime.utc(2026, 11, 15),
-        ),
-        debutEvent(weekStartUtc: DateTime.utc(2026, 11, 23)),
-      ];
-      final first = NewReleaseEligibility.firstQualifying(
+      Map<String, ChartMomentEvent> first(
+        List<ChartMomentEvent> events, {
+        bool approved = true,
+      }) => NewReleaseEligibility.firstDebuts(
         events,
         start: start,
-        approved: true,
+        approved: approved,
       );
-      expect(first.keys, ['song-dead']);
-      expect(first['song-dead']!.weekStartUtc, DateTime.utc(2026, 11, 23));
-      // Switched off, nothing qualifies.
-      expect(
-        NewReleaseEligibility.firstQualifying(
-          events,
-          start: start,
-          approved: false,
-        ),
-        isEmpty,
-      );
+
+      test('live debuts are ignored; the first appearance after the start '
+          'is chosen', () {
+        final events = [
+          debutEvent(
+            scope: ChartMomentScope.live,
+            weekStartUtc: DateTime.utc(2026, 11, 16),
+          ),
+          debutEvent(weekStartUtc: DateTime.utc(2026, 11, 23)),
+        ];
+        expect(first(events).keys, ['song-dead']);
+        expect(
+          first(events)['song-dead']!.weekStartUtc,
+          DateTime.utc(2026, 11, 23),
+        );
+        // Switched off, nothing qualifies.
+        expect(first(events, approved: false), isEmpty);
+      });
+
+      test('a career debut before the start: no delayed weekly '
+          'new-release story', () {
+        final events = [
+          debutEvent(
+            scope: ChartMomentScope.allTime,
+            occurredAt: DateTime.utc(2026, 11, 15),
+          ),
+          debutEvent(weekStartUtc: DateTime.utc(2026, 11, 23)),
+        ];
+        expect(first(events), isEmpty);
+        // Without the earlier debut the weekly one would be told.
+        expect(first(events.sublist(1)).keys, ['song-dead']);
+      });
+
+      test('a weekly debut before the start: no delayed career '
+          'new-release story', () {
+        final events = [
+          debutEvent(weekStartUtc: DateTime.utc(2026, 11, 2)),
+          debutEvent(
+            scope: ChartMomentScope.allTime,
+            occurredAt: DateTime.utc(2026, 11, 20),
+          ),
+        ];
+        expect(first(events), isEmpty);
+        expect(first(events.sublist(1)).keys, ['song-dead']);
+      });
+
+      test('a first appearance that is a re-entry (an earlier debut not '
+          'stored) is never told', () {
+        final events = [
+          debutEvent(
+            type: ChartMomentEventType.reentry,
+            weekStartUtc: DateTime.utc(2026, 11, 16),
+          ),
+          debutEvent(
+            scope: ChartMomentScope.allTime,
+            occurredAt: DateTime.utc(2026, 11, 25),
+          ),
+        ];
+        expect(first(events), isEmpty);
+      });
+
+      test('a first debut that is not a candidate (earlier peak) is not '
+          'replaced by a later one', () {
+        final events = [
+          debutEvent(weekStartUtc: DateTime.utc(2026, 11, 16), rank: null),
+          debutEvent(
+            scope: ChartMomentScope.allTime,
+            occurredAt: DateTime.utc(2026, 11, 25),
+          ),
+        ];
+        expect(first(events), isEmpty);
+      });
+
+      test('the same effective time prefers the Weekly chart', () {
+        final weekly = debutEvent(weekStartUtc: DateTime.utc(2026, 11, 16));
+        final career = debutEvent(
+          scope: ChartMomentScope.allTime,
+          occurredAt: DateTime.utc(2026, 11, 23),
+        );
+        expect(first([career, weekly])['song-dead'], weekly);
+        expect(first([weekly, career])['song-dead'], weekly);
+      });
     });
 
     test('a debut already told is never told again', () {

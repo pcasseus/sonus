@@ -548,4 +548,76 @@ void main() {
     );
     expect(plan.map((row) => row['detail']).join(' '), contains('USING INDEX'));
   });
+
+  // App Update 1.3 (user decision 2026-11-16): with the debuts since the
+  // start come every earlier Weekly and Career appearance of those songs.
+  test('song debut history since a start adds the same songs earlier '
+      'weekly and career debuts and re-entries only', () async {
+    final start = DateTime.utc(2026, 11, 16);
+    ChartMomentEvent event(
+      String id,
+      String songId,
+      DateTime at, {
+      ChartMomentScope scope = ChartMomentScope.finalized,
+      ChartMomentEventType type = ChartMomentEventType.debut,
+      ChartType chartType = ChartType.songs,
+    }) => ChartMomentEvent(
+      id: id,
+      deduplicationKey: id,
+      sourceId: 'source-$id',
+      chartType: chartType,
+      scope: scope,
+      eventType: type,
+      entity: ChartEntitySnapshot(
+        entityId: songId,
+        title: songId,
+        artistId: 'artist-a',
+        artistName: 'Artist A',
+      ),
+      weekStartUtc: at.subtract(const Duration(days: 7)),
+      weekEndUtc: at,
+      occurredAt: at,
+      createdAt: at,
+      currentRank: 20,
+    );
+    final before = start.subtract(const Duration(days: 20));
+    final after = start.add(const Duration(days: 3));
+
+    await repository.saveAll([
+      event('a-new', 'song-a', after, scope: ChartMomentScope.allTime),
+      event('a-old-weekly', 'song-a', before),
+      event('a-old-live', 'song-a', before, scope: ChartMomentScope.live),
+      event(
+        'a-old-rise',
+        'song-a',
+        before,
+        type: ChartMomentEventType.rankRise,
+      ),
+      event('a-album', 'song-a', before, chartType: ChartType.albums),
+      event('b-old-only', 'song-b', before),
+      event('c-new', 'song-c', after),
+      event(
+        'c-old-reentry',
+        'song-c',
+        before,
+        scope: ChartMomentScope.allTime,
+        type: ChartMomentEventType.reentry,
+      ),
+    ]);
+
+    final history = await repository.getSongDebutHistorySince(start);
+    expect(history.map((e) => e.id).toSet(), {
+      'a-new',
+      'a-old-weekly',
+      'c-new',
+      'c-old-reentry',
+    });
+    expect(history, hasLength(4));
+    expect(
+      await SqliteChartMomentRepository(
+        database,
+      ).getSongDebutHistorySince(after.add(const Duration(days: 1))),
+      isEmpty,
+    );
+  });
 }

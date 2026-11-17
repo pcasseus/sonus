@@ -241,6 +241,8 @@ void main() {
       expect(rowsAfter[DatabaseTables.albumEditionDiscLabels], isEmpty);
       // Migration 47 adds the Single presentations table, empty.
       expect(rowsAfter[DatabaseTables.songSinglePresentations], isEmpty);
+      // Migration 48 adds the new-release publications table, empty.
+      expect(rowsAfter[DatabaseTables.newReleaseDebutPublications], isEmpty);
       // Migration 48 keeps every lyrics text and records no provenance.
       for (final row in rowsAfter[DatabaseTables.trackLyrics]!) {
         for (final column in LyricsProvenanceSchema.columnNames) {
@@ -297,6 +299,7 @@ void main() {
         ..remove(DatabaseTables.artworkCrops)
         ..remove(DatabaseTables.albumEditionDiscLabels)
         ..remove(DatabaseTables.songSinglePresentations)
+        ..remove(DatabaseTables.newReleaseDebutPublications)
         ..remove(DatabaseTables.chartHistoryOrigin)
         ..remove(DatabaseTables.libraryDeletionLedger)
         ..remove(DatabaseTables.libraryDeletionJournal)

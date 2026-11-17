@@ -86,6 +86,8 @@ class SqliteRestoreExecutor {
     DatabaseTables.albumEditionDiscLabels,
     // Singles' presentations (database version 47).
     DatabaseTables.songSinglePresentations,
+    // Published new-release debut stories (database version 48).
+    DatabaseTables.newReleaseDebutPublications,
   ];
 
   Future<void> apply({

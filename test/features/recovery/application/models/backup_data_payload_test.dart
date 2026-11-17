@@ -31,7 +31,7 @@ void main() {
     payload.validateAgainst(manifestFor(tables));
 
     expect(payload.totalRows, 0);
-    expect(payload.tables.length, 22);
+    expect(payload.tables.length, 23);
   });
 
   test('preserves row values and validates record counts', () {

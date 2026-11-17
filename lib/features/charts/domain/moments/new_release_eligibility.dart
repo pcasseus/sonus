@@ -15,12 +15,14 @@ import 'chart_moment_scope.dart';
 /// with these rules only while [generationApproved] (and the headlines'
 /// own approval) hold and a prospective start ([NewReleaseDebutStart]) has
 /// been recorded once, on the first run of an approved build, so no chart
-/// event from before it is ever re-told as a new-release debut. Nothing
-/// new is stored: the story is chosen from the stored debut events
-/// themselves each time the feed is composed ([firstQualifying]).
+/// event from before it is ever re-told as a new-release debut. The debut
+/// is chosen from the stored chart events ([NewReleaseEligibility.
+/// firstDebuts]); once its story is shown, a publication record
+/// (NewReleasePublication) holds its facts and wording for good.
 abstract final class NewReleaseDebutActivation {
   /// Approved 2026-11-16 (prospective activation). Setting this to false
-  /// switches the family off again; nothing stored depends on it.
+  /// switches the family off again: no story is re-worded and no
+  /// publication is written or read.
   static const bool generationApproved = true;
 }
 
@@ -210,6 +212,7 @@ class NewReleaseDebut {
     required this.event,
     required this.rank,
     required this.releaseDate,
+    this.albumId,
     this.albumTitle,
     this.albumFormat,
   });
@@ -224,7 +227,8 @@ class NewReleaseDebut {
   /// release's earliest edition date.
   final ReleaseDate releaseDate;
 
-  /// For album tracks: the release's title and format (album or EP).
+  /// For album tracks: the release's id, title and format (album or EP).
+  final String? albumId;
   final String? albumTitle;
   final ReleaseFormat? albumFormat;
 
@@ -269,6 +273,10 @@ abstract final class NewReleaseEligibility {
   static String storyKey(ChartMomentEvent event) =>
       'new-release-debut:${event.chartType.name}:${event.entity.entityId}';
 
+  /// [storyKey] of a song chart debut of [songId].
+  static String songStoryKey(String songId) =>
+      'new-release-debut:${ChartType.songs.name}:$songId';
+
   /// When a chart debut really happened, for choosing a song's first one:
   /// a weekly debut when its chart week closed (its end), whenever the
   /// device finalized it; a career debut at the play that made it.
@@ -307,30 +315,46 @@ abstract final class NewReleaseEligibility {
       event.previousPeakRank == null &&
       start.applies(event, approved: approved);
 
-  /// The one debut of each song that may be told as a new release: its
-  /// first candidate ([isCandidate]) by [compareChronology], across the
-  /// Weekly and Career charts, keyed by song id. Every other debut of the
-  /// song keeps its ordinary story.
+  /// Whether [event] is a song's appearance on the Weekly or Career song
+  /// chart: a debut or a re-entry (a re-entry proves an earlier one).
+  static bool isChartAppearance(ChartMomentEvent event) =>
+      (event.eventType == ChartMomentEventType.debut ||
+          event.eventType == ChartMomentEventType.reentry) &&
+      event.chartType == ChartType.songs &&
+      event.scope != ChartMomentScope.live;
+
+  /// The one debut of each song that may be told as a new release, keyed
+  /// by song id: the song's first appearance on either chart
+  /// ([isChartAppearance]) by [compareChronology], and only when that
+  /// first appearance is itself a candidate ([isCandidate]). A song whose
+  /// first appearance came before the start (or was a re-entry) gets no
+  /// new-release story at all, never a delayed one on the other chart
+  /// (user decision 2026-11-16). Every other debut keeps its ordinary
+  /// story.
   ///
   /// Pure and deterministic over [events] (duplicates by deduplication key
   /// are ignored), so the same stored events always choose the same debut,
   /// across restarts and however the feed is paged, provided [events]
-  /// holds every stored debut since the start.
-  static Map<String, ChartMomentEvent> firstQualifying(
+  /// holds every stored debut since the start and every earlier appearance
+  /// of those songs.
+  static Map<String, ChartMomentEvent> firstDebuts(
     Iterable<ChartMomentEvent> events, {
     required NewReleaseDebutStart start,
     bool approved = NewReleaseDebutActivation.generationApproved,
   }) {
     final first = <String, ChartMomentEvent>{};
     for (final event in events) {
-      if (!isCandidate(event, start: start, approved: approved)) continue;
+      if (!isChartAppearance(event)) continue;
       final songId = event.entity.entityId;
       final known = first[songId];
       if (known == null || compareChronology(event, known) < 0) {
         first[songId] = event;
       }
     }
-    return first;
+    return {
+      for (final MapEntry(key: songId, value: event) in first.entries)
+        if (isCandidate(event, start: start, approved: approved)) songId: event,
+    };
   }
 
   /// Whether [event] with [song]'s release facts is a new-release debut.
@@ -444,6 +468,7 @@ abstract final class NewReleaseEligibility {
         event: event,
         rank: rank,
         releaseDate: earliest,
+        albumId: album.albumId,
         albumTitle: album.title.trim(),
         albumFormat: album.format,
       ),

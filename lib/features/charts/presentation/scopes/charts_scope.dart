@@ -20,6 +20,7 @@ import '../../application/services/this_week_chart_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
+import '../../data/repositories/sqlite_new_release_publication_repository.dart';
 import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
 import '../../data/services/sqlite_chart_song_credit_reader.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
@@ -297,7 +298,10 @@ class _ChartsScopeState extends State<ChartsScope> {
       newReleaseClassifications: organization == null
           ? null
           : () => _newReleaseClassifications(organization),
-      newReleaseDebutHistory: moments.getSongDebutsSince,
+      newReleaseDebutHistory: moments.getSongDebutHistorySince,
+      // Published once, then told from the record (user decision
+      // 2026-11-16).
+      newReleasePublications: SqliteNewReleasePublicationRepository(database),
     );
 
     _controller = controller;
